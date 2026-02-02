@@ -36,7 +36,7 @@
   },
   "optionalDependencies": {
     "ajv": "^8.17.0",
-    "zod": "^3.24.0"
+    "zod": "^4.3.6"
   },
   "engines": {
     "node": ">=22.0.0"
