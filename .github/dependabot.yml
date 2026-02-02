@@ -1,0 +1,50 @@
+# Dependabot Configuration
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+
+version: 2
+updates:
+  # npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      playwright:
+        patterns:
+          - "@playwright/*"
+          - "playwright"
+          - "playwright-*"
+      typescript:
+        patterns:
+          - "typescript"
+          - "@types/*"
+          - "ts-node"
+          - "tslib"
+      testing:
+        patterns:
+          - "@testing-library/*"
+          - "jest"
+          - "vitest"
+          - "@vitest/*"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "edouard"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    commit-message:
+      prefix: "ci(deps)"
+      include: "scope"
+    open-pull-requests-limit: 5
