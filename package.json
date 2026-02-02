@@ -1,0 +1,45 @@
+{
+  "name": "test-framework",
+  "version": "1.0.0",
+  "description": "QA Automation CLI Tool",
+  "main": "index.js",
+  "scripts": {
+    "test": "npm run test:pw",
+    "test:pw": "playwright test",
+    "test:pw:ui": "playwright test --ui",
+    "test:pw:headed": "playwright test --headed",
+    "test:pw:debug": "playwright test --debug",
+    "test:pw:report": "playwright show-report test-results/html-report",
+    "test:pw:codegen": "playwright codegen",
+    "test:pw:api": "playwright test tests/e2e/api.spec.ts",
+    "test:pw:e2e": "playwright test tests/e2e/",
+    "test:pw:burn-in": "bash scripts/burn-in-changed.sh",
+    "test:pw:burn-in:strict": "bash scripts/burn-in-changed.sh 10",
+    "test:ci": "playwright test --reporter=list,junit"
+  },
+  "keywords": [
+    "qa",
+    "testing",
+    "playwright",
+    "automation"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@faker-js/faker": "^9.0.0",
+    "@playwright/test": "^1.50.0",
+    "@seontechnologies/playwright-utils": "^1.0.0",
+    "@types/node": "^22.0.0",
+    "dotenv": "^16.4.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0"
+  },
+  "optionalDependencies": {
+    "ajv": "^8.17.0",
+    "zod": "^3.24.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
