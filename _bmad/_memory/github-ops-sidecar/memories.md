@@ -50,9 +50,25 @@ Purpose: Track repository configuration, user preferences, and release history.
   - `required_conversation_resolution`: true
   - `allow_force_pushes`: false
   - `allow_deletions`: false
+- 2026-02-02: Git Flow branch protection applied successfully on `main` and `develop`:
+  - Required status check: `Validate Git Flow source branch` (`strict=true`)
+  - PR reviews: 1 approval, stale dismiss enabled, CODEOWNERS required
+  - `enforce_admins=true`, linear history + conversation resolution required
+  - Force push / deletion disabled on both branches
 
 ## Workflow Preferences
 
 - 2026-02-02: Merge strategy set to squash-only (`allow_merge_commit=false`, `allow_rebase_merge=false`, `allow_squash_merge=true`).
 - 2026-02-02: `delete_branch_on_merge=true`.
 - 2026-02-02: `allow_auto_merge=true`.
+- 2026-02-02: Git Flow scaffolding added in repo (`scripts/git-flow.sh`, `docs/git-flow.md`, CI guard for branch source policy).
+- 2026-02-02: Local `develop` branch created from `main`.
+- 2026-02-02: Branch protection automation script added (`scripts/configure-gitflow-protection.sh`, npm `gitflow:protect`).
+- 2026-02-02: Protection script hardened to target remote default branch + `develop`, and skip missing branch errors cleanly.
+- 2026-02-02: Git Flow audit & fixes applied:
+  - Added `bugfix/*` branch pattern support for PRs targeting `develop` in `scripts/validate-gitflow-pr.sh`
+  - Required status checks updated on `main` and `develop` to include full E2E pipeline:
+    - `Validate Git Flow source branch`
+    - `Install Dependencies`
+    - `E2E Tests (Shard 1/4)`, `E2E Tests (Shard 2/4)`, `E2E Tests (Shard 3/4)`, `E2E Tests (Shard 4/4)`
+    - `Merge Reports`

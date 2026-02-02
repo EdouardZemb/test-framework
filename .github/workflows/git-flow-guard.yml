@@ -1,0 +1,19 @@
+name: Git Flow Guard
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+      - develop
+
+jobs:
+  validate-gitflow-source:
+    name: Validate Git Flow source branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate source branch for target
+        run: bash scripts/validate-gitflow-pr.sh "${{ github.base_ref }}" "${{ github.head_ref }}"
