@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UX Design Directions - test-framework</title>
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --card: #ffffff;
+      --text: #1f2a37;
+      --muted: #6b7280;
+      --primary: #1f4b8a; /* deep blue */
+      --accent: #2d9cdb; /* cyan blue */
+      --success: #2f9e63; /* soft green */
+      --warning: #d97706; /* amber */
+      --error: #c2413b; /* controlled red */
+      --border: #e5e7eb;
+      --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      padding: 28px 24px 8px;
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 22px;
+      font-weight: 700;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 18px;
+      padding: 16px 24px 40px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    }
+    .card h2 {
+      margin: 0;
+      font-size: 16px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: #f9fafb;
+    }
+    .mock {
+      padding: 14px;
+    }
+    .cli {
+      font-family: var(--mono);
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 10px;
+      padding: 12px;
+      font-size: 12px;
+      line-height: 1.5;
+      min-height: 170px;
+    }
+    .cli .ok { color: #22c55e; }
+    .cli .warn { color: #f59e0b; }
+    .cli .err { color: #ef4444; }
+    .cli .muted { color: #94a3b8; }
+    .cli .hl { color: #60a5fa; }
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      margin-top: 10px;
+      background: #ffffff;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: #eef2ff;
+      color: #3730a3;
+      margin-right: 6px;
+    }
+    .kpi {
+      display: flex;
+      gap: 10px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .kpi .box {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      min-width: 120px;
+      background: #f8fafc;
+    }
+    .label { color: var(--muted); font-size: 11px; }
+    .value { font-weight: 600; font-size: 14px; }
+    .note { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>UX Design Directions - test-framework</h1>
+    <div class="sub">6 visual directions based on the Pro-Calm foundation, IBM Plex, and a breathable density.</div>
+  </header>
+
+  <section class="grid">
+    <article class="card">
+      <h2>Direction 1: Guided Run (Calm Focus)</h2>
+      <div class="mock">
+        <div class="cli">
+          $ tf run --daily
+          <span class="muted">[1/4] Collecting sources...</span>
+          <span class="ok">OK</span> Jira (42 tickets)
+          <span class="ok">OK</span> Squash (12 campaigns)
+          <span class="ok">OK</span> Excel (CR template)
+          <span class="muted">[2/4] Applying checklist...</span>
+          <span class="hl">Go: 31</span>  <span class="warn">Clarify: 9</span>  <span class="err">No-Go: 2</span>
+          <span class="muted">[3/4] Drafting CR and anomalies...</span>
+          <span class="muted">[4/4] Ready.</span>
+          Next: <span class="hl">tf review --cr</span>
+        </div>
+        <div class="panel">
+          <div><span class="pill">Ready</span> Daily CR generated in 4m12s</div>
+          <div class="note">Clear progress, next action suggested.</div>
+        </div>
+      </div>
+    </article>
+
+    <article class="card">
+      <h2>Direction 2: Split View (Control + Evidence)</h2>
+      <div class="mock">
+        <div class="row">
+          <div class="panel">
+            <div class="label">Checklist</div>
+            <div class="value">Go / Clarify / No-Go</div>
+            <div class="note">Tickets sorted by readiness.</div>
+          </div>
+          <div class="panel">
+            <div class="label">Evidence</div>
+            <div class="value">Linked</div>
+            <div class="note">SharePoint references auto-linked.</div>
+          </div>
+        </div>
+        <div class="cli" style="margin-top:10px;">
+          $ tf triage --perimeter A
+          Go: 18 | Clarify: 6 | No-Go: 1
+          Evidence links created: 24
+          Next: tf anomalies --draft
+        </div>
+      </div>
+    </article>
+
+    <article class="card">
+      <h2>Direction 3: Minimal Batch (Speed First)</h2>
+      <div class="mock">
+        <div class="cli">
+          $ tf run --batch --quiet
+          OK  sources
+          OK  checklist
+          OK  reports
+          Output: /reports/daily-cr.md
+        </div>
+        <div class="panel">
+          <div class="label">Batch Result</div>
+          <div class="value">1 file, 0 prompts</div>
+          <div class="note">For power users and automation.</div>
+        </div>
+      </div>
+    </article>
+
+    <article class="card">
+      <h2>Direction 4: Template Studio (Structure First)</h2>
+      <div class="mock">
+        <div class="panel">
+          <div class="label">Templates</div>
+          <div class="value">CR Daily / PPT Weekly / Anomaly</div>
+          <div class="note">Preview and edit before run.</div>
+        </div>
+        <div class="cli" style="margin-top:10px;">
+          $ tf templates
+          1) cr-daily.md
+          2) ppt-weekly.md
+          3) anomaly.md
+          Select: 1
+          Next: tf run --daily --template cr-daily.md
+        </div>
+      </div>
+    </article>
+
+    <article class="card">
+      <h2>Direction 5: KPI Snapshot (Confidence)</h2>
+      <div class="mock">
+        <div class="kpi">
+          <div class="box"><div class="label">Ready %</div><div class="value">74%</div></div>
+          <div class="box"><div class="label">Reporting time</div><div class="value">-2h</div></div>
+          <div class="box"><div class="label">Errors</div><div class="value">-38%</div></div>
+        </div>
+        <div class="cli" style="margin-top:10px;">
+          $ tf report --daily
+          CR generated. KPIs updated.
+          Next: tf send --outlook
+        </div>
+      </div>
+    </article>
+
+    <article class="card">
+      <h2>Direction 6: Gentle Coach (Guided + Safe)</h2>
+      <div class="mock">
+        <div class="cli">
+          $ tf run
+          I will guide you step by step.
+          1) Select perimeter: A, B, C
+          > A
+          2) Load sources now? (Y/n)
+          > Y
+          3) Apply checklist? (Y/n)
+          > Y
+          Ready. Would you like a quick review? (Y/n)
+        </div>
+        <div class="panel">
+          <div class="note">Best for novice users and reduced anxiety.</div>
+        </div>
+      </div>
+    </article>
+  </section>
+</body>
+</html>

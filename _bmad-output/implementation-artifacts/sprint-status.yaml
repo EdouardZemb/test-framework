@@ -1,0 +1,108 @@
+# generated: 2026-01-31
+# project: test-framework
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-01-31
+project: test-framework
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 0: Foundation & Access
+  epic-0: in-progress
+  0-1-configurer-un-projet-via-config-yaml: ready-for-dev
+  0-2-definir-et-selectionner-des-profils-de-configuration: backlog
+  0-3-gestion-des-secrets-via-secret-store: backlog
+  0-4-charger-des-templates-cr-ppt-anomalies: backlog
+  0-5-journalisation-baseline-sans-donnees-sensibles: backlog
+  0-6-configurer-checklist-de-testabilite-et-regles-de-scoring: backlog
+  0-7-anonymisation-automatique-avant-envoi-cloud: backlog
+  epic-0-retrospective: optional
+
+  # Epic 1: Triage & readiness
+  epic-1: backlog
+  1-1-initialiser-la-base-du-projet-via-rust-starter: backlog
+  1-2-import-jira-par-periode-et-perimetre: backlog
+  1-3-checklist-de-testabilite: backlog
+  1-4-scoring-go-clarify-no-go: backlog
+  1-5-marquer-clarification-requise-cause: backlog
+  1-6-regroupement-par-lot-perimetre-cadence: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2: Assistance a la conception des tests
+  epic-2: backlog
+  2-1-brouillon-de-strategie-de-test: backlog
+  2-2-propositions-de-cas-de-test: backlog
+  2-3-editer-et-valider-les-brouillons: backlog
+  2-4-integrer-la-checklist-esn: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Execution & preuves
+  epic-3: backlog
+  3-1-lier-des-preuves-a-une-execution-de-cas-de-test: backlog
+  3-2-centraliser-les-references-de-preuves-par-campagne: backlog
+  3-3-associer-preuves-tickets-jira: backlog
+  3-4-preparer-une-campagne-tnr-a-partir-d-un-modele: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: Gestion des anomalies
+  epic-4: backlog
+  4-1-brouillon-d-anomalie-depuis-une-execution-de-cas-de-test: backlog
+  4-2-template-standardise-d-anomalie: backlog
+  4-3-lier-l-anomalie-a-la-campagne-squash-et-au-ticket-jira: backlog
+  4-4-taguer-les-anomalies-tnr-par-numero-de-lot: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: Reporting & exports
+  epic-5: backlog
+  5-1-collecter-les-donnees-de-reporting: backlog
+  5-2-generer-un-cr-quotidien-pre-rempli: backlog
+  5-3-editer-et-finaliser-le-cr: backlog
+  5-4-pre-generer-le-ppt-hebdo: backlog
+  5-5-generer-le-ppt-tnr: backlog
+  5-6-exports-multi-formats: backlog
+  epic-5-retrospective: optional
+
+  # Epic 6: Configuration & automatisation CLI
+  epic-6: backlog
+  6-1-modes-interactif-et-batch: backlog
+  6-2-auto-completion-shell: backlog
+  epic-6-retrospective: optional
+
+  # Epic 7: Conformite & securite operationnelle
+  epic-7: backlog
+  7-1-mode-llm-local-uniquement: backlog
+  7-2-retention-et-audit-des-logs: backlog
+  epic-7-retrospective: optional
