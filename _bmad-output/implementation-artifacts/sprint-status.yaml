@@ -42,7 +42,7 @@ story_location: _bmad-output/implementation-artifacts
 development_status:
   # Epic 0: Foundation & Access
   epic-0: in-progress
-  0-1-configurer-un-projet-via-config-yaml: ready-for-dev
+  0-1-configurer-un-projet-via-config-yaml: in-progress
   0-2-definir-et-selectionner-des-profils-de-configuration: backlog
   0-3-gestion-des-secrets-via-secret-store: backlog
   0-4-charger-des-templates-cr-ppt-anomalies: backlog

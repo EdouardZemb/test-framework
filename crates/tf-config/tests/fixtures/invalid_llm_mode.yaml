@@ -1,0 +1,4 @@
+project_name: "test-project"
+output_folder: "./output"
+llm:
+  mode: "invalid"

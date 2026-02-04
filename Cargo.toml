@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/*",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+repository = "https://github.com/edouard-music/test-framework"
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+# TODO: serde_yaml is unmaintained. Evaluate migration to serde_yml or yaml-rust2
+# when breaking changes are acceptable. Current version works and is stable.
+serde_yaml = "0.9"
+serde_json = "1.0"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Testing
+assert_matches = "1.5"

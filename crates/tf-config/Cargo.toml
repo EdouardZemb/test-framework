@@ -1,0 +1,17 @@
+[package]
+name = "tf-config"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Configuration management for test-framework"
+readme = "README.md"
+
+[dependencies]
+serde.workspace = true
+serde_yaml.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+assert_matches.workspace = true
+tempfile = "3.10"

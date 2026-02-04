@@ -43,32 +43,44 @@ Purpose: Track repository configuration, user preferences, and release history.
 ## Branch Protection Rules
 
 - 2026-02-02: Initial attempt on private repo failed (`403`: requires Pro or public repo).
-- 2026-02-02: After switching repo to public, protection enabled on `main`:
-  - `enforce_admins`: true
-  - Pull requests required with `1` approval
-  - `dismiss_stale_reviews`: true
-  - `required_conversation_resolution`: true
-  - `allow_force_pushes`: false
-  - `allow_deletions`: false
-- 2026-02-02: Git Flow branch protection applied successfully on `main` and `develop`:
-  - Required status check: `Validate Git Flow source branch` (`strict=true`)
-  - PR reviews: 1 approval, stale dismiss enabled, CODEOWNERS required
-  - `enforce_admins=true`, linear history + conversation resolution required
-  - Force push / deletion disabled on both branches
+- 2026-02-02: After switching repo to public, protection enabled on `main`.
+- 2026-02-02: Git Flow branch protection applied on `main` and `develop`.
+- **2026-02-02: ALL BRANCH PROTECTION REMOVED** (simplification reset)
+  - Protection removed from `main` and `develop`
+  - No required status checks
+  - No required reviews
+  - Direct pushes to `main` allowed
+  - Can be re-enabled later when project is more mature
 
 ## Workflow Preferences
 
 - 2026-02-02: Merge strategy set to squash-only (`allow_merge_commit=false`, `allow_rebase_merge=false`, `allow_squash_merge=true`).
 - 2026-02-02: `delete_branch_on_merge=true`.
 - 2026-02-02: `allow_auto_merge=true`.
-- 2026-02-02: Git Flow scaffolding added in repo (`scripts/git-flow.sh`, `docs/git-flow.md`, CI guard for branch source policy).
-- 2026-02-02: Local `develop` branch created from `main`.
-- 2026-02-02: Branch protection automation script added (`scripts/configure-gitflow-protection.sh`, npm `gitflow:protect`).
-- 2026-02-02: Protection script hardened to target remote default branch + `develop`, and skip missing branch errors cleanly.
-- 2026-02-02: Git Flow audit & fixes applied:
-  - Added `bugfix/*` branch pattern support for PRs targeting `develop` in `scripts/validate-gitflow-pr.sh`
-  - Required status checks updated on `main` and `develop` to include full E2E pipeline:
-    - `Validate Git Flow source branch`
-    - `Install Dependencies`
-    - `E2E Tests (Shard 1/4)`, `E2E Tests (Shard 2/4)`, `E2E Tests (Shard 3/4)`, `E2E Tests (Shard 4/4)`
-    - `Merge Reports`
+
+### Git Flow (REMOVED 2026-02-02)
+
+The following Git Flow configuration was removed due to excessive complexity for early-stage project:
+
+- ~~Git Flow scaffolding (`scripts/git-flow.sh`, `docs/git-flow.md`, CI guard)~~
+- ~~`develop` branch~~
+- ~~Branch protection on `main` and `develop`~~
+- ~~Complex 6-stage CI pipeline (install → lint → burn-in → 4x shards → merge → publish)~~
+- ~~7 required status checks~~
+
+### Current Simplified Setup (2026-02-02)
+
+- **Branching model**: `main` + `feature/*` (simple trunk-based)
+- **Branch protection**: None (can be added later when project matures)
+- **CI workflow**: Single job (`E2E Tests`) - install deps, run tests, upload report on failure
+- **Commit**: `15cf835` (`chore(ci): simplify workflow and remove Git Flow`)
+- **PRs closed**: #1, #2 (obsolete with simplification)
+- **Branches deleted**: `develop`, `feature/gitflow-enforcement`
+- **Files removed**:
+  - `.github/workflows/git-flow-guard.yml`
+  - `scripts/configure-gitflow-protection.sh`
+  - `scripts/validate-gitflow-pr.sh`
+  - `scripts/git-flow.sh`
+  - `docs/git-flow.md`
+- **Files added**: `package-lock.json` (required for `npm ci` in CI)
+- **Fixed**: Removed non-existent `@seontechnologies/playwright-utils` dependency
