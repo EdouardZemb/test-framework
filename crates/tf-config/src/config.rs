@@ -406,6 +406,48 @@ enum SerdeErrorKind {
     UnknownField { field: String, location: &'static str, hint: &'static str },
 }
 
+/// Extract field path from serde_yaml error message patterns.
+///
+/// Attempts to find field names in various formats:
+/// - Backtick-quoted: `field_name`
+/// - Path prefix: "jira.token: invalid type"
+/// - Context suffix: "while parsing jira.token"
+///
+/// Returns a leaked &'static str for compatibility with SerdeErrorKind.
+fn extract_field_from_error(err_msg: &str) -> Option<&'static str> {
+    // Pattern 1: Look for field path like "jira.token:" at start or after newline
+    // serde_yaml sometimes formats nested errors as "section.field: error"
+    for pattern in ["jira.", "squash.", "llm.", "templates."] {
+        if let Some(start) = err_msg.find(pattern) {
+            let rest = &err_msg[start..];
+            // Find end of field path (colon, space, or end of string)
+            if let Some(end) = rest.find([':', ' ', '\n']) {
+                let field_path = &rest[..end];
+                // Validate it looks like a field path (only alphanumeric, dots, underscores)
+                if field_path.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '_') {
+                    return Some(field_path.to_string().leak());
+                }
+            }
+        }
+    }
+
+    // Pattern 2: Look for backtick-quoted field names
+    if let Some(start) = err_msg.find('`') {
+        let after_backtick = &err_msg[start + 1..];
+        if let Some(end) = after_backtick.find('`') {
+            let field_name = &after_backtick[..end];
+            // Skip if it's a value like `auto` or `123` (these are enum values, not fields)
+            if !field_name.chars().all(|c| c.is_ascii_digit())
+                && !matches!(field_name, "auto" | "local" | "cloud" | "true" | "false")
+            {
+                return Some(field_name.to_string().leak());
+            }
+        }
+    }
+
+    None
+}
+
 /// Parse serde error message to extract field info and provide helpful hints.
 ///
 /// # Supported Error Types
@@ -590,13 +632,64 @@ fn parse_serde_error(err_msg: &str) -> Option<SerdeErrorKind> {
             });
         }
 
-        // Generic string type error - do NOT attribute to specific field
-        // This avoids incorrect attribution when serde_yaml doesn't specify field name
+        // Handle string type errors with field extraction
+        // serde_yaml may include field path in various formats
         if err_msg.contains("expected a string") && !err_msg.contains("project_name") && !err_msg.contains("output_folder") {
+            // Try to extract field name from serde_yaml error message patterns:
+            // Pattern 1: "jira.token: invalid type" (field path prefix)
+            // Pattern 2: "at line X, column Y, while parsing jira.token" (path in context)
+            // Pattern 3: backtick-quoted field names
+            if let Some(field_name) = extract_field_from_error(err_msg) {
+                return Some(SerdeErrorKind::InvalidEnumValue {
+                    field: field_name,
+                    reason: "has invalid type (expected a string)",
+                    hint: "a valid string value (e.g., \"example-value\")",
+                });
+            }
+
+            // Check for known nested string fields by context
+            if err_msg.contains("token") {
+                let section = if err_msg.to_lowercase().contains("jira") { "jira" } else { "configuration" };
+                return Some(SerdeErrorKind::InvalidEnumValue {
+                    field: format!("{}.token", section).leak(),
+                    reason: "has invalid type (expected a string)",
+                    hint: "a valid token string",
+                });
+            }
+            if err_msg.contains("endpoint") {
+                return Some(SerdeErrorKind::InvalidEnumValue {
+                    field: "endpoint",
+                    reason: "has invalid type (expected a string URL)",
+                    hint: "a valid URL string (e.g., \"https://example.com\")",
+                });
+            }
+            if err_msg.contains("username") {
+                return Some(SerdeErrorKind::InvalidEnumValue {
+                    field: "squash.username",
+                    reason: "has invalid type (expected a string)",
+                    hint: "a valid username string",
+                });
+            }
+            if err_msg.contains("password") {
+                return Some(SerdeErrorKind::InvalidEnumValue {
+                    field: "squash.password",
+                    reason: "has invalid type (expected a string)",
+                    hint: "a valid password string",
+                });
+            }
+            if err_msg.contains("api_key") {
+                return Some(SerdeErrorKind::InvalidEnumValue {
+                    field: "llm.api_key",
+                    reason: "has invalid type (expected a string)",
+                    hint: "a valid API key string",
+                });
+            }
+
+            // Truly generic case - provide actionable guidance to find the field
             return Some(SerdeErrorKind::InvalidEnumValue {
-                field: "string field",
+                field: "configuration field",
                 reason: "has invalid type (expected a string)",
-                hint: "a valid string value - check configuration for non-string types (arrays, maps) where strings are expected",
+                hint: "a valid string value - check for arrays [] or maps {} where a string \"value\" is expected",
             });
         }
 
@@ -944,28 +1037,29 @@ fn is_valid_path_format(path: &str) -> bool {
     if trimmed.is_empty() || path.contains('\0') {
         return false;
     }
-    // Reject values that look like they were coerced from non-string YAML scalars
+    // Reject values that look like they were coerced from YAML boolean/null scalars
     // These are clearly not valid paths and indicate user error
-    // Examples: "123", "true", "false", "null", "~"
+    // Examples: "true", "false", "null", "~" (but NOT numeric strings like "123" or "2026")
     if is_coerced_scalar(trimmed) {
         return false;
     }
     true
 }
 
-/// Check if a string looks like it was coerced from a non-string YAML scalar.
-/// This catches cases where the user wrote `output_folder: 123` instead of `output_folder: "./output"`
+/// Check if a string looks like it was coerced from a YAML boolean or null scalar.
+///
+/// This catches cases where the user wrote `output_folder: true` or `output_folder: null`
+/// which are clearly not valid paths.
+///
+/// Note: Pure numeric strings like "2026" are NOT rejected because they can be valid
+/// folder names (e.g., year-based directories). While `output_folder: 123` (unquoted)
+/// and `output_folder: "123"` (quoted) both become "123" after serde parsing,
+/// numeric folder names are legitimate use cases.
 fn is_coerced_scalar(s: &str) -> bool {
-    // Pure numeric strings (integers or floats)
-    if s.parse::<i64>().is_ok() || s.parse::<f64>().is_ok() {
-        return true;
-    }
-    // YAML boolean coercions (serde_yaml coerces to lowercase)
+    // YAML boolean and null coercions (serde_yaml coerces to lowercase)
+    // These are clearly not valid paths and indicate user error
     let lower = s.to_lowercase();
-    if matches!(lower.as_str(), "true" | "false" | "yes" | "no" | "on" | "off" | "null" | "~") {
-        return true;
-    }
-    false
+    matches!(lower.as_str(), "true" | "false" | "yes" | "no" | "on" | "off" | "null" | "~")
 }
 
 /// Validate that a project name contains only valid characters
@@ -1022,11 +1116,11 @@ fn validate_config(config: &ProjectConfig) -> Result<(), ConfigError> {
     }
 
     // Validate output_folder is not empty and has valid format
-    // This also rejects coerced scalars like "123" or "true" from YAML
+    // This rejects YAML boolean/null coercions like "true" or "null" (but allows numeric strings)
     if !is_valid_path_format(&config.output_folder) {
         // Provide specific error message for coerced scalars
         let reason = if is_coerced_scalar(&config.output_folder) {
-            "has invalid type (integer, boolean, or null values are not valid paths)"
+            "has invalid type (boolean or null values are not valid paths)"
         } else {
             "cannot be empty or contain invalid characters (null bytes)"
         };
@@ -3113,10 +3207,10 @@ jira:
     }
 
     #[test]
-    fn test_output_folder_integer_scalar_rejected() {
-        // YAML coerces 123 to string "123", but this is NOT a valid path
-        // We explicitly reject coerced scalar values (integers, booleans) for output_folder
-        // because they indicate user error (AC #2: explicit error message with correction)
+    fn test_output_folder_numeric_string_accepted() {
+        // YAML coerces 123 to string "123" - numeric paths are valid folder names
+        // Examples: year-based directories like "2026", version folders like "123"
+        // This was changed in Review 16 to accept numeric strings as valid paths
         let yaml = r#"
 project_name: "test"
 output_folder: 123
@@ -3124,11 +3218,25 @@ output_folder: 123
         let file = create_temp_config(yaml);
         let result = load_config(file.path());
 
-        // Should fail - integer scalars are rejected even after YAML coercion
-        assert!(result.is_err(), "Integer scalars should be rejected for output_folder");
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("output_folder"), "Error should mention field name: {}", err_msg);
-        assert!(err_msg.contains("integer") || err_msg.contains("invalid type"), "Error should explain the problem: {}", err_msg);
+        // Should succeed - numeric folder names are legitimate
+        assert!(result.is_ok(), "Numeric folder names should be accepted: {:?}", result.err());
+        let config = result.unwrap();
+        assert_eq!(config.output_folder, "123");
+    }
+
+    #[test]
+    fn test_output_folder_year_string_accepted() {
+        // Year-based folder names like "2026" should be accepted
+        let yaml = r#"
+project_name: "test"
+output_folder: "2026"
+"#;
+        let file = create_temp_config(yaml);
+        let result = load_config(file.path());
+
+        assert!(result.is_ok(), "Year folder names should be accepted: {:?}", result.err());
+        let config = result.unwrap();
+        assert_eq!(config.output_folder, "2026");
     }
 
     #[test]
@@ -3195,7 +3303,7 @@ output_folder:
     #[test]
     fn test_string_type_error_not_attributed_to_output_folder() {
         // When other string fields have type errors, they should NOT be attributed to output_folder
-        // This test ensures parse_serde_error doesn't incorrectly assume output_folder (Review 15 HIGH fix)
+        // This test ensures parse_serde_error correctly identifies the actual field (Review 15+16 fix)
         let yaml = r#"
 project_name: "test"
 output_folder: "./valid-path"
@@ -3211,10 +3319,13 @@ jira:
 
         assert!(result.is_err(), "Array for jira.token should fail");
         let err_msg = result.unwrap_err().to_string();
-        // The error should NOT incorrectly mention output_folder
-        // It should either mention the generic "string field" or be a ParseError
-        assert!(!err_msg.contains("output_folder") || err_msg.contains("string field"),
-            "Error for jira.token should not be incorrectly attributed to output_folder: {}", err_msg);
+        // The error should NOT mention output_folder
+        // It should either mention "token", "jira.token", "configuration field", or be a ParseError
+        assert!(!err_msg.contains("output_folder"),
+            "Error for jira.token should not be attributed to output_folder: {}", err_msg);
+        // Verify it identifies the correct field or provides actionable guidance
+        assert!(err_msg.contains("token") || err_msg.contains("configuration field") || err_msg.contains("Parse"),
+            "Error should mention token field or provide guidance: {}", err_msg);
     }
 
     #[test]
