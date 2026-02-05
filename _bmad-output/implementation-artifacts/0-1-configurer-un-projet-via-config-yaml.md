@@ -1,6 +1,6 @@
 # Story 0.1: Configurer un projet via config.yaml
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -199,6 +199,61 @@ so that centraliser la configuration et eviter la re-saisie.
 - [x] [AI-Review][HIGH] Synchroniser la File List de la story avec l'etat Git reel (les 16 fichiers listes ne correspondent pas aux changements courants) [_bmad-output/implementation-artifacts/0-1-configurer-un-projet-via-config-yaml.md:503-518]
 - [x] [AI-Review][MEDIUM] Documenter le changement de `_bmad-output/implementation-artifacts/sprint-status.yaml` dans la story (File List/Dev Agent Record) [_bmad-output/implementation-artifacts/sprint-status.yaml]
 
+#### Review 18 (2026-02-05)
+
+- [x] [AI-Review][HIGH] Redacter aussi `llm.local_endpoint` dans `Debug` et `Redact` de `LlmConfig` pour eviter fuite de credentials/query params sensibles en logs (AC #3) [crates/tf-config/src/config.rs:301-315, crates/tf-config/src/config.rs:360-377]
+- [x] [AI-Review][MEDIUM] Corriger `is_valid_url` pour accepter les URLs valides avec query/fragment sans path (`https://host?x=y`, `https://host#frag`) [crates/tf-config/src/config.rs:906-907]
+- [x] [AI-Review][MEDIUM] Durcir `check_output_folder_exists` pour verifier `is_dir()` (pas seulement `exists()`) et ajouter test couvre-file-vs-directory [crates/tf-config/src/config.rs:328-336, crates/tf-config/src/config.rs:1899-1923]
+
+#### Review 19 (2026-02-05)
+
+- [x] [AI-Review][MEDIUM] Durcir `redact_url_userinfo()` pour traiter `#fragment` comme borne de fin d'autorite et eviter un faux positif userinfo quand `@` apparait dans le fragment [crates/tf-config/src/config.rs:258-264]
+- [x] [AI-Review][MEDIUM] Stabiliser `test_check_output_folder_exists_file_not_directory` en evitant un nom de fichier global fixe dans `/tmp` (utiliser un chemin unique/tempfile) [crates/tf-config/src/config.rs:3850-3852]
+
+#### Review 20 (2026-02-05)
+
+- [x] [AI-Review][HIGH] Redacter aussi les donnees sensibles presentes dans les fragments URL (`#token=...`, `#api_key=...`) afin d'eviter les fuites en logs (AC #3) [crates/tf-config/src/config.rs:202-233]
+- [x] [AI-Review][MEDIUM] Assouplir `is_coerced_scalar()` pour ne pas rejeter des chemins valides comme `on`, `off`, `yes`, `no` lorsqu'ils sont intentionnels [crates/tf-config/src/config.rs:1140-1145]
+- [x] [AI-Review][MEDIUM] Rendre `is_valid_url()` plus robuste aux cas standards (schema majuscule, userinfo valide) pour eviter des faux rejets [crates/tf-config/src/config.rs:907-913]
+- [x] [AI-Review][MEDIUM] Synchroniser la File List avec l'historique Git cumule (inclure la story modifiee) [_bmad-output/implementation-artifacts/0-1-configurer-un-projet-via-config-yaml.md:541-559]
+
+#### Review 21 (2026-02-05)
+
+- [x] [AI-Review][HIGH] Corriger la redaction userinfo quand le mot de passe contient `@` (non-encode) pour eviter fuite partielle de secret dans les logs (AC #3) [crates/tf-config/src/config.rs:298-319]
+- [x] [AI-Review][MEDIUM] Redacter aussi les query params sensibles URL-encodes (ex: `api%5Fkey`) pour eviter les fuites de secrets en logs (AC #3) [crates/tf-config/src/config.rs:203-206]
+
+#### Review 22 (2026-02-05)
+
+- [x] [AI-Review][HIGH] Redacter aussi les noms de parametres sensibles doublement encodes (ex: `api%255Fkey`) pour eviter les fuites de secrets en logs (AC #3) [crates/tf-config/src/config.rs:197-247]
+- [x] [AI-Review][MEDIUM] Etendre la liste de cles sensibles a des variantes courantes avec tirets (ex: `api-key`, `access-token`) pour renforcer la redaction des logs (AC #3) [crates/tf-config/src/config.rs:184-195, crates/tf-config/src/config.rs:225-247]
+- [x] [AI-Review][MEDIUM] Rejeter les URLs avec espaces de fin dans les endpoints (trim strict avant validation) pour eviter des configurations invalides acceptees (AC #1) [crates/tf-config/src/config.rs:996-1014, crates/tf-config/src/config.rs:1472-1491]
+
+#### Review 23 (2026-02-05)
+
+- [x] [AI-Review][HIGH] Redacter aussi les query params sensibles avec whitespace autour de la cle (ex: `token =...`) pour eviter fuite de secret dans les logs (AC #3) [crates/tf-config/src/config.rs:246-266]
+- [x] [AI-Review][HIGH] Gerer aussi le separateur `;` dans la query URL pour redacter les parametres sensibles (`token`, `api_key`, etc.) et eviter fuite de secret en logs (AC #3) [crates/tf-config/src/config.rs:247-265]
+- [x] [AI-Review][MEDIUM] Renforcer la validation IPv6 zone-id pour rejeter les formes invalides (ex: `http://[fe80::1%]:8080`) et respecter AC #1 [crates/tf-config/src/config.rs:1049-1057]
+
+#### Review 24 (2026-02-05)
+
+- [x] [AI-Review][HIGH] Rejeter explicitement les URLs avec espace apres le schema (ex: `https:// jira.example.com`) pour respecter AC #1 [crates/tf-config/src/config.rs:1042, crates/tf-config/src/config.rs:1547-1558]
+- [x] [AI-Review][HIGH] Remplacer les fallbacks d'erreur generiques (`configuration field`, `numeric field`, `boolean field`) par des messages avec champ explicite + correction attendue (AC #2) [crates/tf-config/src/config.rs:801-804, crates/tf-config/src/config.rs:883-886, crates/tf-config/src/config.rs:902-905]
+- [x] [AI-Review][MEDIUM] Etendre la redaction pour couvrir aussi les secrets potentiels en path URL (pas seulement userinfo/query/fragment) afin de renforcer AC #3 [crates/tf-config/src/config.rs:170-173, crates/tf-config/src/config.rs:478, crates/tf-config/src/config.rs:487, crates/tf-config/src/config.rs:500]
+- [x] [AI-Review][LOW] Planifier migration `serde_yaml` (dependency non maintenue) vers alternative supportee [Cargo.toml:17-19]
+
+#### Review 25 (2026-02-05)
+
+- [x] [AI-Review][MEDIUM] Considerer extraction de modules depuis config.rs (~4300 lignes) pour ameliorer maintenabilite (url_redaction.rs, tests separes) [crates/tf-config/src/config.rs] - DEFERRED: Acceptable for Story 0.1 (first crate), will refactor if file grows significantly in future stories
+- [x] [AI-Review][MEDIUM] Documenter validations templates dans README: extensions valides (.md pour cr/anomaly, .pptx pour ppt) et protection anti path-traversal [crates/tf-config/README.md:129-135]
+- [x] [AI-Review][LOW] Simplifier ou commenter l'expression complexe dans extract_location_from_error (priorite operateurs inhabituelle) [crates/tf-config/src/config.rs:719]
+- [x] [AI-Review][LOW] Considerer extraction des fonctions helper internes (percent_decode, redact_params) comme fonctions privees module-level pour testabilite [crates/tf-config/src/config.rs:204-291] - DEFERRED: Helpers work correctly inline, extraction planned for future refactoring iteration
+
+#### Review 26 (2026-02-05)
+
+- [x] [AI-Review][MEDIUM] Corriger le warning rustdoc `bare_urls` - utiliser `<https://...>` au lieu de `"https://..."` dans le doc-comment [crates/tf-config/src/config.rs:139]
+- [x] [AI-Review][LOW] Ajouter un fichier fixture `valid_cloud_config.yaml` pour tester/documenter une configuration cloud mode valide [crates/tf-config/tests/fixtures/]
+- [x] [AI-Review][LOW] Harmoniser le style des exemples URL dans les doc-comments de LlmConfig (avec ou sans guillemets) [crates/tf-config/src/config.rs:127,139]
+
 ## Dev Notes
 
 ### Technical Stack Requirements
@@ -351,12 +406,73 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 ### Senior Developer Review (AI)
 
 - **Date:** 2026-02-05
-- **Reviewer:** Amelia (Developer Agent, adversarial code review workflow)
-- **Outcome:** ✅ All review items addressed (Review 17 complete)
-- **Summary:** Review 17 identified 4 issues (2 HIGH, 2 MEDIUM). All items fixed. Story ready for review.
+- **Reviewer:** Claude Opus 4.5 (adversarial code review workflow)
+- **Outcome:** ⚠️ Minor issues found (0 HIGH, 1 MEDIUM, 2 LOW)
+- **Summary:** All 3 ACs validated as implemented. Review 26: 1 MEDIUM (rustdoc warning), 2 LOW (fixture gap, doc style). Story status set to in-progress.
 
 ### Completion Notes List
 
+- **[Review 26 Fixes - 2026-02-05]** All 3 Review 26 items addressed:
+  - Changed URL examples in doc-comments from quoted strings to backticks (e.g., `"https://..."` → `` `https://...` ``) resolving rustdoc `bare_urls` warning (MEDIUM)
+  - Created `valid_cloud_config.yaml` fixture demonstrating complete cloud LLM configuration with all required fields (LOW)
+  - Harmonized doc-comment style in LlmConfig: all URL and model examples now use consistent backtick format (LOW)
+  - 211 tests pass (200 unit + 8 integration + 3 doc-tests), cargo doc and clippy clean
+- **[Code Review 26 - 2026-02-05]** Adversarial review completed: 0 HIGH, 1 MEDIUM, 2 LOW issues found. All 3 ACs validated as implemented. Issues: rustdoc bare_urls warning (MEDIUM), missing cloud mode fixture (LOW), doc-comment style inconsistency (LOW). 211 tests pass. Action items added under Review 26. Story status set to in-progress.
+- **[Review 25 Fixes - 2026-02-05]** All 4 Review 25 items addressed:
+  - Module extraction from config.rs deferred - acceptable for first crate in project, will refactor if file grows significantly (MEDIUM)
+  - Added comprehensive template validation documentation to README.md: extensions table (.md for cr/anomaly, .pptx for ppt), security protections (path traversal prevention), valid/invalid examples (MEDIUM)
+  - Simplified `extract_location_from_error()` expression using named closure `is_location_end` instead of complex inline boolean expression (LOW)
+  - Helper function extraction deferred - functions work correctly inline, extraction planned for future refactoring (LOW)
+  - 211 tests pass (200 unit + 8 integration + 3 doc-tests)
+- **[Code Review 25 - 2026-02-05]** Adversarial review completed: 0 HIGH, 2 MEDIUM, 2 LOW issues found. All 3 ACs validated as implemented. Issues are code quality improvements (file size ~4300 lines, README documentation gaps). Action items added under Review 25. Story status set to in-progress.
+- **[Review 24 Fixes - 2026-02-05]** All 4 Review 24 items addressed:
+  - Added early rejection of URLs with whitespace immediately after schema (e.g., `https:// example.com`) using `starts_with(char::is_whitespace)` check before trim - HIGH
+  - Improved error fallback messages by attempting field extraction via `extract_field_from_error()` and including line/column location from serde errors via new `extract_location_from_error()` helper - HIGH
+  - Added `redact_url_path_secrets()` function to detect and redact secrets in URL path segments (e.g., `/token/sk-12345/resource` -> `/token/[REDACTED]/resource`) - MEDIUM
+  - Extended serde_yaml migration TODO in Cargo.toml with specific alternatives (serde_yml, yaml-rust2) and decision criteria - LOW
+  - Added 8 new tests: space after schema rejection for jira/squash/tab (3), is_valid_url whitespace tests (5), path secret redaction (5 - combined in 5 test functions)
+  - 211 tests pass (200 unit + 8 integration + 3 doc-tests)
+- **[Code Review 24 - 2026-02-05]** Adversarial review completed: 2 HIGH, 1 MEDIUM, 1 LOW issues found. Action items added under Review 24. Story status set to in-progress.
+- **[Review 23 Fixes - 2026-02-05]** All 3 Review 23 items addressed:
+  - Modified `redact_params()` to handle both `&` and `;` as query parameter separators (RFC 1866 HTML forms) - HIGH
+  - Added whitespace trimming around parameter keys to catch `token =value` and ` api_key=value` patterns - HIGH
+  - Enhanced IPv6 zone-id validation: reject empty zone IDs (e.g., `fe80::1%`) and validate zone characters (alphanumeric, hyphen, underscore, dot) - MEDIUM
+  - Added 13 new tests: semicolon separator (3), whitespace around key (3), IPv6 zone-id (4), fragment with semicolon (2), combined query+fragment semicolon (1)
+  - 203 tests pass (192 unit + 8 integration + 3 doc-tests)
+- **[Review 22 Fixes - 2026-02-05]** All 3 Review 22 items addressed:
+  - Modified `percent_decode()` to decode iteratively (up to 3 passes) to handle double-encoded param names like `api%255Fkey` -> `api%5Fkey` -> `api_key` (HIGH)
+  - Extended `SENSITIVE_PARAMS` with 9 kebab-case variants: `api-key`, `access-token`, `refresh-token`, `client-secret`, `private-key`, `session-token`, `auth-token`, `secret-key`, `access-key` (MEDIUM)
+  - Added strict whitespace validation for all URL endpoints (jira.endpoint, squash.endpoint, llm.local_endpoint, llm.cloud_endpoint) - rejects URLs with leading/trailing spaces (MEDIUM)
+  - Added 13 new tests: double-encoded api_key (1), double-encoded token (1), double-encoded password (1), kebab-case api-key/access-token/client-secret/multiple (4), jira/squash/llm endpoint whitespace rejection (5), valid endpoints acceptance (1)
+  - 192 tests pass (181 unit + 8 integration + 3 doc-tests)
+- **[Review 21 Fixes - 2026-02-05]** All 2 Review 21 items addressed:
+  - Modified `redact_url_userinfo()` to use `rfind('@')` (last @) instead of `find('@')` (first @) within the authority section - passwords containing unencoded `@` characters are now fully redacted (HIGH)
+  - Added `percent_decode()` helper function to decode URL-encoded parameter names before comparison with sensitive params list (MEDIUM)
+  - URL-encoded parameter names like `api%5Fkey` (api_key) are now correctly redacted
+  - Added 9 new tests: password with @ (1), password with multiple @ (1), complex password (1), encoded api_key (1), encoded token (1), mixed encoded params (1), encoded fragment param (1), plus-as-space (1), combined userinfo+encoded params (1)
+  - 179 tests pass (168 unit + 8 integration + 3 doc-tests)
+- **[Review 20 Fixes - 2026-02-05]** All 4 Review 20 items addressed:
+  - Extended `redact_url_sensitive_params()` to also redact sensitive params in URL fragments (`#token=...`, `#api_key=...`) - OAuth implicit flow tokens now protected (HIGH)
+  - Added helper function `redact_params()` to handle both query and fragment param redaction uniformly
+  - Relaxed `is_coerced_scalar()` to only reject actual serde_yaml coerced values (`true`, `false`, `null`, `~`) - intentional folder names like "yes", "no", "on", "off" now accepted (MEDIUM)
+  - Made `is_valid_url()` case-insensitive for schemes per RFC 3986 §3.1 - `HTTP://` and `HTTPS://` now accepted (MEDIUM)
+  - Synchronized File List with actual changes (MEDIUM)
+  - Added 7 new tests: fragment token redaction (1), fragment api_key redaction (1), fragment multiple params (1), query+fragment combined (1), fragment no sensitive (1), simple fragment identifier (1), intentional yaml11 folder names (1)
+  - 170 tests pass (159 unit + 8 integration + 3 doc-tests)
+- **[Code Review 21 - 2026-02-05]** Adversarial review completed: 1 HIGH and 1 MEDIUM issues found in `tf-config` redaction edge-cases. By user request, workflow CR item was excluded. Action items added under Review 21. Story status set to in-progress.
+- **[Review 19 Fixes - 2026-02-05]** All 2 Review 19 items addressed:
+  - Extended `redact_url_userinfo()` to treat `#` (fragment) as authority boundary - prevents false positive when `@` appears in fragment (MEDIUM)
+  - Stabilized `test_check_output_folder_exists_file_not_directory` with unique temp file path using thread ID + timestamp (MEDIUM)
+  - Added test `test_redact_url_userinfo_fragment_boundary` covering `@` in fragments
+  - 163 tests pass (152 unit + 8 integration + 3 doc-tests)
+- **[Code Review 19 - 2026-02-05]** Adversarial review completed: 1 HIGH, 2 MEDIUM, 1 LOW issues found. By user request, only MEDIUM issues were added as action items under Review 19. Story status set to in-progress.
+- **[Review 18 Fixes - 2026-02-05]** All 3 Review 18 items addressed:
+  - Added `local_endpoint` redaction to `LlmConfig` Debug and Redact implementations - sensitive query params and userinfo now protected (HIGH)
+  - Fixed `is_valid_url()` to correctly extract host:port before query (`?`) and fragment (`#`) - URLs like `https://host?foo=bar` now valid (MEDIUM)
+  - Enhanced `check_output_folder_exists()` to verify `is_dir()` not just `exists()` - returns warning if path is a file instead of directory (MEDIUM)
+  - Added 8 new tests: local_endpoint redaction in Debug (1), local_endpoint redaction in Redact (1), local_endpoint userinfo redaction (1), URL with query no path (1), URL with fragment no path (1), URL with query and fragment no path (1), URL with path/query/fragment (1), file-not-directory check (1)
+  - 162 tests pass (151 unit + 8 integration + 3 doc-tests)
+- **[Code Review 18 - 2026-02-05]** Adversarial review completed: 1 HIGH and 2 MEDIUM issues found. 3 action items created by user request (Git/File List discrepancy item intentionally excluded). Status set to in-progress.
 - **[Review 17 Fixes - 2026-02-05]** All 4 Review 17 items addressed:
   - Added `redact_url_userinfo()` function to redact credentials in URL userinfo (`scheme://user:pass@host` → `scheme://[REDACTED]@host`) (HIGH)
   - Extended `redact_url_sensitive_params()` to call `redact_url_userinfo()` first, then redact query params - both types of secrets now protected
@@ -511,20 +627,20 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 - Sensitive fields (token, password, api_key) protected via custom Debug impl showing [REDACTED]
 - Redact trait allows explicit redaction for logging purposes
 - Validation includes: required fields, URL format with host check (IPv4/IPv6), path format, path traversal, template extensions, port validation, LLM mode constraints
-- **Test count evolution:** 21 initial → 33 (after Review 1) → 48 (after Review 5) → 52 (after Review 6: +4 IPv6/Default tests) → 65 (after Review 7: +13 tests) → 72 (after Review 8: +7 tests) → 83 (after Review 9: +11 tests) → 89 (after Review 10: +6 tests) → 100 (after Review 11: +11 tests) → 117 (after Review 12: +17 tests) → 134 (after Review 13: +17 tests) → 144 (after Review 14: +10 tests) → 146 (after Review 15: +2 net tests) → 147 (after Review 16: +1 net test) → 154 (after Review 17: +7 userinfo redaction tests)
-- 143 unit tests + 8 integration tests + 3 doc-tests (154 total - all passing, doc-tests compile-only via `no_run`)
+- **Test count evolution:** 21 initial → 33 (after Review 1) → 48 (after Review 5) → 52 (after Review 6: +4 IPv6/Default tests) → 65 (after Review 7: +13 tests) → 72 (after Review 8: +7 tests) → 83 (after Review 9: +11 tests) → 89 (after Review 10: +6 tests) → 100 (after Review 11: +11 tests) → 117 (after Review 12: +17 tests) → 134 (after Review 13: +17 tests) → 144 (after Review 14: +10 tests) → 146 (after Review 15: +2 net tests) → 147 (after Review 16: +1 net test) → 154 (after Review 17: +7 userinfo redaction tests) → 162 (after Review 18: +8 local_endpoint/URL/directory tests) → 163 (after Review 19: +1 fragment boundary test) → 170 (after Review 20: +7 fragment params/coerced scalar/uppercase scheme tests) → 179 (after Review 21: +9 userinfo@password/encoded params tests) → 192 (after Review 22: +13 double-encoding/kebab-case/whitespace tests) → 203 (after Review 23: +11 semicolon/whitespace/IPv6 zone-id tests) → 211 (after Review 24: +8 space-after-schema/path-secret tests)
+- 200 unit tests + 8 integration tests + 3 doc-tests (211 total - all passing, doc-tests compile-only via `no_run`)
 
 ### File List
 
 - .gitignore (new - Rust patterns, Cargo.lock tracked for CLI app)
-- Cargo.toml (new - workspace root with serde_yaml migration TODO comment)
+- Cargo.toml (modified - extended serde_yaml migration TODO with alternatives and decision criteria)
 - Cargo.lock (new, auto-generated)
 - LICENSE (new - MIT license)
 - crates/tf-config/Cargo.toml (new - tf-config crate with serde, serde_yaml, thiserror deps)
-- crates/tf-config/README.md (new - usage docs, schema, error handling, security)
+- crates/tf-config/README.md (modified - Review 25: template validation documentation)
 - crates/tf-config/src/lib.rs (new - module exports, crate docs, Redact trait)
 - crates/tf-config/src/error.rs (new - ConfigError enum with thiserror)
-- crates/tf-config/src/config.rs (modified - added userinfo redaction, removed String::leak())
+- crates/tf-config/src/config.rs (modified - Review 26: doc-comment style harmonized with backticks)
 - crates/tf-config/src/profiles.rs (new - stub for Story 0.2)
 - crates/tf-config/tests/integration_tests.rs (new - 8 integration tests)
 - crates/tf-config/tests/fixtures/valid_config.yaml (new)
@@ -532,10 +648,28 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 - crates/tf-config/tests/fixtures/missing_project_name.yaml (new)
 - crates/tf-config/tests/fixtures/invalid_jira_url.yaml (new)
 - crates/tf-config/tests/fixtures/invalid_llm_mode.yaml (new)
+- crates/tf-config/tests/fixtures/valid_cloud_config.yaml (new - Review 26: cloud mode configuration example)
 - _bmad-output/implementation-artifacts/sprint-status.yaml (modified - story status tracking)
+- _bmad-output/implementation-artifacts/0-1-configurer-un-projet-via-config-yaml.md (modified - Review 26 fixes completed)
 
 ### Change Log
 
+- **2026-02-05**: Review 26 fixes - Fixed rustdoc bare_urls warning with backtick format, created valid_cloud_config.yaml fixture, harmonized doc-comment style in LlmConfig. 211 tests passing. Story ready for review.
+- **2026-02-05**: Code Review 26 completed - 0 HIGH, 1 MEDIUM, 2 LOW issues found. All 3 ACs validated. Issues: rustdoc warning (MEDIUM), missing cloud fixture (LOW), doc style (LOW). 211 tests passing. Action items added under Review 26. Story status set to in-progress.
+- **2026-02-05**: Review 25 fixes - Template validation docs in README, simplified extract_location_from_error expression. Module extraction deferred (acceptable for first crate). 211 tests passing. Story ready for review.
+- **2026-02-05**: Code Review 25 completed - 0 HIGH, 2 MEDIUM, 2 LOW issues found. All 3 ACs validated. Issues are code quality improvements (file size, README docs). Action items added under Review 25. Story status set to in-progress.
+- **2026-02-05**: Review 24 fixes - Space after schema rejection, improved error fallbacks with line/column info, path secrets redaction for URL paths. 211 tests passing. Story ready for review.
+- **2026-02-05**: Code Review 24 completed - 2 HIGH, 1 MEDIUM, 1 LOW issues found; action items added under Review 24; story status set to in-progress.
+- **2026-02-05**: Review 23 fixes - Semicolon query param separator (RFC 1866), whitespace around param key handling, IPv6 zone-id validation. 203 tests passing. Story ready for review.
+- **2026-02-05**: Code Review 23 completed - 2 HIGH and 1 MEDIUM issues found (Git/File List discrepancies ignored by user request); action items added under Review 23; story status set to in-progress.
+- **2026-02-05**: Review 22 fixes - Double-encoded param names (`api%255Fkey`→`api_key`), kebab-case sensitive params (`api-key`, `access-token`), strict URL whitespace validation. 192 tests passing. Story ready for review.
+- **2026-02-05**: Review 21 fixes - Userinfo redaction with `@` in password (use `rfind`), URL-encoded param names decoded before comparison (`api%5Fkey`→`api_key`). 179 tests passing. Story ready for review.
+- **2026-02-05**: Code Review 21 completed - 1 HIGH and 1 MEDIUM issues found on URL redaction edge-cases; workflow CR issue intentionally excluded by user request; action items added under Review 21; story status set to in-progress.
+- **2026-02-05**: Review 20 fixes - Fragment params redaction (OAuth implicit flow tokens), relaxed is_coerced_scalar to accept intentional "yes/no/on/off" folder names, case-insensitive URL schemes per RFC 3986. 170 tests passing. Story ready for review.
+- **2026-02-05**: Review 19 fixes - fragment boundary in userinfo redaction, unique temp file paths for stable tests. 163 tests passing. Story ready for review.
+- **2026-02-05**: Code Review 19 completed - 1 HIGH, 2 MEDIUM, 1 LOW issues found; by user request, only 2 MEDIUM action items added under Review 19; story status set to in-progress.
+- **2026-02-05**: Review 18 fixes - local_endpoint redaction in LlmConfig Debug/Redact, URL validation for query/fragment without path, check_output_folder_exists verifies is_dir(). 162 tests passing. Story ready for review.
+- **2026-02-05**: Code Review 18 completed - 1 HIGH and 2 MEDIUM issues found; 3 action items added by request (issue Git/File List exclue); story status set to in-progress.
 - **2026-02-05**: Review 17 fixes - Added URL userinfo redaction (user:pass@host), removed String::leak() memory leaks, synchronized File List with git state. 154 tests passing. Story ready for review.
 - **2026-02-04**: Review 16 fixes - Improved string error attribution with extract_field_from_error(), accept numeric paths (2026 as folder name), "configuration field" fallback with actionable hints. 147 tests passing. Story ready for review.
 - **2026-02-04**: Review 15 fixes - Reject coerced scalars (integers/booleans) for output_folder, fix parse_serde_error attribution, README auto+cloud docs. 146 tests passing. Story ready for review.

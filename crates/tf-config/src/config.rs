@@ -124,11 +124,11 @@ pub struct LlmConfig {
     #[serde(default)]
     pub mode: LlmMode,
 
-    /// Local LLM endpoint (e.g., Ollama at http://localhost:11434)
+    /// Local LLM endpoint (e.g., Ollama at `http://localhost:11434`)
     #[serde(default)]
     pub local_endpoint: Option<String>,
 
-    /// Local model name (e.g., "mistral:7b-instruct", "codellama:13b")
+    /// Local model name (e.g., `mistral:7b-instruct`, `codellama:13b`)
     #[serde(default)]
     pub local_model: Option<String>,
 
@@ -136,11 +136,11 @@ pub struct LlmConfig {
     #[serde(default)]
     pub cloud_enabled: bool,
 
-    /// Cloud LLM endpoint (e.g., "https://api.openai.com/v1")
+    /// Cloud LLM endpoint (e.g., `https://api.openai.com/v1`)
     #[serde(default)]
     pub cloud_endpoint: Option<String>,
 
-    /// Cloud model name (e.g., "gpt-4o-mini")
+    /// Cloud model name (e.g., `gpt-4o-mini`)
     #[serde(default)]
     pub cloud_model: Option<String>,
 
@@ -192,45 +192,230 @@ fn redact_url_sensitive_params(url: &str) -> String {
         "accesstoken", "refreshtoken", "clientsecret", "privatekey",
         "sessiontoken", "authtoken", "apitoken", "secretkey",
         "accesskey", "secretaccesskey",
+        // kebab-case variants (with hyphens)
+        "api-key", "access-token", "refresh-token", "client-secret",
+        "private-key", "session-token", "auth-token", "secret-key",
+        "access-key",
     ];
 
-    // First, redact userinfo (user:pass@host) if present
-    // URL format: scheme://[userinfo@]host[:port][/path][?query]
-    let url = redact_url_userinfo(url);
+    /// URL percent-decoding for parameter names with double-encoding support.
+    /// Decodes %XX sequences recursively (up to 3 iterations) to handle double-encoded
+    /// param names like `api%255Fkey` (double-encoded api_key: api_key -> api%5Fkey -> api%255Fkey).
+    fn percent_decode(s: &str) -> String {
+        fn decode_once(input: &str) -> String {
+            let mut result = String::with_capacity(input.len());
+            let mut chars = input.chars().peekable();
+            while let Some(c) = chars.next() {
+                if c == '%' {
+                    // Try to read two hex digits
+                    let hex: String = chars.by_ref().take(2).collect();
+                    if hex.len() == 2 {
+                        if let Ok(byte) = u8::from_str_radix(&hex, 16) {
+                            result.push(byte as char);
+                            continue;
+                        }
+                    }
+                    // Invalid encoding, keep original
+                    result.push('%');
+                    result.push_str(&hex);
+                } else if c == '+' {
+                    // + is space in application/x-www-form-urlencoded
+                    result.push(' ');
+                } else {
+                    result.push(c);
+                }
+            }
+            result
+        }
 
-    // Find the query string start
-    let Some(query_start) = url.find('?') else {
-        return url;
-    };
-
-    let (base_url, query_string) = url.split_at(query_start);
-    let query_string = &query_string[1..]; // Skip the '?'
-
-    if query_string.is_empty() {
-        return url;
+        // Decode iteratively until stable or max iterations reached
+        // This handles double-encoding (api%255Fkey -> api%5Fkey -> api_key)
+        let mut current = s.to_string();
+        for _ in 0..3 {
+            let decoded = decode_once(&current);
+            if decoded == current {
+                break; // Stable, no more encoding
+            }
+            current = decoded;
+        }
+        current
     }
 
-    // Parse and redact query parameters
-    let redacted_params: Vec<String> = query_string
-        .split('&')
-        .map(|param| {
-            if let Some(eq_pos) = param.find('=') {
-                let (name, _value) = param.split_at(eq_pos);
-                let name_lower = name.to_lowercase();
+    /// Helper to redact sensitive params in a key=value string (query or fragment).
+    /// Handles:
+    /// - URL-encoded parameter names (e.g., `api%5Fkey` for `api_key`)
+    /// - Both `&` and `;` as parameter separators (RFC 1866, HTML forms)
+    /// - Whitespace around parameter names (e.g., `token =value` or ` api_key=value`)
+    fn redact_params(params: &str, sensitive: &[&str]) -> String {
+        // Split by both & and ; separators, but track which separator was used
+        // to reconstruct the string with original separators
+        let mut result = String::with_capacity(params.len());
+        let mut current_pos = 0;
 
-                // Check if this is a sensitive parameter
-                if SENSITIVE_PARAMS.iter().any(|&s| name_lower == s) {
+        // Find all separator positions
+        let mut separators: Vec<(usize, char)> = Vec::new();
+        for (i, c) in params.char_indices() {
+            if c == '&' || c == ';' {
+                separators.push((i, c));
+            }
+        }
+        separators.push((params.len(), '\0')); // Sentinel for last segment
+
+        for (sep_pos, sep_char) in separators {
+            let param = &params[current_pos..sep_pos];
+
+            let redacted_param = if let Some(eq_pos) = param.find('=') {
+                let (name, _value) = param.split_at(eq_pos);
+                // Trim whitespace from parameter name to handle "token = value" cases
+                let trimmed_name = name.trim();
+                // Decode the parameter name to handle URL-encoded keys like api%5Fkey
+                let decoded_name = percent_decode(trimmed_name);
+                let name_lower = decoded_name.to_lowercase();
+                if sensitive.iter().any(|&s| name_lower == s) {
                     format!("{}=[REDACTED]", name)
                 } else {
                     param.to_string()
                 }
             } else {
                 param.to_string()
-            }
-        })
-        .collect();
+            };
 
-    format!("{}?{}", base_url, redacted_params.join("&"))
+            result.push_str(&redacted_param);
+            if sep_char != '\0' {
+                result.push(sep_char);
+            }
+            current_pos = sep_pos + 1;
+        }
+
+        result
+    }
+
+    // First, redact userinfo (user:pass@host) if present
+    // URL format: scheme://[userinfo@]host[:port][/path][?query][#fragment]
+    let url = redact_url_userinfo(url);
+
+    /// Helper to redact secrets in path and return (scheme://host, redacted_path)
+    fn redact_base_path(base: &str) -> String {
+        // Find the path portion (after scheme://host)
+        if let Some(scheme_end) = base.find("://") {
+            let after_scheme = &base[scheme_end + 3..];
+            if let Some(path_start) = after_scheme.find('/') {
+                let host = &after_scheme[..path_start];
+                let path = &after_scheme[path_start..];
+                let redacted_path = redact_url_path_secrets(path);
+                return format!("{}://{}{}", &base[..scheme_end], host, redacted_path);
+            }
+        }
+        base.to_string()
+    }
+
+    // Find query and fragment positions
+    let query_start = url.find('?');
+    let fragment_start = url.find('#');
+
+    match (query_start, fragment_start) {
+        // Both query and fragment present
+        (Some(q_pos), Some(f_pos)) if q_pos < f_pos => {
+            // Query comes before fragment: ?query#fragment
+            let base = redact_base_path(&url[..q_pos]);
+            let query = &url[q_pos + 1..f_pos];
+            let fragment = &url[f_pos + 1..];
+
+            let redacted_query = if query.is_empty() {
+                String::new()
+            } else {
+                redact_params(query, SENSITIVE_PARAMS)
+            };
+            let redacted_fragment = if fragment.is_empty() {
+                String::new()
+            } else {
+                redact_params(fragment, SENSITIVE_PARAMS)
+            };
+
+            format!("{}?{}#{}", base, redacted_query, redacted_fragment)
+        }
+        // Only query present (no fragment)
+        (Some(q_pos), None) => {
+            let base = redact_base_path(&url[..q_pos]);
+            let query = &url[q_pos + 1..];
+            if query.is_empty() {
+                return format!("{}?", base);
+            }
+            let redacted_query = redact_params(query, SENSITIVE_PARAMS);
+            format!("{}?{}", base, redacted_query)
+        }
+        // Only fragment present (no query)
+        (None, Some(f_pos)) => {
+            let base = redact_base_path(&url[..f_pos]);
+            let fragment = &url[f_pos + 1..];
+            if fragment.is_empty() {
+                return format!("{}#", base);
+            }
+            let redacted_fragment = redact_params(fragment, SENSITIVE_PARAMS);
+            format!("{}#{}", base, redacted_fragment)
+        }
+        // Fragment before query (invalid URL but handle gracefully)
+        (Some(q_pos), Some(f_pos)) if f_pos < q_pos => {
+            // Fragment before query is unusual - just redact the fragment part
+            let base = redact_base_path(&url[..f_pos]);
+            let rest = &url[f_pos + 1..];
+            let redacted_rest = redact_params(rest, SENSITIVE_PARAMS);
+            format!("{}#{}", base, redacted_rest)
+        }
+        // No query or fragment
+        _ => redact_base_path(&url),
+    }
+}
+
+/// Redact potential secrets in URL path segments.
+///
+/// Some APIs embed secrets in URL paths like `/api/token/{token}/resource`.
+/// This function looks for path segments that follow sensitive segment names.
+///
+/// Example:
+/// - `/api/token/sk-12345/resource` -> `/api/token/[REDACTED]/resource`
+/// - `/key/abcdef123/data` -> `/key/[REDACTED]/data`
+fn redact_url_path_secrets(path: &str) -> String {
+    // Sensitive path segment indicators - the segment AFTER these will be redacted
+    const SENSITIVE_PATH_SEGMENTS: &[&str] = &[
+        "token", "tokens", "api_key", "apikey", "key", "keys", "secret", "secrets",
+        "password", "auth", "credential", "credentials", "access_token",
+    ];
+
+    let segments: Vec<&str> = path.split('/').collect();
+    if segments.len() < 2 {
+        return path.to_string();
+    }
+
+    let mut result = Vec::with_capacity(segments.len());
+    let mut redact_next = false;
+
+    for segment in segments {
+        if redact_next && !segment.is_empty() {
+            // Only redact if it looks like a secret (not a simple ID or number)
+            // Secrets typically have: length > 8, mix of chars, or long hex-like patterns
+            let looks_like_secret = segment.len() > 8
+                || (segment.len() > 4 && segment.chars().any(|c| c.is_ascii_digit())
+                    && segment.chars().any(|c| c.is_ascii_alphabetic()))
+                || segment.starts_with("sk-")
+                || segment.starts_with("pk-")
+                // Hex strings only count as secrets if they're reasonably long (> 8 chars)
+                || (segment.len() > 8 && segment.chars().all(|c| c.is_ascii_hexdigit()));
+
+            if looks_like_secret {
+                result.push("[REDACTED]");
+            } else {
+                result.push(segment);
+            }
+            redact_next = false;
+        } else {
+            result.push(segment);
+            let lower = segment.to_lowercase();
+            redact_next = SENSITIVE_PATH_SEGMENTS.iter().any(|&s| lower == s);
+        }
+    }
+
+    result.join("/")
 }
 
 /// Redact userinfo (user:password) from a URL.
@@ -238,9 +423,13 @@ fn redact_url_sensitive_params(url: &str) -> String {
 /// RFC 3986 defines userinfo as: `userinfo = user [ ":" password ]`
 /// located between `scheme://` and `@host`
 ///
+/// The userinfo delimiter is the LAST `@` before the host, because passwords
+/// may contain unencoded `@` characters (e.g., `user:p@ss@host`).
+///
 /// Example:
 /// - `https://admin:secret@example.com` -> `https://[REDACTED]@example.com`
 /// - `https://user@example.com` -> `https://[REDACTED]@example.com`
+/// - `https://admin:p@ss@example.com` -> `https://[REDACTED]@example.com`
 /// - `https://example.com` -> `https://example.com` (unchanged)
 fn redact_url_userinfo(url: &str) -> String {
     // Find the scheme separator
@@ -250,28 +439,27 @@ fn redact_url_userinfo(url: &str) -> String {
 
     let after_scheme = &url[scheme_end + 3..];
 
-    // Check if there's an @ symbol (indicates userinfo is present)
-    let Some(at_pos) = after_scheme.find('@') else {
+    // Find the end of the authority section (before path, query, or fragment)
+    let path_start = after_scheme.find('/').unwrap_or(after_scheme.len());
+    let query_start = after_scheme.find('?').unwrap_or(after_scheme.len());
+    let fragment_start = after_scheme.find('#').unwrap_or(after_scheme.len());
+    let end_of_authority = path_start.min(query_start).min(fragment_start);
+
+    // Extract just the authority section
+    let authority = &after_scheme[..end_of_authority];
+
+    // Find the LAST @ in authority - this is the userinfo/host delimiter
+    // Passwords may contain unencoded @ characters (e.g., user:p@ss@host)
+    let Some(at_pos) = authority.rfind('@') else {
         return url.to_string();
     };
 
-    // Make sure @ comes before / (path start) or ? (query start) or end of string
-    // to avoid matching @ in paths or queries
-    let host_start = at_pos;
-    let path_or_query = after_scheme.find('/').unwrap_or(after_scheme.len());
-    let query_start = after_scheme.find('?').unwrap_or(after_scheme.len());
-    let end_of_authority = path_or_query.min(query_start);
-
-    if host_start >= end_of_authority {
-        // The @ is in the path or query, not userinfo
-        return url.to_string();
-    }
-
     // Reconstruct URL with redacted userinfo
     let scheme = &url[..scheme_end + 3]; // includes "://"
-    let host_and_rest = &after_scheme[at_pos + 1..]; // after the @
+    let host_part = &authority[at_pos + 1..]; // after the @
+    let rest = &after_scheme[end_of_authority..]; // path, query, fragment
 
-    format!("{}[REDACTED]@{}", scheme, host_and_rest)
+    format!("{}[REDACTED]@{}{}", scheme, host_part, rest)
 }
 
 /// Trait for redacting sensitive information in display output
@@ -300,7 +488,11 @@ impl Redact for SquashConfig {
 
 impl Redact for LlmConfig {
     fn redacted(&self) -> String {
-        // Redact sensitive query params in cloud_endpoint if present
+        // Redact sensitive query params in endpoints if present
+        let redacted_local_endpoint = self
+            .local_endpoint
+            .as_ref()
+            .map(|ep| redact_url_sensitive_params(ep));
         let redacted_cloud_endpoint = self
             .cloud_endpoint
             .as_ref()
@@ -309,7 +501,7 @@ impl Redact for LlmConfig {
             "LlmConfig {{ mode: {:?}, local_endpoint: {:?}, local_model: {:?}, \
              cloud_enabled: {}, cloud_endpoint: {:?}, cloud_model: {:?}, \
              api_key: [REDACTED], timeout_seconds: {}, max_tokens: {} }}",
-            self.mode, self.local_endpoint, self.local_model,
+            self.mode, redacted_local_endpoint, self.local_model,
             self.cloud_enabled, redacted_cloud_endpoint, self.cloud_model,
             self.timeout_seconds, self.max_tokens
         )
@@ -318,10 +510,13 @@ impl Redact for LlmConfig {
 
 // Custom Debug implementations to prevent accidental logging of secrets
 impl ProjectConfig {
-    /// Check if output_folder exists on the filesystem.
+    /// Check if output_folder exists and is a directory on the filesystem.
     ///
-    /// Returns `Some(warning_message)` if the folder does not exist,
-    /// `None` if it exists or if existence cannot be determined.
+    /// Returns `Some(warning_message)` if:
+    /// - The folder does not exist (will need to be created)
+    /// - The path exists but is not a directory (e.g., it's a file)
+    ///
+    /// Returns `None` if the path exists and is a directory.
     ///
     /// This is an optional validation - the caller decides whether to
     /// warn the user, create the folder, or treat it as an error.
@@ -330,6 +525,11 @@ impl ProjectConfig {
         if !path.exists() {
             Some(format!(
                 "output_folder '{}' does not exist - it will be created when needed",
+                self.output_folder
+            ))
+        } else if !path.is_dir() {
+            Some(format!(
+                "output_folder '{}' exists but is not a directory",
                 self.output_folder
             ))
         } else {
@@ -359,14 +559,18 @@ impl fmt::Debug for SquashConfig {
 
 impl fmt::Debug for LlmConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Redact sensitive query params in cloud_endpoint if present
+        // Redact sensitive query params in endpoints if present
+        let redacted_local_endpoint = self
+            .local_endpoint
+            .as_ref()
+            .map(|ep| redact_url_sensitive_params(ep));
         let redacted_cloud_endpoint = self
             .cloud_endpoint
             .as_ref()
             .map(|ep| redact_url_sensitive_params(ep));
         f.debug_struct("LlmConfig")
             .field("mode", &self.mode)
-            .field("local_endpoint", &self.local_endpoint)
+            .field("local_endpoint", &redacted_local_endpoint)
             .field("local_model", &self.local_model)
             .field("cloud_enabled", &self.cloud_enabled)
             .field("cloud_endpoint", &redacted_cloud_endpoint)
@@ -501,6 +705,40 @@ fn extract_field_from_error(err_msg: &str) -> Option<String> {
     }
 
     None
+}
+
+/// Extract line and column location from serde_yaml error message if available.
+///
+/// serde_yaml typically includes location as "at line X column Y" or similar.
+/// Returns a formatted string like " (at line 5, column 3)" or empty string if not found.
+fn extract_location_from_error(err_msg: &str) -> String {
+    // Pattern: "at line X column Y" or "line X, column Y"
+    if let Some(line_pos) = err_msg.find("line ") {
+        let after_line = &err_msg[line_pos..];
+        // Extract until end of location info
+        // Stop at period (sentence end) or comma (but not the comma in "line X, column Y")
+        // Using a closure for clarity instead of complex boolean expression
+        let is_location_end = |c: char, pos: usize| {
+            c == '.' || (c == ',' && pos > 0 && !after_line[..pos].ends_with("column"))
+        };
+        let end_pos = after_line
+            .char_indices()
+            .find(|&(pos, c)| is_location_end(c, pos))
+            .map(|(pos, _)| pos);
+        if let Some(end) = end_pos {
+            let location = after_line[..end].trim();
+            if !location.is_empty() && location.len() < 50 {
+                return format!(" (at {})", location);
+            }
+        }
+        // Fallback: take a reasonable chunk
+        let location_end = after_line.len().min(30);
+        let location = after_line[..location_end].trim();
+        if location.chars().any(|c| c.is_ascii_digit()) {
+            return format!(" (at {})", location.trim_end_matches(|c: char| !c.is_ascii_digit()));
+        }
+    }
+    String::new()
 }
 
 /// Parse serde error message to extract field info and provide helpful hints.
@@ -658,11 +896,20 @@ fn parse_serde_error(err_msg: &str) -> Option<SerdeErrorKind> {
                     });
                 }
             }
-            // Generic integer type error - provide general hint
-            return Some(SerdeErrorKind::InvalidEnumValue {
-                field: "numeric field",
+            // Try to extract field name from error message for better attribution
+            if let Some(field_name) = extract_field_from_error(err_msg) {
+                return Some(SerdeErrorKind::InvalidEnumValueDynamic {
+                    field: field_name,
+                    reason: "has invalid type (expected an integer)",
+                    hint: "a valid positive integer value",
+                });
+            }
+            // Fallback with line/column info if available for actionable guidance
+            let location_hint = extract_location_from_error(err_msg);
+            return Some(SerdeErrorKind::InvalidEnumValueDynamic {
+                field: format!("integer field{}", location_hint),
                 reason: "has invalid type (expected an integer)",
-                hint: "a valid integer value",
+                hint: "a valid positive integer - check timeout_seconds, max_tokens, or port numbers",
             });
         }
 
@@ -740,9 +987,10 @@ fn parse_serde_error(err_msg: &str) -> Option<SerdeErrorKind> {
                 });
             }
 
-            // Truly generic case - provide actionable guidance to find the field
-            return Some(SerdeErrorKind::InvalidEnumValue {
-                field: "configuration field",
+            // Fallback with line/column info if available for actionable guidance
+            let location_hint = extract_location_from_error(err_msg);
+            return Some(SerdeErrorKind::InvalidEnumValueDynamic {
+                field: format!("string field{}", location_hint),
                 reason: "has invalid type (expected a string)",
                 hint: "a valid string value - check for arrays [] or maps {} where a string \"value\" is expected",
             });
@@ -759,11 +1007,20 @@ fn parse_serde_error(err_msg: &str) -> Option<SerdeErrorKind> {
                     hint: "true or false (e.g., cloud_enabled: true)",
                 });
             }
-            // Generic boolean error
-            return Some(SerdeErrorKind::InvalidEnumValue {
-                field: "boolean field",
+            // Try to extract field name from error message
+            if let Some(field_name) = extract_field_from_error(err_msg) {
+                return Some(SerdeErrorKind::InvalidEnumValueDynamic {
+                    field: field_name,
+                    reason: "has invalid type (expected a boolean)",
+                    hint: "true or false (not \"yes\", \"no\", or other strings)",
+                });
+            }
+            // Fallback with line/column info if available
+            let location_hint = extract_location_from_error(err_msg);
+            return Some(SerdeErrorKind::InvalidEnumValueDynamic {
+                field: format!("boolean field{}", location_hint),
                 reason: "has invalid type (expected a boolean)",
-                hint: "true or false",
+                hint: "true or false - check cloud_enabled or similar boolean settings",
             });
         }
     }
@@ -887,14 +1144,23 @@ fn detect_section_from_expected_fields(err_msg: &str) -> &'static str {
 /// Invalid hosts like "...", "-start", "end-" are rejected.
 /// Ports must be valid (1-65535).
 fn is_valid_url(url: &str) -> bool {
-    // Must start with http:// or https://
-    let without_scheme = if let Some(rest) = url.strip_prefix("https://") {
-        rest
-    } else if let Some(rest) = url.strip_prefix("http://") {
-        rest
+    // Must start with http:// or https:// (case-insensitive per RFC 3986)
+    // RFC 3986 §3.1: "schemes are case-insensitive"
+    let url_lower = url.to_lowercase();
+    let without_scheme = if url_lower.starts_with("https://") {
+        // Return the original URL's remainder (preserving case)
+        &url[8..] // "https://".len() == 8
+    } else if url_lower.starts_with("http://") {
+        &url[7..] // "http://".len() == 7
     } else {
         return false;
     };
+
+    // Reject URLs with whitespace immediately after schema (e.g., "https:// example.com")
+    // This is invalid per RFC 3986 - authority must follow directly after "://"
+    if without_scheme.starts_with(char::is_whitespace) {
+        return false;
+    }
 
     // Must have at least one character after the scheme (the host)
     // and the host must not be empty or just whitespace
@@ -903,8 +1169,18 @@ fn is_valid_url(url: &str) -> bool {
         return false;
     }
 
-    // Extract host and port (before path)
-    let host_port = trimmed.split('/').next().unwrap_or(trimmed);
+    // Extract host and port (before path, query, or fragment)
+    // URL format: host[:port][/path][?query][#fragment]
+    // We need to handle URLs without path like "https://host?query" or "https://host#frag"
+    let host_port_end = trimmed
+        .find('/')
+        .unwrap_or_else(|| {
+            // No path - check for query or fragment
+            trimmed.find('?')
+                .or_else(|| trimmed.find('#'))
+                .unwrap_or(trimmed.len())
+        });
+    let host_port = &trimmed[..host_port_end];
 
     // Handle IPv6 addresses: [::1] or [::1]:8080
     if host_port.starts_with('[') {
@@ -920,11 +1196,23 @@ fn is_valid_url(url: &str) -> bool {
             // Validate IPv6 address characters and structure
             // IPv6 addresses can contain: hex digits (0-9, a-f, A-F), colons, and optionally
             // a zone ID suffix starting with % (e.g., fe80::1%eth0)
-            let (addr_part, _zone_part) = if let Some(zone_pos) = ipv6_addr.find('%') {
+            let (addr_part, zone_part) = if let Some(zone_pos) = ipv6_addr.find('%') {
                 (&ipv6_addr[..zone_pos], Some(&ipv6_addr[zone_pos + 1..]))
             } else {
                 (ipv6_addr, None)
             };
+
+            // Validate zone ID if present: must not be empty (e.g., "fe80::1%" is invalid)
+            if let Some(zone) = zone_part {
+                if zone.is_empty() {
+                    return false; // Empty zone ID is invalid
+                }
+                // Zone ID should contain only alphanumeric characters and common interface name chars
+                // Allow: alphanumeric, hyphen, underscore, dot (common in interface names like eth0, wlan-0, etc.)
+                if !zone.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.') {
+                    return false;
+                }
+            }
 
             // The address part must only contain hex digits and colons
             if !addr_part.chars().all(|c| c.is_ascii_hexdigit() || c == ':') {
@@ -1106,15 +1394,22 @@ fn is_valid_path_format(path: &str) -> bool {
 /// This catches cases where the user wrote `output_folder: true` or `output_folder: null`
 /// which are clearly not valid paths.
 ///
+/// **Important:** Only rejects `true`, `false`, `null`, and `~` (the actual coerced values
+/// after serde_yaml parsing). YAML 1.1 booleans like `yes`/`no`/`on`/`off` are coerced
+/// to "true"/"false" by serde_yaml, so we don't need to check for them explicitly.
+/// This allows intentionally quoted paths like `"yes"` or `"on"` to be valid folder names.
+///
 /// Note: Pure numeric strings like "2026" are NOT rejected because they can be valid
 /// folder names (e.g., year-based directories). While `output_folder: 123` (unquoted)
 /// and `output_folder: "123"` (quoted) both become "123" after serde parsing,
 /// numeric folder names are legitimate use cases.
 fn is_coerced_scalar(s: &str) -> bool {
-    // YAML boolean and null coercions (serde_yaml coerces to lowercase)
-    // These are clearly not valid paths and indicate user error
+    // Only reject actual coerced values from serde_yaml:
+    // - Boolean: true/false (YAML 1.1 yes/no/on/off become true/false)
+    // - Null: null/~ (tilde is YAML null shorthand)
+    // This allows intentional folder names like "yes", "no", "on", "off"
     let lower = s.to_lowercase();
-    matches!(lower.as_str(), "true" | "false" | "yes" | "no" | "on" | "off" | "null" | "~")
+    matches!(lower.as_str(), "true" | "false" | "null" | "~")
 }
 
 /// Validate that a project name contains only valid characters
@@ -1316,6 +1611,14 @@ fn validate_config(config: &ProjectConfig) -> Result<(), ConfigError> {
 
         // Validate local_endpoint URL format if provided
         if let Some(ref endpoint) = llm.local_endpoint {
+            // Reject URLs with leading/trailing whitespace (strict validation)
+            if endpoint != endpoint.trim() {
+                return Err(ConfigError::invalid_value(
+                    "llm.local_endpoint",
+                    "must not contain leading or trailing whitespace",
+                    "a URL without extra spaces (e.g., 'http://localhost:11434')",
+                ));
+            }
             if !is_valid_url(endpoint) {
                 return Err(ConfigError::invalid_value(
                     "llm.local_endpoint",
@@ -1327,6 +1630,14 @@ fn validate_config(config: &ProjectConfig) -> Result<(), ConfigError> {
 
         // Validate cloud_endpoint URL format if provided
         if let Some(ref endpoint) = llm.cloud_endpoint {
+            // Reject URLs with leading/trailing whitespace (strict validation)
+            if endpoint != endpoint.trim() {
+                return Err(ConfigError::invalid_value(
+                    "llm.cloud_endpoint",
+                    "must not contain leading or trailing whitespace",
+                    "a URL without extra spaces (e.g., 'https://api.openai.com/v1')",
+                ));
+            }
             if !is_valid_url(endpoint) {
                 return Err(ConfigError::invalid_value(
                     "llm.cloud_endpoint",
@@ -1357,6 +1668,14 @@ fn validate_config(config: &ProjectConfig) -> Result<(), ConfigError> {
 
     // Validate Jira endpoint URL format if present
     if let Some(ref jira) = config.jira {
+        // Reject URLs with leading/trailing whitespace (strict validation)
+        if jira.endpoint != jira.endpoint.trim() {
+            return Err(ConfigError::invalid_value(
+                "jira.endpoint",
+                "must not contain leading or trailing whitespace",
+                "a URL without extra spaces (e.g., 'https://jira.example.com')",
+            ));
+        }
         if !is_valid_url(&jira.endpoint) {
             return Err(ConfigError::invalid_value(
                 "jira.endpoint",
@@ -1368,6 +1687,14 @@ fn validate_config(config: &ProjectConfig) -> Result<(), ConfigError> {
 
     // Validate Squash endpoint URL format if present
     if let Some(ref squash) = config.squash {
+        // Reject URLs with leading/trailing whitespace (strict validation)
+        if squash.endpoint != squash.endpoint.trim() {
+            return Err(ConfigError::invalid_value(
+                "squash.endpoint",
+                "must not contain leading or trailing whitespace",
+                "a URL without extra spaces (e.g., 'https://squash.example.com')",
+            ));
+        }
         if !is_valid_url(&squash.endpoint) {
             return Err(ConfigError::invalid_value(
                 "squash.endpoint",
@@ -1768,6 +2095,51 @@ squash:
     }
 
     #[test]
+    fn test_url_space_after_schema_rejected_jira() {
+        // Test that "https:// example.com" (space after scheme) is rejected
+        let yaml = r#"
+project_name: "test"
+output_folder: "./output"
+jira:
+  endpoint: "https:// jira.example.com"
+"#;
+        let file = create_temp_config(yaml);
+        let result = load_config(file.path());
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("jira.endpoint"));
+    }
+
+    #[test]
+    fn test_url_space_after_schema_rejected_squash() {
+        let yaml = r#"
+project_name: "test"
+output_folder: "./output"
+squash:
+  endpoint: "http:// squash.example.com:8080"
+"#;
+        let file = create_temp_config(yaml);
+        let result = load_config(file.path());
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("squash.endpoint"));
+    }
+
+    #[test]
+    fn test_url_tab_after_schema_rejected() {
+        // Tab character immediately after scheme
+        let yaml = "project_name: \"test\"\noutput_folder: \"./output\"\njira:\n  endpoint: \"https://\texample.com\"\n";
+        let file = create_temp_config(yaml);
+        let result = load_config(file.path());
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("jira.endpoint"));
+    }
+
+    #[test]
     fn test_valid_url_helper() {
         // Valid URLs
         assert!(is_valid_url("https://example.com"));
@@ -1778,10 +2150,23 @@ squash:
         assert!(is_valid_url("http://192.168.1.1"));
         assert!(is_valid_url("http://192.168.1.1:8080"));
 
+        // Valid: uppercase schemes (RFC 3986 §3.1 schemes are case-insensitive)
+        assert!(is_valid_url("HTTP://example.com"));
+        assert!(is_valid_url("HTTPS://example.com"));
+        assert!(is_valid_url("Http://example.com"));
+        assert!(is_valid_url("Https://Example.COM:8080/Path"));
+
         // Invalid: empty or whitespace after scheme
         assert!(!is_valid_url("https://"));
         assert!(!is_valid_url("http://"));
         assert!(!is_valid_url("https://   "));
+
+        // Invalid: whitespace immediately after scheme (space before host)
+        assert!(!is_valid_url("https:// example.com"));
+        assert!(!is_valid_url("http:// localhost:8080"));
+        assert!(!is_valid_url("https://  jira.example.com"));
+        assert!(!is_valid_url("http://\texample.com")); // tab after scheme
+        assert!(!is_valid_url("https://\nexample.com")); // newline after scheme
 
         // Invalid: wrong scheme or no scheme
         assert!(!is_valid_url("not-a-url"));
@@ -3089,6 +3474,52 @@ llm:
     }
 
     #[test]
+    fn test_redact_url_path_token_secret() {
+        // Test redacting secrets in URL path segments (AC #3 - no secrets in logs)
+        let url = "https://api.example.com/token/sk-abc123def456/resource";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("sk-abc123def456"));
+        assert!(redacted.contains("/token/[REDACTED]/"));
+    }
+
+    #[test]
+    fn test_redact_url_path_key_secret() {
+        let url = "https://api.example.com/api/key/abcdef123456789/data";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("abcdef123456789"));
+        assert!(redacted.contains("/key/[REDACTED]/"));
+    }
+
+    #[test]
+    fn test_redact_url_path_no_false_positive() {
+        // Normal path segments should not be redacted
+        let url = "https://api.example.com/api/v1/users";
+        let redacted = redact_url_sensitive_params(url);
+        assert_eq!(redacted, url); // Unchanged - no secret-looking segments
+    }
+
+    #[test]
+    fn test_redact_url_path_combined_with_query() {
+        // Test that both path secrets and query secrets are redacted
+        let url = "https://api.example.com/token/sk-12345678/resource?api_key=secret";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("sk-12345678"));
+        assert!(!redacted.contains("secret"));
+        assert!(redacted.contains("/token/[REDACTED]/"));
+        assert!(redacted.contains("api_key=[REDACTED]"));
+    }
+
+    #[test]
+    fn test_redact_url_path_short_segment_not_redacted() {
+        // Short segments after sensitive keywords should not be redacted
+        // (they're likely IDs or other non-secret data)
+        let url = "https://api.example.com/token/123/resource";
+        let redacted = redact_url_sensitive_params(url);
+        // "123" is too short to look like a secret, should not be redacted
+        assert!(redacted.contains("/token/123/"));
+    }
+
+    #[test]
     fn test_redact_url_userinfo_with_password() {
         // Test redacting user:password@host format (AC #3 - no secrets in logs)
         let url = "https://admin:secret123@jira.example.com/api";
@@ -3154,6 +3585,64 @@ llm:
         let url = "https://example.com?email=user@domain.com";
         let redacted = redact_url_sensitive_params(url);
         assert_eq!(redacted, url); // @ is in query value, not userinfo
+    }
+
+    // === Fragment param redaction tests (AC #3 - sensitive data in URL fragments) ===
+
+    #[test]
+    fn test_redact_url_fragment_token() {
+        // OAuth implicit flow puts tokens in fragments - must be redacted (AC #3)
+        let url = "https://example.com/callback#access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"), "Fragment token should be redacted");
+        assert!(redacted.contains("access_token=[REDACTED]"));
+    }
+
+    #[test]
+    fn test_redact_url_fragment_api_key() {
+        // API key in fragment should be redacted
+        let url = "https://example.com#api_key=sk-secret123";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("sk-secret123"), "Fragment api_key should be redacted");
+        assert!(redacted.contains("api_key=[REDACTED]"));
+    }
+
+    #[test]
+    fn test_redact_url_fragment_multiple_params() {
+        // Multiple params in fragment - redact only sensitive ones
+        let url = "https://example.com#state=abc&token=secret&redirect=/home";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("secret"), "Fragment token should be redacted");
+        assert!(redacted.contains("state=abc"), "Non-sensitive param should remain");
+        assert!(redacted.contains("token=[REDACTED]"));
+        assert!(redacted.contains("redirect=/home"), "Non-sensitive param should remain");
+    }
+
+    #[test]
+    fn test_redact_url_fragment_with_query() {
+        // Both query and fragment params should be redacted
+        let url = "https://example.com?api_key=query_secret#token=frag_secret";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("query_secret"), "Query api_key should be redacted");
+        assert!(!redacted.contains("frag_secret"), "Fragment token should be redacted");
+        assert!(redacted.contains("api_key=[REDACTED]"));
+        assert!(redacted.contains("token=[REDACTED]"));
+    }
+
+    #[test]
+    fn test_redact_url_fragment_no_sensitive() {
+        // Fragment without sensitive params should remain unchanged
+        let url = "https://example.com#section=intro&page=2";
+        let redacted = redact_url_sensitive_params(url);
+        assert_eq!(redacted, url, "Non-sensitive fragment should remain unchanged");
+    }
+
+    #[test]
+    fn test_redact_url_fragment_only_identifier() {
+        // Simple fragment identifier (no key=value) should remain unchanged
+        let url = "https://example.com/docs#introduction";
+        let redacted = redact_url_sensitive_params(url);
+        assert_eq!(redacted, url, "Simple fragment identifier should remain unchanged");
     }
 
     #[test]
@@ -3392,6 +3881,31 @@ output_folder: null
         // Should fail - null scalar is rejected
         // Note: serde_yaml may fail at parsing level for required field, or our validation catches it
         assert!(result.is_err(), "Null scalars should be rejected for output_folder");
+    }
+
+    #[test]
+    fn test_output_folder_intentional_yaml11_names_accepted() {
+        // YAML 1.1 boolean names like "yes", "no", "on", "off" should be accepted
+        // when intentionally quoted as folder names
+        for folder_name in &["yes", "no", "on", "off"] {
+            let yaml = format!(
+                r#"
+project_name: "test"
+output_folder: "{}"
+"#,
+                folder_name
+            );
+            let file = create_temp_config(&yaml);
+            let result = load_config(file.path());
+            assert!(
+                result.is_ok(),
+                "Intentionally quoted '{}' should be accepted as folder name: {:?}",
+                folder_name,
+                result.err()
+            );
+            let config = result.unwrap();
+            assert_eq!(config.output_folder, *folder_name);
+        }
     }
 
     #[test]
@@ -3698,5 +4212,587 @@ llm:
         // These should be valid hostnames (if they pass label validation)
         assert!(is_valid_url("http://192.168.1"), "3-octet should be valid hostname");
         assert!(is_valid_url("http://192.168.1.1.1"), "5-octet should be valid hostname");
+    }
+
+    // ==================== Review 18 Tests ====================
+
+    #[test]
+    fn test_llm_config_debug_redacts_local_endpoint_params() {
+        // Test that local_endpoint with sensitive query params is redacted in Debug output
+        let llm = LlmConfig {
+            mode: LlmMode::Local,
+            local_endpoint: Some("http://localhost:11434?api_key=secret-local-key&model=llama".to_string()),
+            local_model: Some("llama2".to_string()),
+            cloud_enabled: false,
+            cloud_endpoint: None,
+            cloud_model: None,
+            api_key: None,
+            timeout_seconds: 120,
+            max_tokens: 4096,
+        };
+
+        let debug_output = format!("{:?}", llm);
+        assert!(!debug_output.contains("secret-local-key"),
+            "local_endpoint api_key should be redacted in Debug: {}", debug_output);
+        assert!(debug_output.contains("[REDACTED]"),
+            "Debug output should contain [REDACTED]: {}", debug_output);
+        assert!(debug_output.contains("model=llama"),
+            "Non-sensitive params should remain: {}", debug_output);
+    }
+
+    #[test]
+    fn test_llm_config_redact_trait_redacts_local_endpoint_params() {
+        // Test that local_endpoint with sensitive query params is redacted via Redact trait
+        let llm = LlmConfig {
+            mode: LlmMode::Local,
+            local_endpoint: Some("http://localhost:11434?token=mysecret&format=json".to_string()),
+            local_model: Some("codellama".to_string()),
+            cloud_enabled: false,
+            cloud_endpoint: None,
+            cloud_model: None,
+            api_key: None,
+            timeout_seconds: 60,
+            max_tokens: 2048,
+        };
+
+        let redacted = llm.redacted();
+        assert!(!redacted.contains("mysecret"),
+            "local_endpoint token should be redacted in Redact: {}", redacted);
+        assert!(redacted.contains("[REDACTED]"),
+            "Redacted output should contain [REDACTED]: {}", redacted);
+        assert!(redacted.contains("format=json"),
+            "Non-sensitive params should remain: {}", redacted);
+    }
+
+    #[test]
+    fn test_llm_config_redacts_local_endpoint_userinfo() {
+        // Test that local_endpoint with userinfo (user:pass@host) is redacted
+        let llm = LlmConfig {
+            mode: LlmMode::Local,
+            local_endpoint: Some("http://admin:secret@localhost:11434".to_string()),
+            local_model: None,
+            cloud_enabled: false,
+            cloud_endpoint: None,
+            cloud_model: None,
+            api_key: None,
+            timeout_seconds: 120,
+            max_tokens: 4096,
+        };
+
+        let debug_output = format!("{:?}", llm);
+        assert!(!debug_output.contains("secret"),
+            "local_endpoint userinfo password should be redacted: {}", debug_output);
+        assert!(!debug_output.contains("admin:"),
+            "local_endpoint userinfo should be fully redacted: {}", debug_output);
+        assert!(debug_output.contains("[REDACTED]@"),
+            "Redacted userinfo should be visible: {}", debug_output);
+
+        let redacted = llm.redacted();
+        assert!(!redacted.contains("secret"),
+            "Redact trait should also redact userinfo: {}", redacted);
+    }
+
+    #[test]
+    fn test_url_with_query_no_path_valid() {
+        // URLs with query string but no path should be valid
+        // Review 18 fix: is_valid_url should accept these
+        assert!(is_valid_url("https://example.com?foo=bar"),
+            "URL with query but no path should be valid");
+        assert!(is_valid_url("http://localhost?param=value"),
+            "localhost with query but no path should be valid");
+        assert!(is_valid_url("https://api.example.com?key=value&other=123"),
+            "URL with multiple query params but no path should be valid");
+    }
+
+    #[test]
+    fn test_url_with_fragment_no_path_valid() {
+        // URLs with fragment but no path should be valid
+        assert!(is_valid_url("https://example.com#section"),
+            "URL with fragment but no path should be valid");
+        assert!(is_valid_url("http://localhost#anchor"),
+            "localhost with fragment but no path should be valid");
+    }
+
+    #[test]
+    fn test_url_with_query_and_fragment_no_path_valid() {
+        // URLs with both query and fragment but no path should be valid
+        assert!(is_valid_url("https://example.com?foo=bar#section"),
+            "URL with query and fragment but no path should be valid");
+    }
+
+    #[test]
+    fn test_url_with_path_query_fragment_still_valid() {
+        // Existing URLs with path, query, and fragment should still work
+        assert!(is_valid_url("https://example.com/path?foo=bar#section"),
+            "Full URL with path, query, and fragment should be valid");
+        assert!(is_valid_url("http://localhost:8080/api/v1?key=value"),
+            "localhost with path and query should be valid");
+    }
+
+    #[test]
+    fn test_check_output_folder_exists_file_not_directory() {
+        // Test that check_output_folder_exists detects when path is a file, not directory
+        use std::io::Write;
+
+        // Create a unique temporary file using thread ID and timestamp to avoid collisions
+        let unique_id = format!("tf_config_test_{:?}_{}",
+            std::thread::current().id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join(format!("{}.txt", unique_id));
+
+        // Create the file
+        {
+            let mut file = std::fs::File::create(&test_file).expect("Failed to create test file");
+            writeln!(file, "test content").expect("Failed to write to test file");
+        }
+
+        // Create config pointing to the file (not a directory)
+        let yaml = format!(r#"
+project_name: "test"
+output_folder: "{}"
+"#, test_file.to_string_lossy().replace('\\', "/"));
+
+        let file = create_temp_config(&yaml);
+        let config = load_config(file.path()).unwrap();
+
+        // check_output_folder_exists should return warning about not being a directory
+        let warning = config.check_output_folder_exists();
+        assert!(warning.is_some(), "Should warn when output_folder is a file, not directory");
+        let warning_msg = warning.unwrap();
+        assert!(warning_msg.contains("not a directory"),
+            "Warning should mention 'not a directory': {}", warning_msg);
+
+        // Cleanup
+        let _ = std::fs::remove_file(&test_file);
+    }
+
+    #[test]
+    fn test_redact_url_userinfo_fragment_boundary() {
+        // Test that @ in fragment is not treated as userinfo
+        // RFC 3986: authority ends at first /, ?, or #
+        let url = "https://example.com#user@mention";
+        let redacted = redact_url_userinfo(url);
+        assert_eq!(redacted, url, "@ in fragment should not be treated as userinfo");
+
+        let url2 = "https://example.com/path#section@ref";
+        let redacted2 = redact_url_userinfo(url2);
+        assert_eq!(redacted2, url2, "@ in fragment after path should not be treated as userinfo");
+    }
+
+    // ===== Review 21 fixes =====
+
+    #[test]
+    fn test_redact_url_userinfo_password_contains_at() {
+        // HIGH: Password containing unencoded @ should still be fully redacted
+        // The @ in p@ssword is part of the password, not the userinfo delimiter
+        let url = "https://admin:p@ssword@example.com/api";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("admin"), "Username should be redacted");
+        assert!(!redacted.contains("p@ssword"), "Password with @ should be redacted");
+        assert!(redacted.contains("[REDACTED]@example.com"));
+        assert_eq!(redacted, "https://[REDACTED]@example.com/api");
+    }
+
+    #[test]
+    fn test_redact_url_userinfo_password_multiple_at() {
+        // Password with multiple @ characters
+        let url = "https://user:p@ss@word@host.example.com:8080/path";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("user"), "Username should be redacted");
+        assert!(!redacted.contains("p@ss@word"), "Password with multiple @ should be redacted");
+        assert!(redacted.contains(":8080"));
+        assert_eq!(redacted, "https://[REDACTED]@host.example.com:8080/path");
+    }
+
+    #[test]
+    fn test_redact_url_userinfo_complex_password() {
+        // Complex password with special chars including @
+        // Note: # must be percent-encoded in userinfo per RFC 3986, so we use %23
+        let url = "https://admin:C0mpl3x!P@ss%23123@api.example.com?token=abc";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("admin"));
+        assert!(!redacted.contains("C0mpl3x!P@ss%23123"));
+        assert!(redacted.contains("token=[REDACTED]"));
+        assert_eq!(redacted, "https://[REDACTED]@api.example.com?token=[REDACTED]");
+    }
+
+    #[test]
+    fn test_redact_url_encoded_param_api_key() {
+        // MEDIUM: URL-encoded parameter name api%5Fkey (api_key) should be redacted
+        let url = "https://example.com?api%5Fkey=secret123";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("secret123"), "Value of encoded api_key should be redacted");
+        assert!(redacted.contains("api%5Fkey=[REDACTED]"));
+    }
+
+    #[test]
+    fn test_redact_url_encoded_param_token() {
+        // URL-encoded 'token' (%74%6F%6B%65%6E)
+        let url = "https://example.com?%74%6F%6B%65%6E=mysecret";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("mysecret"), "Value of encoded token should be redacted");
+        assert!(redacted.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn test_redact_url_encoded_param_mixed() {
+        // Mix of encoded and plain param names
+        let url = "https://example.com?api%5Fkey=secret1&password=secret2&foo=bar";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("secret1"));
+        assert!(!redacted.contains("secret2"));
+        assert!(redacted.contains("foo=bar"), "Non-sensitive param should remain");
+        assert!(redacted.contains("api%5Fkey=[REDACTED]"));
+        assert!(redacted.contains("password=[REDACTED]"));
+    }
+
+    #[test]
+    fn test_redact_url_encoded_param_in_fragment() {
+        // URL-encoded param in fragment (OAuth implicit flow)
+        let url = "https://example.com#access%5Ftoken=xyz123";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("xyz123"), "Value of encoded access_token should be redacted");
+        assert!(redacted.contains("access%5Ftoken=[REDACTED]"));
+    }
+
+    #[test]
+    fn test_redact_url_encoded_plus_as_space() {
+        // Plus sign decodes to space in application/x-www-form-urlencoded
+        // api+key would decode to "api key" which is not sensitive
+        let url = "https://example.com?api+key=value";
+        let redacted = redact_url_sensitive_params(url);
+        // "api key" (with space) is not in our sensitive list, so it should remain
+        assert_eq!(redacted, url);
+    }
+
+    #[test]
+    fn test_redact_url_combined_userinfo_at_and_encoded_params() {
+        // Combined: password with @, and encoded param names
+        let url = "https://user:p@ss@example.com?api%5Fkey=secret&access%5Ftoken=mytoken123";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("user:"), "Username should be redacted");
+        assert!(!redacted.contains("p@ss"), "Password with @ should be redacted");
+        assert!(!redacted.contains("secret"), "api_key value should be redacted");
+        assert!(!redacted.contains("mytoken123"), "access_token value should be redacted");
+        assert_eq!(redacted, "https://[REDACTED]@example.com?api%5Fkey=[REDACTED]&access%5Ftoken=[REDACTED]");
+    }
+
+    // =====================================================================
+    // Review 22 Tests: Double-encoded params, kebab-case params, URL whitespace
+    // =====================================================================
+
+    #[test]
+    fn test_redact_url_double_encoded_api_key() {
+        // Double-encoded: api_key -> api%5Fkey -> api%255Fkey
+        // %25 is encoded %, so api%255Fkey decodes to api%5Fkey which decodes to api_key
+        let url = "https://example.com?api%255Fkey=secret123";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("secret123"), "Double-encoded api_key value should be redacted");
+        assert!(redacted.contains("=[REDACTED]"), "Should contain redacted value");
+    }
+
+    #[test]
+    fn test_redact_url_double_encoded_token() {
+        // Double-encoded token: token -> tok%65n won't match, but api%255Fkey case is realistic
+        // Test that actual double-encoding of underscore works: api%255Fkey -> api%5Fkey -> api_key
+        let url = "https://example.com?api%255Fkey=mysecret";
+        let redacted = redact_url_sensitive_params(url);
+        // After double-decode, api%255Fkey becomes api_key which is in sensitive list
+        assert!(!redacted.contains("mysecret"), "Double-encoded api_key should be redacted");
+    }
+
+    #[test]
+    fn test_redact_url_double_encoded_password() {
+        // Double-encoded: password -> password (no underscore) but api_key case
+        // api%255Fkey double-decodes to api_key which is in the sensitive list
+        let url = "https://example.com?api%255Fkey=pass123&foo=bar";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("pass123"), "Double-encoded api_key value should be redacted");
+        assert!(redacted.contains("foo=bar"), "Non-sensitive param should remain");
+    }
+
+    #[test]
+    fn test_redact_url_kebab_case_api_key() {
+        // Kebab-case: api-key (with hyphen)
+        let url = "https://example.com?api-key=secret-value";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("secret-value"), "api-key value should be redacted");
+        assert!(redacted.contains("api-key=[REDACTED]"), "api-key param should be redacted");
+    }
+
+    #[test]
+    fn test_redact_url_kebab_case_access_token() {
+        // Kebab-case: access-token (with hyphen)
+        let url = "https://example.com?access-token=mytoken123";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("mytoken123"), "access-token value should be redacted");
+        assert!(redacted.contains("access-token=[REDACTED]"), "access-token param should be redacted");
+    }
+
+    #[test]
+    fn test_redact_url_kebab_case_client_secret() {
+        let url = "https://example.com?client-secret=very-secret&other=value";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("very-secret"), "client-secret value should be redacted");
+        assert!(redacted.contains("other=value"), "Non-sensitive param should remain");
+    }
+
+    #[test]
+    fn test_redact_url_kebab_case_multiple() {
+        // Multiple kebab-case sensitive params
+        let url = "https://example.com?api-key=key1&access-token=tok1&session-token=sess1&foo=bar";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("key1"), "api-key value should be redacted");
+        assert!(!redacted.contains("tok1"), "access-token value should be redacted");
+        assert!(!redacted.contains("sess1"), "session-token value should be redacted");
+        assert!(redacted.contains("foo=bar"), "Non-sensitive param should remain");
+    }
+
+    #[test]
+    fn test_jira_endpoint_trailing_whitespace_rejected() {
+        let yaml = r#"
+project_name: test-project
+output_folder: ./output
+jira:
+  endpoint: "https://jira.example.com  "
+"#;
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join(format!("test_jira_whitespace_{}.yaml", std::process::id()));
+        std::fs::write(&file_path, yaml).unwrap();
+
+        let result = load_config(&file_path);
+        std::fs::remove_file(&file_path).ok();
+
+        assert!(result.is_err(), "Should reject endpoint with trailing whitespace");
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(err_msg.contains("jira.endpoint"), "Error should mention jira.endpoint");
+        assert!(err_msg.contains("whitespace"), "Error should mention whitespace");
+    }
+
+    #[test]
+    fn test_jira_endpoint_leading_whitespace_rejected() {
+        let yaml = r#"
+project_name: test-project
+output_folder: ./output
+jira:
+  endpoint: "  https://jira.example.com"
+"#;
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join(format!("test_jira_leading_ws_{}.yaml", std::process::id()));
+        std::fs::write(&file_path, yaml).unwrap();
+
+        let result = load_config(&file_path);
+        std::fs::remove_file(&file_path).ok();
+
+        assert!(result.is_err(), "Should reject endpoint with leading whitespace");
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("whitespace"), "Error should mention whitespace");
+    }
+
+    #[test]
+    fn test_squash_endpoint_whitespace_rejected() {
+        let yaml = r#"
+project_name: test-project
+output_folder: ./output
+squash:
+  endpoint: "https://squash.example.com   "
+"#;
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join(format!("test_squash_ws_{}.yaml", std::process::id()));
+        std::fs::write(&file_path, yaml).unwrap();
+
+        let result = load_config(&file_path);
+        std::fs::remove_file(&file_path).ok();
+
+        assert!(result.is_err(), "Should reject squash endpoint with trailing whitespace");
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("squash.endpoint"), "Error should mention squash.endpoint");
+    }
+
+    #[test]
+    fn test_llm_local_endpoint_whitespace_rejected() {
+        let yaml = r#"
+project_name: test-project
+output_folder: ./output
+llm:
+  mode: local
+  local_endpoint: " http://localhost:11434 "
+"#;
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join(format!("test_llm_local_ws_{}.yaml", std::process::id()));
+        std::fs::write(&file_path, yaml).unwrap();
+
+        let result = load_config(&file_path);
+        std::fs::remove_file(&file_path).ok();
+
+        assert!(result.is_err(), "Should reject local_endpoint with whitespace");
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("llm.local_endpoint"), "Error should mention llm.local_endpoint");
+    }
+
+    #[test]
+    fn test_llm_cloud_endpoint_whitespace_rejected() {
+        let yaml = r#"
+project_name: test-project
+output_folder: ./output
+llm:
+  mode: cloud
+  cloud_enabled: true
+  cloud_endpoint: "https://api.openai.com/v1   "
+  cloud_model: gpt-4
+  api_key: sk-test
+"#;
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join(format!("test_llm_cloud_ws_{}.yaml", std::process::id()));
+        std::fs::write(&file_path, yaml).unwrap();
+
+        let result = load_config(&file_path);
+        std::fs::remove_file(&file_path).ok();
+
+        assert!(result.is_err(), "Should reject cloud_endpoint with trailing whitespace");
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("llm.cloud_endpoint"), "Error should mention llm.cloud_endpoint");
+    }
+
+    #[test]
+    fn test_valid_endpoints_without_whitespace_accepted() {
+        let yaml = r#"
+project_name: test-project
+output_folder: ./output
+jira:
+  endpoint: "https://jira.example.com"
+squash:
+  endpoint: "https://squash.example.com"
+llm:
+  mode: auto
+  local_endpoint: "http://localhost:11434"
+"#;
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join(format!("test_valid_endpoints_{}.yaml", std::process::id()));
+        std::fs::write(&file_path, yaml).unwrap();
+
+        let result = load_config(&file_path);
+        std::fs::remove_file(&file_path).ok();
+
+        assert!(result.is_ok(), "Should accept endpoints without whitespace");
+    }
+
+    // === REVIEW 23 TESTS: Query param separators, whitespace, and IPv6 zone-id ===
+
+    #[test]
+    fn test_redact_url_semicolon_separator() {
+        // RFC 1866 allows semicolon as query parameter separator in HTML forms
+        let url = "https://example.com?token=secret;foo=bar";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(redacted.contains("token=[REDACTED]"), "Should redact token with semicolon separator");
+        assert!(redacted.contains("foo=bar"), "Should preserve non-sensitive param");
+        assert!(redacted.contains(";"), "Should preserve semicolon separator");
+    }
+
+    #[test]
+    fn test_redact_url_semicolon_only_sensitive() {
+        // All params separated by semicolons
+        let url = "https://example.com?api_key=sk123;password=secret;user=john";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(redacted.contains("api_key=[REDACTED]"), "Should redact api_key");
+        assert!(redacted.contains("password=[REDACTED]"), "Should redact password");
+        assert!(redacted.contains("user=john"), "Should preserve non-sensitive param");
+    }
+
+    #[test]
+    fn test_redact_url_mixed_separators() {
+        // Mix of & and ; separators
+        let url = "https://example.com?token=abc&secret=def;api_key=ghi;foo=bar&auth=xyz";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(redacted.contains("token=[REDACTED]"), "Should redact token");
+        assert!(redacted.contains("secret=[REDACTED]"), "Should redact secret");
+        assert!(redacted.contains("api_key=[REDACTED]"), "Should redact api_key");
+        assert!(redacted.contains("auth=[REDACTED]"), "Should redact auth");
+        assert!(redacted.contains("foo=bar"), "Should preserve non-sensitive param");
+    }
+
+    #[test]
+    fn test_redact_url_whitespace_around_key() {
+        // Whitespace around parameter key
+        let url = "https://example.com?token =secret";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(redacted.contains("[REDACTED]"), "Should redact token with trailing whitespace in key");
+        assert!(!redacted.contains("secret"), "Should not expose secret value");
+    }
+
+    #[test]
+    fn test_redact_url_leading_whitespace_key() {
+        // Leading whitespace in parameter key
+        let url = "https://example.com? api_key=secret";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(redacted.contains("[REDACTED]"), "Should redact api_key with leading whitespace");
+        assert!(!redacted.contains("secret"), "Should not expose secret value");
+    }
+
+    #[test]
+    fn test_redact_url_whitespace_with_semicolon() {
+        // Whitespace around key with semicolon separator
+        let url = "https://example.com?foo=bar; token =mysecret;other=value";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(redacted.contains("[REDACTED]"), "Should redact token with whitespace and semicolon");
+        assert!(!redacted.contains("mysecret"), "Should not expose secret value");
+        assert!(redacted.contains("foo=bar"), "Should preserve first param");
+        assert!(redacted.contains("other=value"), "Should preserve last param");
+    }
+
+    #[test]
+    fn test_ipv6_zone_id_empty_rejected() {
+        // Empty zone ID is invalid (e.g., "fe80::1%" with nothing after %)
+        assert!(!is_valid_url("http://[fe80::1%]:8080"), "Should reject empty zone ID");
+        assert!(!is_valid_url("http://[fe80::1%]"), "Should reject empty zone ID without port");
+        assert!(!is_valid_url("https://[::1%]"), "Should reject empty zone ID on localhost");
+    }
+
+    #[test]
+    fn test_ipv6_zone_id_valid() {
+        // Valid zone IDs (interface names)
+        assert!(is_valid_url("http://[fe80::1%eth0]:8080"), "Should accept zone ID with interface name");
+        assert!(is_valid_url("http://[fe80::1%eth0]"), "Should accept zone ID without port");
+        assert!(is_valid_url("http://[fe80::1%wlan0]:3000"), "Should accept zone ID with wlan");
+        assert!(is_valid_url("http://[fe80::1%en0]:80"), "Should accept zone ID with en0");
+        assert!(is_valid_url("http://[fe80::1%lo]:8080"), "Should accept zone ID with lo");
+        // URL-encoded % is %25
+        assert!(is_valid_url("http://[fe80::1%25eth0]:8080"), "Should accept URL-encoded zone ID");
+    }
+
+    #[test]
+    fn test_ipv6_zone_id_invalid_chars() {
+        // Zone ID with invalid characters (only alphanumeric, hyphen, underscore, dot allowed)
+        assert!(!is_valid_url("http://[fe80::1%eth/0]:8080"), "Should reject zone ID with slash");
+        assert!(!is_valid_url("http://[fe80::1%eth@0]:8080"), "Should reject zone ID with @");
+        assert!(!is_valid_url("http://[fe80::1%eth 0]:8080"), "Should reject zone ID with space");
+    }
+
+    #[test]
+    fn test_redact_fragment_semicolon_separator() {
+        // Semicolon separator in fragment (OAuth implicit flow with semicolon)
+        let url = "https://app.com/callback#token=abc;access_token=secret";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(redacted.contains("token=[REDACTED]"), "Should redact token in fragment");
+        assert!(redacted.contains("access_token=[REDACTED]"), "Should redact access_token in fragment");
+        assert!(!redacted.contains("abc"), "Should not expose token value");
+        assert!(!redacted.contains("secret"), "Should not expose access_token value");
+    }
+
+    #[test]
+    fn test_redact_both_query_and_fragment_semicolon() {
+        // Both query and fragment with semicolon separators
+        let url = "https://example.com?api_key=key1;foo=bar#token=tok1;baz=qux";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(redacted.contains("api_key=[REDACTED]"), "Should redact api_key in query");
+        assert!(redacted.contains("token=[REDACTED]"), "Should redact token in fragment");
+        assert!(redacted.contains("foo=bar"), "Should preserve foo in query");
+        assert!(redacted.contains("baz=qux"), "Should preserve baz in fragment");
     }
 }

@@ -133,6 +133,40 @@ The crate validates:
 - Local LLM endpoint is provided when mode is "local"
 - Template paths have valid format (non-empty, no null bytes)
 
+### Template Path Validation
+
+Template paths (`templates.cr`, `templates.ppt`, `templates.anomaly`) undergo strict validation:
+
+| Field | Valid Extensions | Notes |
+|-------|-----------------|-------|
+| `templates.cr` | `.md` | Compte-rendu (daily report) template |
+| `templates.ppt` | `.pptx` | PowerPoint presentation template |
+| `templates.anomaly` | `.md` | Bug report template |
+
+**Security protections:**
+- Path traversal sequences (`..`) are rejected to prevent directory escape attacks
+- Paths must be valid format (non-empty, no null bytes)
+- Extensions are validated case-insensitively (`.MD` and `.md` both accepted)
+
+**Examples of valid/invalid paths:**
+
+```yaml
+# Valid
+templates:
+  cr: "./templates/cr.md"
+  ppt: "reports/weekly.pptx"
+  anomaly: "templates/bug-report.MD"
+
+# Invalid - wrong extension
+templates:
+  cr: "./templates/cr.txt"  # Error: must be a Markdown file
+  ppt: "report.ppt"          # Error: must be a PowerPoint file (.pptx)
+
+# Invalid - path traversal
+templates:
+  cr: "../../../etc/passwd.md"  # Error: cannot contain path traversal sequences
+```
+
 ## License
 
 MIT
