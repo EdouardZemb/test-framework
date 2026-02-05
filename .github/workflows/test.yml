@@ -22,6 +22,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -51,10 +54,10 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Install gnome-keyring
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gnome-keyring dbus-x11
+          sudo apt-get install -y libdbus-1-dev gnome-keyring dbus-x11
 
       - name: Run keyring tests
         run: |
