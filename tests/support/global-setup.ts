@@ -8,32 +8,23 @@
  *
  * @see https://playwright.dev/docs/test-global-setup-teardown
  */
-import {
-  authStorageInit,
-  setAuthProvider,
-  configureAuthSession,
-  authGlobalInit,
-} from '@seontechnologies/playwright-utils/auth-session';
-import apiAuthProvider from './auth/api-auth-provider';
+import * as fs from 'fs';
+import * as path from 'path';
+
+const AUTH_STORAGE_PATH = path.join(process.cwd(), 'tests/support/auth/sessions');
 
 async function globalSetup() {
   console.log('🧪 Global Setup: Initializing test environment...');
 
-  // Ensure storage directories exist
-  authStorageInit();
+  // Ensure auth storage directory exists
+  if (!fs.existsSync(AUTH_STORAGE_PATH)) {
+    fs.mkdirSync(AUTH_STORAGE_PATH, { recursive: true });
+    console.log(`📁 Created auth storage directory: ${AUTH_STORAGE_PATH}`);
+  }
 
-  // Configure auth session storage path
-  configureAuthSession({
-    authStoragePath: process.cwd() + '/tests/support/auth/sessions',
-    debug: process.env.DEBUG === 'true',
-  });
-
-  // Set custom auth provider
-  setAuthProvider(apiAuthProvider);
-
-  // Pre-fetch token for default user (optional - speeds up first test)
-  // Uncomment when auth endpoint is available:
-  // await authGlobalInit();
+  // TODO: Add authentication initialization when auth endpoint is available
+  // - Pre-fetch tokens for test users
+  // - Seed test data
 
   console.log('✅ Global Setup: Complete');
 }
