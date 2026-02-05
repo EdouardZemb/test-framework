@@ -1,6 +1,6 @@
 # Story 0.3: Gestion des secrets via secret store
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
