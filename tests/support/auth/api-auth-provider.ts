@@ -1,12 +1,35 @@
 /**
  * API Auth Provider
  *
- * Custom auth provider for @seontechnologies/playwright-utils auth-session.
+ * Custom auth provider for API-based authentication.
  * Authenticates via API without browser - ideal for API-first testing.
  *
  * Customize this file to match your application's authentication mechanism.
  */
-import { type AuthProvider } from '@seontechnologies/playwright-utils/auth-session';
+import type { APIRequestContext, BrowserContextOptions } from '@playwright/test';
+
+/** Storage state format compatible with Playwright */
+type StorageState = BrowserContextOptions['storageState'] & {
+  origins?: Array<{
+    origin: string;
+    localStorage: Array<{ name: string; value: string }>;
+  }>;
+};
+
+/** Auth provider options */
+interface AuthOptions {
+  environment?: string;
+  userIdentifier?: string;
+}
+
+/** Auth provider interface */
+export interface AuthProvider {
+  getEnvironment: (options: AuthOptions) => string;
+  getUserIdentifier: (options: AuthOptions) => string;
+  extractToken: (storageState: StorageState) => string | undefined;
+  isTokenExpired: (storageState: StorageState) => boolean;
+  manageAuthToken: (request: APIRequestContext, options: AuthOptions) => Promise<StorageState>;
+}
 
 const apiAuthProvider: AuthProvider = {
   /**
