@@ -1,0 +1,24 @@
+# Configuration to test invalid LLM config after profile merge
+# Base config is valid, but 'invalid_llm' profile creates an invalid LLM config
+
+project_name: "llm-validation-test"
+output_folder: "./output"
+
+llm:
+  mode: "auto"
+  local_endpoint: "http://localhost:11434"
+  cloud_enabled: false
+
+profiles:
+  valid_llm:
+    # Valid profile - just changes to local mode
+    llm:
+      mode: "local"
+      local_endpoint: "http://localhost:8080"
+      cloud_enabled: false
+
+  invalid_llm:
+    # Invalid: mode=cloud but cloud_enabled=false is a contradiction
+    llm:
+      mode: "cloud"
+      cloud_enabled: false

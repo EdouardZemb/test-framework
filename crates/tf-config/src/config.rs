@@ -1,7 +1,9 @@
 //! Configuration structures and loading logic
 
 use crate::error::ConfigError;
+use crate::profiles::ProfileOverride;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 
@@ -30,10 +32,41 @@ pub struct ProjectConfig {
     /// LLM configuration
     #[serde(default)]
     pub llm: Option<LlmConfig>,
+
+    /// Configuration profiles for environment-specific overrides.
+    ///
+    /// Profiles allow switching between different configurations (dev, staging, prod)
+    /// without modifying the base configuration. Each profile can override:
+    /// - `output_folder`: Target directory for generated files
+    /// - `jira`: Jira integration settings
+    /// - `squash`: Squash integration settings
+    /// - `llm`: LLM provider settings
+    /// - `templates`: Template file paths
+    ///
+    /// # Example
+    ///
+    /// ```yaml
+    /// profiles:
+    ///   dev:
+    ///     output_folder: "./dev-output"
+    ///     jira:
+    ///       endpoint: "https://jira.dev.example.com"
+    ///   prod:
+    ///     # Empty profile uses base values
+    /// ```
+    #[serde(default)]
+    pub profiles: Option<HashMap<String, ProfileOverride>>,
+
+    /// Currently active profile name (set after calling `with_profile()`).
+    ///
+    /// This field is `None` when no profile has been applied.
+    /// After calling `config.with_profile("dev")`, this will be `Some("dev")`.
+    #[serde(skip)]
+    pub active_profile: Option<String>,
 }
 
 /// Jira integration configuration
-#[derive(Clone, Deserialize)]
+#[derive(Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JiraConfig {
     /// Jira server endpoint URL
@@ -45,7 +78,7 @@ pub struct JiraConfig {
 }
 
 /// Squash integration configuration
-#[derive(Clone, Deserialize)]
+#[derive(Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SquashConfig {
     /// Squash server endpoint URL
@@ -64,7 +97,7 @@ pub struct SquashConfig {
 ///
 /// All template paths are optional. When provided, they should point to
 /// valid template files that will be used for generating reports and documents.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TemplatesConfig {
     /// Path to CR (compte-rendu/daily report) template file.
@@ -117,7 +150,7 @@ impl std::fmt::Display for LlmMode {
 }
 
 /// LLM (Large Language Model) configuration
-#[derive(Clone, Deserialize)]
+#[derive(Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LlmConfig {
     /// LLM mode: auto, local, or cloud
@@ -535,6 +568,188 @@ impl ProjectConfig {
         } else {
             None
         }
+    }
+
+    /// Apply a named profile to the configuration, returning a new merged configuration.
+    ///
+    /// This method looks up the specified profile in the `profiles` map and merges
+    /// its overrides onto the base configuration. The resulting configuration has
+    /// the `active_profile` field set to the selected profile name.
+    ///
+    /// # Arguments
+    ///
+    /// * `profile_name` - The name of the profile to apply (e.g., "dev", "staging", "prod")
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(ProjectConfig)` - A new configuration with the profile overrides applied
+    /// * `Err(ConfigError::ProfileNotFound)` - If the profile doesn't exist, with list of available profiles
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use std::path::Path;
+    /// use tf_config::load_config;
+    ///
+    /// let config = load_config(Path::new("config.yaml")).unwrap();
+    /// let dev_config = config.with_profile("dev").unwrap();
+    /// println!("Output folder: {}", dev_config.output_folder);
+    /// ```
+    pub fn with_profile(&self, profile_name: &str) -> Result<ProjectConfig, ConfigError> {
+        // Get available profile names for error messages
+        let available_profiles: Vec<String> = self
+            .profiles
+            .as_ref()
+            .map(|p| p.keys().cloned().collect())
+            .unwrap_or_default();
+
+        // Look up the profile
+        let profile = self
+            .profiles
+            .as_ref()
+            .and_then(|p| p.get(profile_name))
+            .ok_or_else(|| ConfigError::ProfileNotFound {
+                requested: profile_name.to_string(),
+                available: available_profiles,
+            })?;
+
+        // Apply the profile and set active_profile
+        let mut merged = self.apply_profile(profile);
+        merged.active_profile = Some(profile_name.to_string());
+
+        // Validate the merged configuration to ensure profile overrides don't break invariants
+        // This catches issues like:
+        // - Profile setting output_folder with path traversal (..)
+        // - Profile setting invalid LLM configuration (e.g., mode: cloud without api_key)
+        // - Profile setting empty or invalid URLs
+        validate_config(&merged)?;
+
+        Ok(merged)
+    }
+
+    /// Apply a ProfileOverride to the configuration, returning a new merged configuration.
+    ///
+    /// This is the low-level merge operation. Fields specified in the override replace
+    /// the corresponding fields in the base configuration. Fields set to `None` in the
+    /// override preserve the base configuration value (partial override pattern).
+    ///
+    /// Note: This method does NOT set `active_profile`. Use `with_profile()` for that.
+    ///
+    /// # Arguments
+    ///
+    /// * `profile` - The profile overrides to apply
+    ///
+    /// # Returns
+    ///
+    /// A new `ProjectConfig` with the profile overrides applied.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use tf_config::{ProfileOverride, ProjectConfig};
+    ///
+    /// let base_config = ProjectConfig {
+    ///     project_name: "my-project".to_string(),
+    ///     output_folder: "./output".to_string(),
+    ///     jira: None,
+    ///     squash: None,
+    ///     llm: None,
+    ///     templates: None,
+    ///     profiles: None,
+    ///     active_profile: None,
+    /// };
+    /// let profile = ProfileOverride {
+    ///     output_folder: Some("./dev-output".to_string()),
+    ///     ..Default::default()
+    /// };
+    /// let merged = base_config.apply_profile(&profile);
+    /// assert_eq!(merged.output_folder, "./dev-output");
+    /// ```
+    pub fn apply_profile(&self, profile: &ProfileOverride) -> ProjectConfig {
+        ProjectConfig {
+            // project_name is never overridden (not part of ProfileOverride)
+            project_name: self.project_name.clone(),
+
+            // Override output_folder if specified, otherwise keep base
+            output_folder: profile
+                .output_folder
+                .clone()
+                .unwrap_or_else(|| self.output_folder.clone()),
+
+            // Override jira if specified, otherwise keep base
+            jira: profile.jira.clone().or_else(|| self.jira.clone()),
+
+            // Override squash if specified, otherwise keep base
+            squash: profile.squash.clone().or_else(|| self.squash.clone()),
+
+            // Override llm if specified, otherwise keep base
+            llm: profile.llm.clone().or_else(|| self.llm.clone()),
+
+            // Override templates if specified, otherwise keep base
+            templates: profile.templates.clone().or_else(|| self.templates.clone()),
+
+            // Preserve profiles map (allow chaining)
+            profiles: self.profiles.clone(),
+
+            // active_profile is NOT set here - use with_profile() for that
+            active_profile: self.active_profile.clone(),
+        }
+    }
+
+    /// Generate a summary of the active profile configuration.
+    ///
+    /// Returns a human-readable summary showing:
+    /// - The active profile name (if any)
+    /// - Effective values for key configuration fields (output folder, Jira, Squash, LLM, Templates)
+    ///
+    /// # Returns
+    ///
+    /// A multi-line string summarizing the current configuration state.
+    pub fn active_profile_summary(&self) -> String {
+        let profile_status = match &self.active_profile {
+            Some(name) => format!("Active profile: {}", name),
+            None => "No profile active (using base configuration)".to_string(),
+        };
+
+        let jira_status = match &self.jira {
+            Some(j) => format!("Jira: {}", redact_url_sensitive_params(&j.endpoint)),
+            None => "Jira: not configured".to_string(),
+        };
+
+        let squash_status = match &self.squash {
+            Some(s) => format!("Squash: {}", redact_url_sensitive_params(&s.endpoint)),
+            None => "Squash: not configured".to_string(),
+        };
+
+        let llm_status = match &self.llm {
+            Some(l) => format!("LLM: {}", l.mode),
+            None => "LLM: not configured".to_string(),
+        };
+
+        let templates_status = match &self.templates {
+            Some(t) => {
+                let parts: Vec<String> = [
+                    t.cr.as_ref().map(|_| "cr"),
+                    t.ppt.as_ref().map(|_| "ppt"),
+                    t.anomaly.as_ref().map(|_| "anomaly"),
+                ]
+                .iter()
+                .filter_map(|&p| p)
+                .map(|s| s.to_string())
+                .collect();
+                if parts.is_empty() {
+                    "Templates: configured (none set)".to_string()
+                } else {
+                    format!("Templates: {}", parts.join(", "))
+                }
+            }
+            None => "Templates: not configured".to_string(),
+        };
+
+        format!(
+            "{}\nOutput folder: {}\n{}\n{}\n{}\n{}",
+            profile_status, self.output_folder, jira_status, squash_status, llm_status, templates_status
+        )
     }
 }
 

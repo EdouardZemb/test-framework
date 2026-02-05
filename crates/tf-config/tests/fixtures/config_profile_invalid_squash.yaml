@@ -1,0 +1,26 @@
+# Configuration with a profile containing invalid Squash URL
+# Tests: validation after merge in with_profile()
+
+project_name: "squash-url-test"
+output_folder: "./valid-output"
+
+squash:
+  endpoint: "https://squash.valid.example.com"
+  username: "validuser"
+  password: "validpass"
+
+# Profile with invalid Squash URL - should fail validation when applied
+profiles:
+  invalid_squash_url:
+    # This invalid URL should be caught by validate_config after merge
+    squash:
+      endpoint: "not-a-valid-url"
+      username: "user"
+      password: "pass"
+
+  valid_squash:
+    # Valid override for comparison
+    squash:
+      endpoint: "https://squash.staging.example.com"
+      username: "staginguser"
+      password: "stagingpass"

@@ -65,6 +65,5 @@ pub use config::{
 };
 pub use error::ConfigError;
 
-// Profile types are placeholders for Story 0.2 - hidden from public documentation
-#[doc(hidden)]
-pub use profiles::{ProfileConfig, ProfileId};
+// Profile types for Story 0.2
+pub use profiles::{ProfileId, ProfileOverride};

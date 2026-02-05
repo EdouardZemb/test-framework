@@ -1,0 +1,26 @@
+# Configuration with a profile containing invalid templates path (path traversal)
+# Tests: validation after merge in with_profile()
+
+project_name: "templates-path-test"
+output_folder: "./valid-output"
+
+templates:
+  cr: "./templates/cr.md"
+  ppt: "./templates/report.pptx"
+  anomaly: "./templates/anomaly.md"
+
+# Profile with path traversal in templates - should fail validation when applied
+profiles:
+  evil_templates:
+    # This path traversal should be caught by validate_config after merge
+    templates:
+      cr: "../../../etc/passwd.md"
+      ppt: "./templates/valid.pptx"
+      anomaly: "./templates/valid.md"
+
+  valid_templates:
+    # Valid override for comparison
+    templates:
+      cr: "./templates/dev/cr.md"
+      ppt: "./templates/dev/report.pptx"
+      anomaly: "./templates/dev/anomaly.md"
