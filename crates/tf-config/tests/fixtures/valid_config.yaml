@@ -1,0 +1,15 @@
+project_name: "test-project"
+output_folder: "./output"
+jira:
+  endpoint: "https://jira.example.com"
+  token: "secret-token"
+squash:
+  endpoint: "https://squash.example.com"
+  username: "testuser"
+  password: "secret-password"
+templates:
+  cr: "./templates/cr.md"
+  ppt: "./templates/ppt.pptx"
+  anomaly: "./templates/anomaly.md"
+llm:
+  mode: "auto"

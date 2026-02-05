@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/*",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+repository = "https://github.com/edouard-music/test-framework"
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+# TODO [TECH-DEBT]: serde_yaml is unmaintained (dtolnay archived the repo).
+# Migration alternatives to evaluate:
+#   - serde_yml (https://github.com/sebastienrousseau/serde_yml) - direct fork
+#   - yaml-rust2 + manual serde (more control, breaking change)
+# Current version 0.9 is stable and functional. Plan migration when:
+#   - Security vulnerability is discovered, OR
+#   - Rust edition upgrade requires it, OR
+#   - New YAML features are needed
+serde_yaml = "0.9"
+serde_json = "1.0"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Testing
+assert_matches = "1.5"
