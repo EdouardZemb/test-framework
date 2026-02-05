@@ -1,4 +1,4 @@
-# Simplified E2E Test Pipeline
+# Test Pipeline
 name: Tests
 
 on:
@@ -13,7 +13,58 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  # Rust unit and integration tests
+  rust-tests:
+    name: Rust Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Run tests (unit tests only)
+        run: cargo test --workspace
+
+  # Rust tests requiring OS keyring (Linux with gnome-keyring)
+  rust-keyring-tests:
+    name: Rust Keyring Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install gnome-keyring
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gnome-keyring dbus-x11
+
+      - name: Run keyring tests
+        run: |
+          # Start dbus session and unlock keyring with empty password
+          eval $(dbus-launch --sh-syntax)
+          echo "" | gnome-keyring-daemon --unlock --components=secrets
+          cargo test -p tf-security -- --include-ignored
+
+  # E2E tests with Playwright
+  e2e-tests:
     name: E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
