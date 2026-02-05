@@ -167,6 +167,101 @@ templates:
   cr: "../../../etc/passwd.md"  # Error: cannot contain path traversal sequences
 ```
 
+## Configuration Profiles
+
+The crate supports environment-specific configuration profiles that override base configuration values. This allows switching between dev, staging, and production settings without maintaining separate config files.
+
+### Profile Schema
+
+```yaml
+project_name: "my-project"
+output_folder: "./output"
+
+jira:
+  endpoint: "https://jira.prod.example.com"
+  token: "your-token"
+
+# Profile definitions
+profiles:
+  dev:
+    output_folder: "./output-dev"
+    jira:
+      endpoint: "https://jira.dev.example.com"
+      token: "dev-token"
+    llm:
+      mode: "local"
+      local_endpoint: "http://localhost:11434"
+
+  staging:
+    jira:
+      endpoint: "https://jira.staging.example.com"
+    squash:
+      endpoint: "https://squash.staging.example.com"
+
+  prod:
+    # Empty profile - uses all base values
+```
+
+### Profile Fields
+
+Each profile can override the following fields:
+- `output_folder` - Output directory path
+- `jira` - Complete Jira configuration (endpoint, token)
+- `squash` - Complete Squash configuration (endpoint, username, password)
+- `llm` - Complete LLM configuration (mode, endpoints, models, api_key)
+- `templates` - Complete templates configuration (cr, ppt, anomaly)
+
+Fields not specified in a profile retain their base configuration values.
+
+### Using Profiles in Code
+
+```rust
+use std::path::Path;
+use tf_config::load_config;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load base configuration
+    let config = load_config(Path::new("config.yaml"))?;
+
+    // Apply a profile (returns a new config with overrides merged)
+    let dev_config = config.with_profile("dev")?;
+
+    // Get a summary of the active configuration
+    println!("{}", dev_config.active_profile_summary());
+    // Output:
+    // Active profile: dev
+    // Output folder: ./output-dev
+    // Jira: https://jira.dev.example.com
+    // Squash: not configured
+    // LLM: local
+
+    Ok(())
+}
+```
+
+### Handling Unknown Profiles
+
+When a non-existent profile is requested, a `ProfileNotFound` error is returned with the list of available profiles:
+
+```rust
+use tf_config::{load_config, ConfigError};
+
+match config.with_profile("unknown") {
+    Err(ConfigError::ProfileNotFound { requested, available }) => {
+        eprintln!("Profile '{}' not found", requested);
+        eprintln!("Available profiles: {:?}", available);
+    }
+    _ => {}
+}
+```
+
+### Profile Validation
+
+Profiles undergo the same validation as the base configuration:
+- URLs must be valid format (scheme + host)
+- Paths cannot contain traversal sequences (`..`)
+- LLM mode requirements are enforced (local endpoint when mode is "local", cloud fields when mode is "cloud")
+
 ## License
 
 MIT

@@ -1,0 +1,16 @@
+# Configuration with a profile containing an invalid Jira URL
+# Tests: Review Follow-up Round 2 - validate_config() rejects invalid URL after merge
+
+project_name: "profile-invalid-jira-test"
+output_folder: "./valid-output"
+
+jira:
+  endpoint: "https://jira.valid.example.com"
+  token: "valid-token"
+
+profiles:
+  invalid_jira_url:
+    # This profile has an invalid Jira endpoint (not a valid URL)
+    jira:
+      endpoint: "not-a-valid-url"
+      token: "some-token"

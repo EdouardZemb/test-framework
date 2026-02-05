@@ -10,6 +10,18 @@
 
 use std::path::PathBuf;
 
+/// Formats the available profiles list for user-friendly error messages.
+///
+/// Returns a helpful message when no profiles are defined, or lists
+/// the available profiles when some exist.
+fn format_available_profiles(available: &[String]) -> String {
+    if available.is_empty() {
+        "No profiles defined in configuration. Add a 'profiles' section to config.yaml.".to_string()
+    } else {
+        format!("Available profiles: {}", available.join(", "))
+    }
+}
+
 /// Errors that can occur when loading or validating configuration
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -28,6 +40,20 @@ pub enum ConfigError {
         field: String,
         reason: String,
         hint: String,
+    },
+
+    /// Requested profile does not exist in the configuration.
+    ///
+    /// This error occurs when `with_profile()` is called with a profile name
+    /// that is not defined in the `profiles` section of the configuration.
+    /// The error includes the list of available profiles to help the user
+    /// select a valid one.
+    #[error("Profile '{requested}' not found. {}", format_available_profiles(available))]
+    ProfileNotFound {
+        /// The profile name that was requested
+        requested: String,
+        /// List of available profile names from the configuration
+        available: Vec<String>,
     },
 
     /// Failed to read the configuration file.

@@ -1,0 +1,16 @@
+# Configuration for testing profile secret override (AC #3)
+# Verifies that secrets from profile overrides are also redacted in logs
+
+project_name: "jira-override-project"
+output_folder: "./output"
+
+jira:
+  endpoint: "https://jira.base.example.com"
+  token: "base-jira-token-12345"
+
+# Single profile that completely overrides jira configuration
+profiles:
+  override_secrets:
+    jira:
+      endpoint: "https://jira.override.example.com"
+      token: "override-jira-token-67890"

@@ -1,0 +1,15 @@
+# Configuration with a profile containing invalid output_folder (path traversal)
+# Tests: validation after merge in with_profile()
+
+project_name: "path-traversal-test"
+output_folder: "./valid-output"
+
+# Profile with path traversal - should fail validation when applied
+profiles:
+  evil:
+    # This path traversal should be caught by validate_config after merge
+    output_folder: "../../../etc/passwd"
+
+  empty_path:
+    # Empty output_folder should also fail validation
+    output_folder: ""

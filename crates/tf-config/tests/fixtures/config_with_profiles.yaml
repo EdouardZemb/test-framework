@@ -1,0 +1,56 @@
+# Configuration with multiple profiles for testing Story 0-2
+# Tests: AC #1 (valid profile), AC #2 (unknown profile), AC #3 (secrets redaction)
+
+project_name: "profiles-test-project"
+output_folder: "./base-output"
+
+jira:
+  endpoint: "https://jira.base.example.com"
+  token: "base-secret-token"
+
+squash:
+  endpoint: "https://squash.base.example.com"
+  username: "baseuser"
+  password: "base-secret-password"
+
+llm:
+  mode: "auto"
+  local_endpoint: "http://localhost:11434"
+  cloud_enabled: false
+
+# Profile definitions for environment-specific overrides
+profiles:
+  dev:
+    # Dev profile overrides output_folder and jira endpoint
+    output_folder: "./dev-output"
+    jira:
+      endpoint: "https://jira.dev.example.com"
+      token: "dev-secret-token"
+
+  staging:
+    # Staging profile overrides both jira and squash endpoints
+    jira:
+      endpoint: "https://jira.staging.example.com"
+      token: "staging-secret-token"
+    squash:
+      endpoint: "https://squash.staging.example.com"
+      username: "staginguser"
+      password: "staging-secret-password"
+
+  prod:
+    # Empty profile - uses all base values (useful for explicit "production" selection)
+
+  with_templates:
+    # Profile that overrides templates (Review Follow-up Round 4 test)
+    templates:
+      cr: "./templates/dev/cr.md"
+      ppt: "./templates/dev/report.pptx"
+      anomaly: "./templates/dev/anomaly.md"
+
+  with_llm:
+    # Profile that overrides LLM config (Review Follow-up Round 4 - LOW)
+    llm:
+      mode: "local"
+      local_endpoint: "http://localhost:8080"
+      local_model: "codellama:7b"
+      cloud_enabled: false
