@@ -165,12 +165,17 @@ fn default_max_tokens() -> u32 {
     4096
 }
 
-/// Redact sensitive query parameters from a URL for safe logging.
+/// Redact sensitive information from a URL for safe logging.
 ///
-/// Sensitive parameters that will be redacted:
+/// This function redacts:
+/// 1. Userinfo credentials (`scheme://user:pass@host` -> `scheme://[REDACTED]@host`)
+/// 2. Sensitive query parameters (token, api_key, password, etc.)
+///
+/// Sensitive query parameters that will be redacted:
 /// - token, api_key, apikey, key, secret, password, passwd, pwd, auth, authorization
 ///
 /// Example:
+/// - `https://user:secret@jira.example.com` -> `https://[REDACTED]@jira.example.com`
 /// - `https://jira.example.com?token=secret123` -> `https://jira.example.com?token=[REDACTED]`
 /// - `https://api.example.com?api_key=sk-123&foo=bar` -> `https://api.example.com?api_key=[REDACTED]&foo=bar`
 fn redact_url_sensitive_params(url: &str) -> String {
@@ -189,16 +194,20 @@ fn redact_url_sensitive_params(url: &str) -> String {
         "accesskey", "secretaccesskey",
     ];
 
+    // First, redact userinfo (user:pass@host) if present
+    // URL format: scheme://[userinfo@]host[:port][/path][?query]
+    let url = redact_url_userinfo(url);
+
     // Find the query string start
     let Some(query_start) = url.find('?') else {
-        return url.to_string();
+        return url;
     };
 
     let (base_url, query_string) = url.split_at(query_start);
     let query_string = &query_string[1..]; // Skip the '?'
 
     if query_string.is_empty() {
-        return url.to_string();
+        return url;
     }
 
     // Parse and redact query parameters
@@ -222,6 +231,47 @@ fn redact_url_sensitive_params(url: &str) -> String {
         .collect();
 
     format!("{}?{}", base_url, redacted_params.join("&"))
+}
+
+/// Redact userinfo (user:password) from a URL.
+///
+/// RFC 3986 defines userinfo as: `userinfo = user [ ":" password ]`
+/// located between `scheme://` and `@host`
+///
+/// Example:
+/// - `https://admin:secret@example.com` -> `https://[REDACTED]@example.com`
+/// - `https://user@example.com` -> `https://[REDACTED]@example.com`
+/// - `https://example.com` -> `https://example.com` (unchanged)
+fn redact_url_userinfo(url: &str) -> String {
+    // Find the scheme separator
+    let Some(scheme_end) = url.find("://") else {
+        return url.to_string();
+    };
+
+    let after_scheme = &url[scheme_end + 3..];
+
+    // Check if there's an @ symbol (indicates userinfo is present)
+    let Some(at_pos) = after_scheme.find('@') else {
+        return url.to_string();
+    };
+
+    // Make sure @ comes before / (path start) or ? (query start) or end of string
+    // to avoid matching @ in paths or queries
+    let host_start = at_pos;
+    let path_or_query = after_scheme.find('/').unwrap_or(after_scheme.len());
+    let query_start = after_scheme.find('?').unwrap_or(after_scheme.len());
+    let end_of_authority = path_or_query.min(query_start);
+
+    if host_start >= end_of_authority {
+        // The @ is in the path or query, not userinfo
+        return url.to_string();
+    }
+
+    // Reconstruct URL with redacted userinfo
+    let scheme = &url[..scheme_end + 3]; // includes "://"
+    let host_and_rest = &after_scheme[at_pos + 1..]; // after the @
+
+    format!("{}[REDACTED]@{}", scheme, host_and_rest)
 }
 
 /// Trait for redacting sensitive information in display output
@@ -377,6 +427,9 @@ pub fn load_config(path: &Path) -> Result<ProjectConfig, ConfigError> {
                     SerdeErrorKind::InvalidEnumValue { field, reason, hint } => {
                         ConfigError::invalid_value(field, reason, hint)
                     }
+                    SerdeErrorKind::InvalidEnumValueDynamic { field, reason, hint } => {
+                        ConfigError::invalid_value(field, reason, hint)
+                    }
                     SerdeErrorKind::UnknownField { field, location, hint } => {
                         ConfigError::invalid_value(
                             format!("{}.{}", location, field),
@@ -400,8 +453,10 @@ pub fn load_config(path: &Path) -> Result<ProjectConfig, ConfigError> {
 enum SerdeErrorKind {
     /// Missing required field
     MissingField { field: &'static str, hint: &'static str },
-    /// Invalid enum variant
+    /// Invalid enum variant (static field name)
     InvalidEnumValue { field: &'static str, reason: &'static str, hint: &'static str },
+    /// Invalid enum variant (dynamic field name extracted from error message)
+    InvalidEnumValueDynamic { field: String, reason: &'static str, hint: &'static str },
     /// Unknown field (when deny_unknown_fields is active)
     UnknownField { field: String, location: &'static str, hint: &'static str },
 }
@@ -413,8 +468,8 @@ enum SerdeErrorKind {
 /// - Path prefix: "jira.token: invalid type"
 /// - Context suffix: "while parsing jira.token"
 ///
-/// Returns a leaked &'static str for compatibility with SerdeErrorKind.
-fn extract_field_from_error(err_msg: &str) -> Option<&'static str> {
+/// Returns an owned String to avoid memory leaks from static lifetime requirements.
+fn extract_field_from_error(err_msg: &str) -> Option<String> {
     // Pattern 1: Look for field path like "jira.token:" at start or after newline
     // serde_yaml sometimes formats nested errors as "section.field: error"
     for pattern in ["jira.", "squash.", "llm.", "templates."] {
@@ -425,7 +480,7 @@ fn extract_field_from_error(err_msg: &str) -> Option<&'static str> {
                 let field_path = &rest[..end];
                 // Validate it looks like a field path (only alphanumeric, dots, underscores)
                 if field_path.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '_') {
-                    return Some(field_path.to_string().leak());
+                    return Some(field_path.to_string());
                 }
             }
         }
@@ -440,7 +495,7 @@ fn extract_field_from_error(err_msg: &str) -> Option<&'static str> {
             if !field_name.chars().all(|c| c.is_ascii_digit())
                 && !matches!(field_name, "auto" | "local" | "cloud" | "true" | "false")
             {
-                return Some(field_name.to_string().leak());
+                return Some(field_name.to_string());
             }
         }
     }
@@ -640,7 +695,7 @@ fn parse_serde_error(err_msg: &str) -> Option<SerdeErrorKind> {
             // Pattern 2: "at line X, column Y, while parsing jira.token" (path in context)
             // Pattern 3: backtick-quoted field names
             if let Some(field_name) = extract_field_from_error(err_msg) {
-                return Some(SerdeErrorKind::InvalidEnumValue {
+                return Some(SerdeErrorKind::InvalidEnumValueDynamic {
                     field: field_name,
                     reason: "has invalid type (expected a string)",
                     hint: "a valid string value (e.g., \"example-value\")",
@@ -650,8 +705,8 @@ fn parse_serde_error(err_msg: &str) -> Option<SerdeErrorKind> {
             // Check for known nested string fields by context
             if err_msg.contains("token") {
                 let section = if err_msg.to_lowercase().contains("jira") { "jira" } else { "configuration" };
-                return Some(SerdeErrorKind::InvalidEnumValue {
-                    field: format!("{}.token", section).leak(),
+                return Some(SerdeErrorKind::InvalidEnumValueDynamic {
+                    field: format!("{}.token", section),
                     reason: "has invalid type (expected a string)",
                     hint: "a valid token string",
                 });
@@ -3031,6 +3086,74 @@ llm:
         let url = "https://example.com?page=1&limit=10";
         let redacted = redact_url_sensitive_params(url);
         assert_eq!(redacted, url); // Unchanged
+    }
+
+    #[test]
+    fn test_redact_url_userinfo_with_password() {
+        // Test redacting user:password@host format (AC #3 - no secrets in logs)
+        let url = "https://admin:secret123@jira.example.com/api";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("admin"));
+        assert!(!redacted.contains("secret123"));
+        assert!(redacted.contains("[REDACTED]@jira.example.com"));
+        assert_eq!(redacted, "https://[REDACTED]@jira.example.com/api");
+    }
+
+    #[test]
+    fn test_redact_url_userinfo_without_password() {
+        // Test redacting user@host format (username only, still sensitive)
+        let url = "https://apiuser@api.example.com/v1";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("apiuser"));
+        assert!(redacted.contains("[REDACTED]@api.example.com"));
+        assert_eq!(redacted, "https://[REDACTED]@api.example.com/v1");
+    }
+
+    #[test]
+    fn test_redact_url_userinfo_with_port() {
+        // Test redacting userinfo when port is present
+        let url = "https://user:pass@example.com:8080/path";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("user"));
+        assert!(!redacted.contains("pass"));
+        assert!(redacted.contains(":8080"));
+        assert_eq!(redacted, "https://[REDACTED]@example.com:8080/path");
+    }
+
+    #[test]
+    fn test_redact_url_userinfo_with_query() {
+        // Test redacting both userinfo AND sensitive query params
+        let url = "https://user:pass@example.com?token=secret";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("user"));
+        assert!(!redacted.contains("pass"));
+        assert!(!redacted.contains("secret"));
+        assert!(redacted.contains("[REDACTED]@example.com"));
+        assert!(redacted.contains("token=[REDACTED]"));
+    }
+
+    #[test]
+    fn test_redact_url_no_userinfo() {
+        // Test that URLs without userinfo are not modified (except query params)
+        let url = "https://example.com/path?foo=bar";
+        let redacted = redact_url_sensitive_params(url);
+        assert_eq!(redacted, url); // No userinfo to redact, no sensitive params
+    }
+
+    #[test]
+    fn test_redact_url_at_in_path_not_userinfo() {
+        // Test that @ in path is not treated as userinfo
+        let url = "https://example.com/user@domain/resource";
+        let redacted = redact_url_sensitive_params(url);
+        assert_eq!(redacted, url); // @ is in path, not userinfo
+    }
+
+    #[test]
+    fn test_redact_url_at_in_query_not_userinfo() {
+        // Test that @ in query params is not treated as userinfo
+        let url = "https://example.com?email=user@domain.com";
+        let redacted = redact_url_sensitive_params(url);
+        assert_eq!(redacted, url); // @ is in query value, not userinfo
     }
 
     #[test]

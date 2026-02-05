@@ -192,6 +192,13 @@ so that centraliser la configuration et eviter la re-saisie.
 - [x] [AI-Review][MEDIUM] Corriger `is_coerced_scalar` pour ne pas rejeter des chemins string numeriques valides (ex: `"2026"`) sur `output_folder` [crates/tf-config/src/config.rs:958-966]
 - [x] [AI-Review][MEDIUM] Synchroniser la File List du Dev Agent Record avec les changements reels (inclure `sprint-status.yaml` modifie) [_bmad-output/implementation-artifacts/0-1-configurer-un-projet-via-config-yaml.md:487-504]
 
+#### Review 17 (2026-02-05)
+
+- [x] [AI-Review][HIGH] Redacter aussi les credentials dans le userinfo des URLs (`scheme://user:pass@host`) pour eviter fuite de secrets en logs (AC #3) [crates/tf-config/src/config.rs:176-225, crates/tf-config/src/config.rs:291-317]
+- [x] [AI-Review][MEDIUM] Supprimer les usages de `String::leak()` dans le parsing d'erreurs serde pour eviter fuite memoire sur chemins d'erreur repetes [crates/tf-config/src/config.rs:417-449, crates/tf-config/src/config.rs:651-655]
+- [x] [AI-Review][HIGH] Synchroniser la File List de la story avec l'etat Git reel (les 16 fichiers listes ne correspondent pas aux changements courants) [_bmad-output/implementation-artifacts/0-1-configurer-un-projet-via-config-yaml.md:503-518]
+- [x] [AI-Review][MEDIUM] Documenter le changement de `_bmad-output/implementation-artifacts/sprint-status.yaml` dans la story (File List/Dev Agent Record) [_bmad-output/implementation-artifacts/sprint-status.yaml]
+
 ## Dev Notes
 
 ### Technical Stack Requirements
@@ -343,13 +350,22 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Senior Developer Review (AI)
 
-- **Date:** 2026-02-04
+- **Date:** 2026-02-05
 - **Reviewer:** Amelia (Developer Agent, adversarial code review workflow)
-- **Outcome:** ✅ All review items addressed (Review 16 complete)
-- **Summary:** Review 16 identified 3 issues (1 HIGH, 2 MEDIUM). All items fixed. Story ready for review.
+- **Outcome:** ✅ All review items addressed (Review 17 complete)
+- **Summary:** Review 17 identified 4 issues (2 HIGH, 2 MEDIUM). All items fixed. Story ready for review.
 
 ### Completion Notes List
 
+- **[Review 17 Fixes - 2026-02-05]** All 4 Review 17 items addressed:
+  - Added `redact_url_userinfo()` function to redact credentials in URL userinfo (`scheme://user:pass@host` → `scheme://[REDACTED]@host`) (HIGH)
+  - Extended `redact_url_sensitive_params()` to call `redact_url_userinfo()` first, then redact query params - both types of secrets now protected
+  - Removed `String::leak()` usage by introducing `SerdeErrorKind::InvalidEnumValueDynamic` variant with owned `String` field instead of `&'static str` (MEDIUM)
+  - Modified `extract_field_from_error()` to return `Option<String>` instead of `Option<&'static str>` to avoid memory leaks
+  - Updated story File List to reflect actual git state: `config.rs` marked as modified, added `sprint-status.yaml` (HIGH)
+  - Added sprint-status.yaml to File List documentation (MEDIUM)
+  - Added 7 new unit tests: userinfo with password, userinfo without password, userinfo with port, userinfo with query params, no userinfo, @ in path, @ in query
+  - 154 tests pass (143 unit + 8 integration + 3 doc-tests)
 - **[Review 16 Fixes - 2026-02-04]** All 3 Review 16 items addressed:
   - Added `extract_field_from_error()` helper to extract field paths from serde_yaml error messages, improving error attribution (HIGH)
   - Enhanced `parse_serde_error()` to identify known nested string fields (token, endpoint, username, password, api_key) with section-specific hints
@@ -495,8 +511,8 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 - Sensitive fields (token, password, api_key) protected via custom Debug impl showing [REDACTED]
 - Redact trait allows explicit redaction for logging purposes
 - Validation includes: required fields, URL format with host check (IPv4/IPv6), path format, path traversal, template extensions, port validation, LLM mode constraints
-- **Test count evolution:** 21 initial → 33 (after Review 1) → 48 (after Review 5) → 52 (after Review 6: +4 IPv6/Default tests) → 65 (after Review 7: +13 tests) → 72 (after Review 8: +7 tests) → 83 (after Review 9: +11 tests) → 89 (after Review 10: +6 tests) → 100 (after Review 11: +11 tests) → 117 (after Review 12: +17 tests) → 134 (after Review 13: +17 tests) → 144 (after Review 14: +10 tests) → 146 (after Review 15: +2 net tests) → 147 (after Review 16: +1 net test, acceptance tests for numeric paths)
-- 136 unit tests + 8 integration tests + 3 doc-tests (147 total - all passing, doc-tests compile-only via `no_run`)
+- **Test count evolution:** 21 initial → 33 (after Review 1) → 48 (after Review 5) → 52 (after Review 6: +4 IPv6/Default tests) → 65 (after Review 7: +13 tests) → 72 (after Review 8: +7 tests) → 83 (after Review 9: +11 tests) → 89 (after Review 10: +6 tests) → 100 (after Review 11: +11 tests) → 117 (after Review 12: +17 tests) → 134 (after Review 13: +17 tests) → 144 (after Review 14: +10 tests) → 146 (after Review 15: +2 net tests) → 147 (after Review 16: +1 net test) → 154 (after Review 17: +7 userinfo redaction tests)
+- 143 unit tests + 8 integration tests + 3 doc-tests (154 total - all passing, doc-tests compile-only via `no_run`)
 
 ### File List
 
@@ -508,7 +524,7 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 - crates/tf-config/README.md (new - usage docs, schema, error handling, security)
 - crates/tf-config/src/lib.rs (new - module exports, crate docs, Redact trait)
 - crates/tf-config/src/error.rs (new - ConfigError enum with thiserror)
-- crates/tf-config/src/config.rs (new - ProjectConfig, validation, deny_unknown_fields, hostname validation)
+- crates/tf-config/src/config.rs (modified - added userinfo redaction, removed String::leak())
 - crates/tf-config/src/profiles.rs (new - stub for Story 0.2)
 - crates/tf-config/tests/integration_tests.rs (new - 8 integration tests)
 - crates/tf-config/tests/fixtures/valid_config.yaml (new)
@@ -516,9 +532,11 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 - crates/tf-config/tests/fixtures/missing_project_name.yaml (new)
 - crates/tf-config/tests/fixtures/invalid_jira_url.yaml (new)
 - crates/tf-config/tests/fixtures/invalid_llm_mode.yaml (new)
+- _bmad-output/implementation-artifacts/sprint-status.yaml (modified - story status tracking)
 
 ### Change Log
 
+- **2026-02-05**: Review 17 fixes - Added URL userinfo redaction (user:pass@host), removed String::leak() memory leaks, synchronized File List with git state. 154 tests passing. Story ready for review.
 - **2026-02-04**: Review 16 fixes - Improved string error attribution with extract_field_from_error(), accept numeric paths (2026 as folder name), "configuration field" fallback with actionable hints. 147 tests passing. Story ready for review.
 - **2026-02-04**: Review 15 fixes - Reject coerced scalars (integers/booleans) for output_folder, fix parse_serde_error attribution, README auto+cloud docs. 146 tests passing. Story ready for review.
 - **2026-02-04**: Code Review 15 completed - 2 HIGH and 2 MEDIUM issues found; action items added under Review 15; story status set to in-progress.
