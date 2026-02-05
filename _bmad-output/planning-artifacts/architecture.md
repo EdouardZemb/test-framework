@@ -525,7 +525,9 @@ test-framework/
 │   ├── tf-security/
 │   │   ├── Cargo.toml
 │   │   └── src/
+│   │       ├── lib.rs
 │   │       ├── keyring.rs
+│   │       ├── error.rs
 │   │       ├── anonymize.rs
 │   │       └── redact.rs
 │   ├── tf-config/

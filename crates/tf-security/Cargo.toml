@@ -1,0 +1,14 @@
+[package]
+name = "tf-security"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Security module for test-framework: secrets management, anonymization, and redaction"
+
+[dependencies]
+keyring.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# No external mocks - use cfg(test) for test-specific code
