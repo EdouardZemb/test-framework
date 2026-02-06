@@ -1,6 +1,6 @@
 # Story 0.5: Journalisation baseline sans donnees sensibles
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -77,6 +77,20 @@ so that garantir l'auditabilite minimale des executions des le debut.
   - [x] Subtask 7.9: Test que Debug impl de LogGuard ne contient aucune donnee sensible
   - [x] Subtask 7.10: Test d'integration : simuler une commande CLI complete et verifier le contenu du fichier log JSON
   - [x] Subtask 7.11: Test de non-regression : executer `cargo test --workspace` et verifier que l'ensemble de la suite de tests passe toujours apres ajout de tf-logging (sans se baser sur un nombre fixe de tests).
+
+### Review Follow-ups (AI)
+
+- [ ] [AI-Review][HIGH] `log_to_stdout` field is documented but never used in `init_logging()` — either implement stdout layer when `log_to_stdout: true`, or remove the misleading doc comment [crates/tf-logging/src/init.rs:43]
+- [ ] [AI-Review][HIGH] `InvalidLogLevel` and `InitFailed` error variants are dead code — never returned by any function. Add log level validation in `init_logging()` that returns `InvalidLogLevel` on bad input, or document these as reserved for future use [crates/tf-logging/src/error.rs:10-28]
+- [ ] [AI-Review][HIGH] File List is incomplete — missing `Cargo.toml` (root, +5 lines), `crates/tf-security/src/error.rs` (+287 lines), `crates/tf-security/src/keyring.rs` (+206 lines). Update File List to reflect all files changed in this branch [story File List section]
+- [ ] [AI-Review][MEDIUM] Line counts in File List are wrong — `init.rs` claimed 291 vs actual 363, `redact.rs` claimed 573 vs actual 640. Update to match reality [story File List section]
+- [ ] [AI-Review][MEDIUM] Test count claims are wrong — story claims "35 tf-logging tests" but actual is 46; claims "368 total workspace tests" but actual is 395. Update Completion Notes [story Completion Notes section]
+- [ ] [AI-Review][MEDIUM] `std::env::set_var("RUST_LOG", ...)` in test creates race condition with parallel tests — wrap in a serial test or use a mutex/temp env guard [crates/tf-logging/src/init.rs:241]
+- [ ] [AI-Review][MEDIUM] `find_log_file` helper duplicated 3 times — extract to a shared test utility module [crates/tf-logging/src/init.rs:93, redact.rs:253, tests/integration_test.rs:19]
+- [ ] [AI-Review][MEDIUM] 12 sensitive field tests in redact.rs are copy-paste — refactor with a macro or parameterized test to reduce ~200 lines of duplication [crates/tf-logging/src/redact.rs:267-469]
+- [ ] [AI-Review][MEDIUM] `serde_yaml` dev-dependency not documented in story Dev Notes [crates/tf-logging/Cargo.toml:19]
+- [ ] [AI-Review][LOW] Case-sensitive field matching in `SENSITIVE_FIELDS` — consider case-insensitive comparison for defense-in-depth [crates/tf-logging/src/redact.rs:56]
+- [ ] [AI-Review][LOW] Obsolete TDD RED phase comment in integration tests — remove stale comment [crates/tf-logging/tests/integration_test.rs:9]
 
 ## Dev Notes
 
@@ -444,3 +458,4 @@ Claude Opus 4.6 (claude-opus-4-6)
 ## Change Log
 
 - 2026-02-06: Implemented tf-logging crate with structured JSON logging, sensitive field redaction (12 field names + URL parameters), daily file rotation, non-blocking I/O, and LogGuard lifecycle. Exposed `redact_url_sensitive_params` as public API in tf-config. 35 tests added, 0 regressions on 368 workspace tests.
+- 2026-02-06: Code review (AI) — 11 findings (3 HIGH, 5 MEDIUM, 2 LOW). Key issues: `log_to_stdout` not implemented, dead error variants, incomplete File List. Action items added to Tasks/Subtasks.
