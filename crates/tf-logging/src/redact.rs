@@ -54,7 +54,8 @@ impl RedactingVisitor {
     }
 
     fn is_sensitive(name: &str) -> bool {
-        SENSITIVE_FIELDS.contains(&name)
+        let lower = name.to_lowercase();
+        SENSITIVE_FIELDS.iter().any(|&f| f == lower)
     }
 
     fn looks_like_url(value: &str) -> bool {
@@ -249,224 +250,48 @@ mod tests {
     use std::fs;
     use tempfile::tempdir;
 
-    /// Helper: find any file in the logs directory.
-    fn find_log_file(logs_dir: &std::path::Path) -> std::path::PathBuf {
-        fs::read_dir(logs_dir)
-            .expect("Failed to read logs directory")
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .find(|p| p.is_file())
-            .unwrap_or_else(|| panic!("No log file found in {}", logs_dir.display()))
-    }
+    use crate::test_helpers::find_log_file;
 
     // Test 0.5-UNIT-003: All 12 sensitive fields are redacted
     //
-    // This test verifies exhaustively that each sensitive field name in
-    // SENSITIVE_FIELDS is masked by [REDACTED] in log output.
-    // Also verifies that normal fields (command, status, scope) are NOT masked.
-    #[test]
-    fn test_sensitive_field_token_redacted() {
-        let temp = tempdir().unwrap();
-        let log_dir = temp.path().join("logs");
-        let config = LoggingConfig {
-            log_level: "info".to_string(),
-            log_dir: log_dir.to_string_lossy().to_string(),
-            log_to_stdout: false,
+    // Uses a macro to generate one test per sensitive field name, avoiding
+    // ~200 lines of copy-paste duplication.
+
+    macro_rules! test_sensitive_field_redacted {
+        ($test_name:ident, $field:ident) => {
+            #[test]
+            fn $test_name() {
+                let temp = tempdir().unwrap();
+                let log_dir = temp.path().join("logs");
+                let config = LoggingConfig {
+                    log_level: "info".to_string(),
+                    log_dir: log_dir.to_string_lossy().to_string(),
+                    log_to_stdout: false,
+                };
+                let guard = init_logging(&config).unwrap();
+                tracing::info!($field = "secret_value_123", "test");
+                drop(guard);
+                let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
+                assert!(!content.contains("secret_value_123"),
+                        "Field '{}' was not redacted", stringify!($field));
+                assert!(content.contains("[REDACTED]"),
+                        "'{}' should show [REDACTED]", stringify!($field));
+            }
         };
-        let guard = init_logging(&config).unwrap();
-        tracing::info!(token = "secret_value_123", "test");
-        drop(guard);
-        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-        assert!(!content.contains("secret_value_123"), "Field 'token' was not redacted");
-        assert!(content.contains("[REDACTED]"), "'token' should show [REDACTED]");
     }
 
-    #[test]
-    fn test_sensitive_field_api_key_redacted() {
-        let temp = tempdir().unwrap();
-        let log_dir = temp.path().join("logs");
-        let config = LoggingConfig {
-            log_level: "info".to_string(),
-            log_dir: log_dir.to_string_lossy().to_string(),
-            log_to_stdout: false,
-        };
-        let guard = init_logging(&config).unwrap();
-        tracing::info!(api_key = "secret_value_123", "test");
-        drop(guard);
-        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-        assert!(!content.contains("secret_value_123"), "Field 'api_key' was not redacted");
-        assert!(content.contains("[REDACTED]"), "'api_key' should show [REDACTED]");
-    }
-
-    #[test]
-    fn test_sensitive_field_apikey_redacted() {
-        let temp = tempdir().unwrap();
-        let log_dir = temp.path().join("logs");
-        let config = LoggingConfig {
-            log_level: "info".to_string(),
-            log_dir: log_dir.to_string_lossy().to_string(),
-            log_to_stdout: false,
-        };
-        let guard = init_logging(&config).unwrap();
-        tracing::info!(apikey = "secret_value_123", "test");
-        drop(guard);
-        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-        assert!(!content.contains("secret_value_123"), "Field 'apikey' was not redacted");
-        assert!(content.contains("[REDACTED]"), "'apikey' should show [REDACTED]");
-    }
-
-    #[test]
-    fn test_sensitive_field_key_redacted() {
-        let temp = tempdir().unwrap();
-        let log_dir = temp.path().join("logs");
-        let config = LoggingConfig {
-            log_level: "info".to_string(),
-            log_dir: log_dir.to_string_lossy().to_string(),
-            log_to_stdout: false,
-        };
-        let guard = init_logging(&config).unwrap();
-        tracing::info!(key = "secret_value_123", "test");
-        drop(guard);
-        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-        assert!(!content.contains("secret_value_123"), "Field 'key' was not redacted");
-        assert!(content.contains("[REDACTED]"), "'key' should show [REDACTED]");
-    }
-
-    #[test]
-    fn test_sensitive_field_secret_redacted() {
-        let temp = tempdir().unwrap();
-        let log_dir = temp.path().join("logs");
-        let config = LoggingConfig {
-            log_level: "info".to_string(),
-            log_dir: log_dir.to_string_lossy().to_string(),
-            log_to_stdout: false,
-        };
-        let guard = init_logging(&config).unwrap();
-        tracing::info!(secret = "secret_value_123", "test");
-        drop(guard);
-        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-        assert!(!content.contains("secret_value_123"), "Field 'secret' was not redacted");
-        assert!(content.contains("[REDACTED]"), "'secret' should show [REDACTED]");
-    }
-
-    #[test]
-    fn test_sensitive_field_password_redacted() {
-        let temp = tempdir().unwrap();
-        let log_dir = temp.path().join("logs");
-        let config = LoggingConfig {
-            log_level: "info".to_string(),
-            log_dir: log_dir.to_string_lossy().to_string(),
-            log_to_stdout: false,
-        };
-        let guard = init_logging(&config).unwrap();
-        tracing::info!(password = "secret_value_123", "test");
-        drop(guard);
-        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-        assert!(!content.contains("secret_value_123"), "Field 'password' was not redacted");
-        assert!(content.contains("[REDACTED]"), "'password' should show [REDACTED]");
-    }
-
-    #[test]
-    fn test_sensitive_field_passwd_redacted() {
-        let temp = tempdir().unwrap();
-        let log_dir = temp.path().join("logs");
-        let config = LoggingConfig {
-            log_level: "info".to_string(),
-            log_dir: log_dir.to_string_lossy().to_string(),
-            log_to_stdout: false,
-        };
-        let guard = init_logging(&config).unwrap();
-        tracing::info!(passwd = "secret_value_123", "test");
-        drop(guard);
-        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-        assert!(!content.contains("secret_value_123"), "Field 'passwd' was not redacted");
-        assert!(content.contains("[REDACTED]"), "'passwd' should show [REDACTED]");
-    }
-
-    #[test]
-    fn test_sensitive_field_pwd_redacted() {
-        let temp = tempdir().unwrap();
-        let log_dir = temp.path().join("logs");
-        let config = LoggingConfig {
-            log_level: "info".to_string(),
-            log_dir: log_dir.to_string_lossy().to_string(),
-            log_to_stdout: false,
-        };
-        let guard = init_logging(&config).unwrap();
-        tracing::info!(pwd = "secret_value_123", "test");
-        drop(guard);
-        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-        assert!(!content.contains("secret_value_123"), "Field 'pwd' was not redacted");
-        assert!(content.contains("[REDACTED]"), "'pwd' should show [REDACTED]");
-    }
-
-    #[test]
-    fn test_sensitive_field_auth_redacted() {
-        let temp = tempdir().unwrap();
-        let log_dir = temp.path().join("logs");
-        let config = LoggingConfig {
-            log_level: "info".to_string(),
-            log_dir: log_dir.to_string_lossy().to_string(),
-            log_to_stdout: false,
-        };
-        let guard = init_logging(&config).unwrap();
-        tracing::info!(auth = "secret_value_123", "test");
-        drop(guard);
-        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-        assert!(!content.contains("secret_value_123"), "Field 'auth' was not redacted");
-        assert!(content.contains("[REDACTED]"), "'auth' should show [REDACTED]");
-    }
-
-    #[test]
-    fn test_sensitive_field_authorization_redacted() {
-        let temp = tempdir().unwrap();
-        let log_dir = temp.path().join("logs");
-        let config = LoggingConfig {
-            log_level: "info".to_string(),
-            log_dir: log_dir.to_string_lossy().to_string(),
-            log_to_stdout: false,
-        };
-        let guard = init_logging(&config).unwrap();
-        tracing::info!(authorization = "secret_value_123", "test");
-        drop(guard);
-        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-        assert!(!content.contains("secret_value_123"), "Field 'authorization' was not redacted");
-        assert!(content.contains("[REDACTED]"), "'authorization' should show [REDACTED]");
-    }
-
-    #[test]
-    fn test_sensitive_field_credential_redacted() {
-        let temp = tempdir().unwrap();
-        let log_dir = temp.path().join("logs");
-        let config = LoggingConfig {
-            log_level: "info".to_string(),
-            log_dir: log_dir.to_string_lossy().to_string(),
-            log_to_stdout: false,
-        };
-        let guard = init_logging(&config).unwrap();
-        tracing::info!(credential = "secret_value_123", "test");
-        drop(guard);
-        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-        assert!(!content.contains("secret_value_123"), "Field 'credential' was not redacted");
-        assert!(content.contains("[REDACTED]"), "'credential' should show [REDACTED]");
-    }
-
-    #[test]
-    fn test_sensitive_field_credentials_redacted() {
-        let temp = tempdir().unwrap();
-        let log_dir = temp.path().join("logs");
-        let config = LoggingConfig {
-            log_level: "info".to_string(),
-            log_dir: log_dir.to_string_lossy().to_string(),
-            log_to_stdout: false,
-        };
-        let guard = init_logging(&config).unwrap();
-        tracing::info!(credentials = "secret_value_123", "test");
-        drop(guard);
-        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-        assert!(!content.contains("secret_value_123"), "Field 'credentials' was not redacted");
-        assert!(content.contains("[REDACTED]"), "'credentials' should show [REDACTED]");
-    }
+    test_sensitive_field_redacted!(test_sensitive_field_token_redacted, token);
+    test_sensitive_field_redacted!(test_sensitive_field_api_key_redacted, api_key);
+    test_sensitive_field_redacted!(test_sensitive_field_apikey_redacted, apikey);
+    test_sensitive_field_redacted!(test_sensitive_field_key_redacted, key);
+    test_sensitive_field_redacted!(test_sensitive_field_secret_redacted, secret);
+    test_sensitive_field_redacted!(test_sensitive_field_password_redacted, password);
+    test_sensitive_field_redacted!(test_sensitive_field_passwd_redacted, passwd);
+    test_sensitive_field_redacted!(test_sensitive_field_pwd_redacted, pwd);
+    test_sensitive_field_redacted!(test_sensitive_field_auth_redacted, auth);
+    test_sensitive_field_redacted!(test_sensitive_field_authorization_redacted, authorization);
+    test_sensitive_field_redacted!(test_sensitive_field_credential_redacted, credential);
+    test_sensitive_field_redacted!(test_sensitive_field_credentials_redacted, credentials);
 
     // Negative test: normal fields must NOT be redacted
     #[test]

@@ -5,25 +5,12 @@
 //! - JSON structure compliance
 //! - Sensitive field redaction in end-to-end scenario
 //! - Workspace integration (crate compiles and is accessible)
-//!
-//! Written in TDD RED phase — tests will fail until the crate is fully implemented.
+
+mod test_utils;
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use test_utils::find_log_file;
 use tf_logging::{init_logging, LoggingConfig, LoggingError};
-
-/// Helper: find the first file in a logs directory.
-///
-/// tracing-appender creates files with date-based names (e.g., "app.log.2026-02-06"),
-/// so we search for any file in the directory rather than a fixed name.
-fn find_log_file(log_dir: &Path) -> PathBuf {
-    fs::read_dir(log_dir)
-        .expect("Failed to read log directory")
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .find(|p| p.is_file())
-        .unwrap_or_else(|| panic!("No log file found in {}", log_dir.display()))
-}
 
 // Test 0.5-INT-001: Full logging lifecycle
 //

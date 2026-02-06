@@ -51,6 +51,15 @@ pub fn init_logging(config: &LoggingConfig) -> Result<LogGuard, LoggingError> {
         hint: "Verify permissions on the parent directory or set a different output_folder in config.yaml".to_string(),
     })?;
 
+    // Validate log level before building filter
+    const VALID_LEVELS: &[&str] = &["trace", "debug", "info", "warn", "error"];
+    if !VALID_LEVELS.contains(&config.log_level.to_lowercase().as_str()) {
+        return Err(LoggingError::InvalidLogLevel {
+            level: config.log_level.clone(),
+            hint: "Valid levels are: trace, debug, info, warn, error. Set via RUST_LOG env var (or future dedicated logging config when available).".to_string(),
+        });
+    }
+
     // Build EnvFilter: RUST_LOG takes priority, otherwise use config.log_level
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         EnvFilter::new(&config.log_level)
@@ -66,7 +75,27 @@ pub fn init_logging(config: &LoggingConfig) -> Result<LogGuard, LoggingError> {
         .with_writer(non_blocking)
         .with_ansi(false);
 
-    // Build subscriber
+    // Build subscriber with optional stdout layer
+    if config.log_to_stdout {
+        let stdout_layer = fmt::layer()
+            .event_format(RedactingJsonFormatter)
+            .with_writer(std::io::stdout)
+            .with_ansi(false);
+
+        let subscriber = tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt_layer)
+            .with(stdout_layer);
+
+        let dispatch = Dispatch::new(subscriber);
+        let dispatch_guard = tracing::dispatcher::set_default(&dispatch);
+
+        return Ok(LogGuard {
+            _worker_guard: worker_guard,
+            _dispatch_guard: dispatch_guard,
+        });
+    }
+
     let subscriber = tracing_subscriber::registry()
         .with(filter)
         .with(fmt_layer);
@@ -84,20 +113,12 @@ pub fn init_logging(config: &LoggingConfig) -> Result<LogGuard, LoggingError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_matches::assert_matches;
     use crate::config::LoggingConfig;
     use std::fs;
     use tempfile::tempdir;
 
-    /// Helper: find any file in the logs directory.
-    /// tracing-appender creates files with date-based names.
-    fn find_log_file(logs_dir: &std::path::Path) -> std::path::PathBuf {
-        fs::read_dir(logs_dir)
-            .expect("Failed to read logs directory")
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .find(|p| p.is_file())
-            .unwrap_or_else(|| panic!("No log file found in {}", logs_dir.display()))
-    }
+    use crate::test_helpers::find_log_file;
 
     // Test 0.5-UNIT-001: init_logging creates directory and returns LogGuard
     #[test]
@@ -232,13 +253,21 @@ mod tests {
     }
 
     // Test 0.5-UNIT-007: RUST_LOG overrides configured level
+    // Uses a mutex to prevent race conditions with parallel tests that also
+    // modify environment variables.
     #[test]
+    #[allow(unsafe_code)]
     fn test_rust_log_overrides_configured_level() {
+        use std::sync::Mutex;
+        static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+        let _lock = ENV_MUTEX.lock().unwrap();
+
         let temp = tempdir().unwrap();
         let log_dir = temp.path().join("logs");
 
-        // Set RUST_LOG to debug to override the info default
-        std::env::set_var("RUST_LOG", "debug");
+        // Safety: protected by ENV_MUTEX to avoid race with parallel tests
+        unsafe { std::env::set_var("RUST_LOG", "debug") };
 
         let config = LoggingConfig {
             log_level: "info".to_string(),
@@ -259,7 +288,7 @@ mod tests {
                 "RUST_LOG=debug should override config level and show debug messages");
 
         // Cleanup
-        std::env::remove_var("RUST_LOG");
+        unsafe { std::env::remove_var("RUST_LOG") };
     }
 
     // Test 0.5-UNIT-011: ANSI colors disabled for file logs
@@ -359,5 +388,52 @@ mod tests {
                 "Log should contain message emitted before guard move");
         assert!(content.contains("after move message"),
                 "Log should contain message emitted after guard move");
+    }
+
+    // Test [AI-Review]: invalid log level returns InvalidLogLevel error
+    #[test]
+    fn test_invalid_log_level_returns_error() {
+        let temp = tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+
+        let config = LoggingConfig {
+            log_level: "invalid_level".to_string(),
+            log_dir: log_dir.to_string_lossy().to_string(),
+            log_to_stdout: false,
+        };
+
+        let result = init_logging(&config);
+        assert!(result.is_err(), "Invalid log level should return an error");
+
+        let err = result.unwrap_err();
+        assert_matches!(err, LoggingError::InvalidLogLevel { ref level, ref hint } => {
+            assert_eq!(level, "invalid_level");
+            assert!(hint.contains("Valid levels are"), "Hint should list valid levels");
+        });
+    }
+
+    // Test [AI-Review]: log_to_stdout=true creates stdout layer
+    #[test]
+    fn test_log_to_stdout_creates_guard() {
+        let temp = tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+
+        let config = LoggingConfig {
+            log_level: "info".to_string(),
+            log_dir: log_dir.to_string_lossy().to_string(),
+            log_to_stdout: true,
+        };
+
+        let guard = init_logging(&config);
+        assert!(guard.is_ok(), "init_logging with log_to_stdout=true should succeed");
+
+        // Emit a log and verify it reaches the file (stdout is harder to test)
+        tracing::info!("stdout test message");
+        drop(guard.unwrap());
+
+        let log_file = find_log_file(&log_dir);
+        let content = fs::read_to_string(&log_file).unwrap();
+        assert!(content.contains("stdout test message"),
+                "Log should still reach file when log_to_stdout=true");
     }
 }
