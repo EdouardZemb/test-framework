@@ -1,6 +1,6 @@
 # Story 0.4: Charger des templates (CR/PPT/anomalies)
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -160,6 +160,14 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
 - [x] [AI-Review-R9][HIGH] Story File List cannot be validated against current source git diff (only `.codex/*` changes present). Add reviewed commit SHA/range in Dev Agent Record or refresh File List from actual reviewed diff to restore traceability [ _bmad-output/implementation-artifacts/0-4-charger-des-templates-cr-ppt-anomalies.md:604]
 - [x] [AI-Review-R9][MEDIUM] Subtask 4.4 claims path logging guards aligned with `tf-config`, but template errors still embed raw configured paths directly. Reuse redaction guard/path sanitizer for error path fields [crates/tf-config/src/template.rs:319]
 - [x] [AI-Review-R9][MEDIUM] Subtasks 3.2-3.5 still document `kind: String` while code exposes `kind: TemplateKind`; align story contract with shipped API to avoid future false positives in audits [ _bmad-output/implementation-artifacts/0-4-charger-des-templates-cr-ppt-anomalies.md:51]
+
+#### Round 10 Review Follow-ups (AI)
+
+- [ ] [AI-Review-R10][HIGH] PPTX validation still relies on byte-pattern heuristics (`PK` magic + `[Content_Types].xml` substring) and does not validate ZIP structure integrity; use ZIP central directory parsing for robust archive validity checks [crates/tf-config/src/template.rs:521]
+- [ ] [AI-Review-R10][HIGH] `fs::read()` can allocate the full file before rejection when metadata is unavailable/inaccurate; switch to bounded streaming read to enforce limits pre-allocation [crates/tf-config/src/template.rs:320]
+- [ ] [AI-Review-R10][MEDIUM] Story Subtask 2.7 claims `validate_format(kind, content)` while shipped API is `validate_content(kind, content, path)`; align task wording with actual public contract [ _bmad-output/implementation-artifacts/0-4-charger-des-templates-cr-ppt-anomalies.md:47]
+- [ ] [AI-Review-R10][MEDIUM] Path sanitization is URL-focused and may not redact secret-bearing non-URL filesystem strings; harden redaction strategy for generic path content [crates/tf-config/src/template.rs:475]
+- [ ] [AI-Review-R10][LOW] `validate_content` doc comment still says PPTX validation is only magic-bytes + minimum size; update docs to include OOXML marker check for accuracy [crates/tf-config/src/template.rs:459]
 
 ## Dev Notes
 
@@ -649,3 +657,4 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Addressed all 6 Round 8 review findings — 3 MEDIUM (deduplicated extension validation via TemplateKind::expected_extension(), documented relative path limitation, documented load_all() iteration order), 3 LOW (content_as_str() returns InvalidFormat for non-UTF-8 markdown, clarified test count method, renamed validate_format to validate_content). 297 tests pass (canonical: sum of `cargo test` "N passed" lines across all runners; 246 unit + 8 integration + 19 profile + 14 profile_unit + 10 doc-tests), 0 clippy warnings, 0 regressions.
 - 2026-02-06: Addressed all 4 Round 9 review findings — 2 HIGH (OOXML `[Content_Types].xml` marker check for PPTX + traceability baseline SHA documented), 2 MEDIUM (template path redaction guard reuse + story contract alignment to `TemplateKind`). 299 tests pass (248 unit + 8 integration + 19 profile + 14 profile_unit + 10 doc-tests), `cargo clippy -p tf-config --all-targets -- -D warnings` passes, 0 regressions.
 - 2026-02-06: Full workspace regression validation completed (`cargo test`): tf-config and tf-security suites passed (tf-security keyring integration tests remain ignored by design in this environment); story and sprint statuses advanced to `review`.
+- 2026-02-06: Code review Round 10 (AI adversarial) — 5 findings (2 HIGH, 2 MEDIUM, 1 LOW). Action items added to Tasks/Subtasks for follow-up. Story status moved back to `in-progress`.
