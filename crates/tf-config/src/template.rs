@@ -43,10 +43,20 @@ const ZIP_MAGIC: &[u8; 4] = b"PK\x03\x04";
 /// structural validation is deferred to `tf-export`.
 const MIN_PPTX_SIZE: usize = 100;
 
-/// Maximum allowed file size for Markdown templates (10 MB)
+/// Maximum allowed file size for Markdown templates (10 MB).
+///
+/// CR and anomaly templates are plain-text Markdown files. 10 MB is generous
+/// for any realistic report template while preventing accidental loading of
+/// multi-gigabyte files that could exhaust memory. Typical templates are
+/// well under 100 KB.
 const MAX_MD_SIZE: u64 = 10 * 1024 * 1024;
 
-/// Maximum allowed file size for PowerPoint templates (100 MB)
+/// Maximum allowed file size for PowerPoint templates (100 MB).
+///
+/// PPTX files are ZIP archives that can contain embedded images and media,
+/// making them significantly larger than Markdown templates. 100 MB allows
+/// for image-heavy presentation templates while still guarding against
+/// unbounded allocation from device files or corrupted paths.
 const MAX_PPTX_SIZE: u64 = 100 * 1024 * 1024;
 
 /// Types of templates supported by the system
@@ -177,6 +187,21 @@ impl LoadedTemplate {
     }
 }
 
+#[cfg(test)]
+impl LoadedTemplate {
+    /// Create a `LoadedTemplate` for testing purposes without loading from disk.
+    ///
+    /// Available only in test builds (`#[cfg(test)]`). Allows downstream consumers
+    /// to construct instances for unit tests without requiring real template files.
+    pub fn new_for_test(kind: TemplateKind, path: impl Into<PathBuf>, content: Vec<u8>) -> Self {
+        Self {
+            kind,
+            path: path.into(),
+            content,
+        }
+    }
+}
+
 // Custom Debug implementation: never expose raw template content
 impl fmt::Debug for LoadedTemplate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -295,6 +320,24 @@ impl<'a> TemplateLoader<'a> {
             }
         })?;
 
+        // Post-read size check: guards against TOCTOU where file grows between
+        // metadata check and read, or when metadata was unavailable above.
+        let content_size = content.len() as u64;
+        if content_size > max_size {
+            return Err(TemplateError::InvalidFormat {
+                path: path_str.to_string(),
+                kind: kind.to_string(),
+                cause: format!(
+                    "file is too large ({} bytes, maximum {} bytes)",
+                    content_size, max_size
+                ),
+                hint: format!(
+                    "Reduce the file size or check that '{}' is a valid {} template",
+                    path_str, kind
+                ),
+            });
+        }
+
         // Validate format
         validate_format(kind, &content, &path)?;
 
@@ -384,8 +427,12 @@ impl<'a> TemplateLoader<'a> {
 /// Validate the format of a template based on its kind
 ///
 /// Checks that `content` is well-formed for the given [`TemplateKind`]:
-/// - Markdown (`.md`): non-empty valid UTF-8
+/// - Markdown (`.md`): non-empty, non-whitespace-only, valid UTF-8
 /// - PowerPoint (`.pptx`): ZIP magic bytes and minimum size
+///
+/// The `path` parameter is used **only for error context** (included in error
+/// messages to help the user locate the problematic file). It is not validated,
+/// resolved, or read from — callers may pass any descriptive path.
 pub fn validate_format(kind: TemplateKind, content: &[u8], path: &Path) -> Result<(), TemplateError> {
     let path_str = path.display().to_string();
     match kind {
@@ -394,7 +441,7 @@ pub fn validate_format(kind: TemplateKind, content: &[u8], path: &Path) -> Resul
     }
 }
 
-/// Validate Markdown template: must be non-empty valid UTF-8
+/// Validate Markdown template: must be non-empty, non-whitespace-only, valid UTF-8
 fn validate_markdown(content: &[u8], path: &str, kind: TemplateKind) -> Result<(), TemplateError> {
     if content.is_empty() {
         return Err(TemplateError::InvalidFormat {
@@ -405,12 +452,21 @@ fn validate_markdown(content: &[u8], path: &str, kind: TemplateKind) -> Result<(
         });
     }
 
-    std::str::from_utf8(content).map_err(|_| TemplateError::InvalidFormat {
+    let text = std::str::from_utf8(content).map_err(|_| TemplateError::InvalidFormat {
         path: path.to_string(),
         kind: kind.to_string(),
         cause: "not valid UTF-8 text".to_string(),
         hint: "Ensure the file is a valid Markdown template with UTF-8 encoding".to_string(),
     })?;
+
+    if text.trim().is_empty() {
+        return Err(TemplateError::InvalidFormat {
+            path: path.to_string(),
+            kind: kind.to_string(),
+            cause: "file contains only whitespace".to_string(),
+            hint: "Ensure the file is a valid Markdown template with meaningful content".to_string(),
+        });
+    }
 
     Ok(())
 }
@@ -1014,5 +1070,52 @@ mod tests {
         // Should produce a ReadError (not FileNotFound) since the path exists but is a directory
         assert!(matches!(err, TemplateError::ReadError { .. }));
         assert!(err.to_string().contains("directory"));
+    }
+
+    // =========================================================================
+    // Round 5 Review: Whitespace-only markdown rejection
+    // =========================================================================
+
+    #[test]
+    fn test_validate_markdown_whitespace_only_rejected() {
+        let content = b"   \n\t\n   \n";
+        let err = validate_format(TemplateKind::Cr, content, Path::new("whitespace.md")).unwrap_err();
+        assert!(matches!(err, TemplateError::InvalidFormat { .. }));
+        assert!(err.to_string().contains("whitespace"));
+    }
+
+    #[test]
+    fn test_load_whitespace_only_markdown_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("whitespace.md");
+        fs::write(&path, "   \n\t\n   \n").unwrap();
+
+        let config = TemplatesConfig {
+            cr: Some(path.display().to_string()),
+            ppt: None,
+            anomaly: None,
+        };
+        let loader = TemplateLoader::new(&config);
+        let err = loader.load_template(TemplateKind::Cr).unwrap_err();
+        assert!(matches!(err, TemplateError::InvalidFormat { .. }));
+        assert!(err.to_string().contains("whitespace"));
+    }
+
+    // =========================================================================
+    // Round 5 Review: LoadedTemplate test constructor
+    // =========================================================================
+
+    #[test]
+    fn test_loaded_template_new_for_test() {
+        let template = LoadedTemplate::new_for_test(
+            TemplateKind::Cr,
+            "test/path.md",
+            b"# Test content".to_vec(),
+        );
+        assert_eq!(template.kind(), TemplateKind::Cr);
+        assert_eq!(template.path(), Path::new("test/path.md"));
+        assert_eq!(template.content(), b"# Test content");
+        assert_eq!(template.size_bytes(), 14);
+        assert!(template.content_as_str().is_ok());
     }
 }
