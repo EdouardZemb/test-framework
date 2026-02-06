@@ -474,6 +474,7 @@ dependencies = [
  "assert_matches",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tempfile",
  "tf-config",
  "thiserror",

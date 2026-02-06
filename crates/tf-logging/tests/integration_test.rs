@@ -10,7 +10,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use tf_logging::{init_logging, LoggingConfig, LogGuard, LoggingError};
+use tf_logging::{init_logging, LoggingConfig, LoggingError};
 
 /// Helper: find the first file in a logs directory.
 ///

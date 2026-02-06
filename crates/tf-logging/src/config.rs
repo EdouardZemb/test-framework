@@ -20,7 +20,17 @@ impl LoggingConfig {
     /// - `log_level` defaults to `"info"`
     /// - `log_to_stdout` defaults to `false`
     pub fn from_project_config(config: &ProjectConfig) -> Self {
-        todo!("RED phase: implement LoggingConfig derivation from ProjectConfig")
+        let log_dir = if config.output_folder.is_empty() {
+            "./logs".to_string()
+        } else {
+            format!("{}/logs", config.output_folder)
+        };
+
+        Self {
+            log_level: "info".to_string(),
+            log_dir,
+            log_to_stdout: false,
+        }
     }
 }
 
@@ -51,13 +61,13 @@ mod tests {
 
     #[test]
     fn test_logging_config_fallback_when_output_folder_empty() {
-        let temp = tempdir().unwrap();
-        let config_path = temp.path().join("config.yaml");
-        let mut file = fs::File::create(&config_path).unwrap();
-        file.write_all(b"project_name: \"test-project\"\noutput_folder: \"\"\n").unwrap();
-        file.flush().unwrap();
+        // Construct a ProjectConfig directly (bypassing load_config validation)
+        // to test the defensive fallback in from_project_config
+        let yaml = "project_name: \"test-project\"\noutput_folder: \"placeholder\"\n";
+        let mut project_config: tf_config::ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        // Manually set output_folder to empty to test fallback
+        project_config.output_folder = String::new();
 
-        let project_config = tf_config::load_config(&config_path).unwrap();
         let logging_config = LoggingConfig::from_project_config(&project_config);
 
         // Should fallback to "./logs" when output_folder is empty

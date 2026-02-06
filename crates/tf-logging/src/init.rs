@@ -2,10 +2,18 @@
 
 use crate::config::LoggingConfig;
 use crate::error::LoggingError;
+use crate::redact::RedactingJsonFormatter;
+use std::fs;
+use tracing::Dispatch;
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::fmt;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::EnvFilter;
 
 /// Guard that must be kept alive to ensure logs are flushed.
 ///
-/// When this guard is dropped, all pending log records are flushed to disk.
+/// When this guard is dropped, all pending log records are flushed to disk
+/// and the thread-local subscriber is removed.
 /// **MUST** be kept alive for the entire application lifetime:
 ///
 /// ```no_run
@@ -14,8 +22,8 @@ use crate::error::LoggingError;
 /// let _guard = init_logging(&config).unwrap(); // keep _guard alive!
 /// ```
 pub struct LogGuard {
-    // RED phase stub: will wrap tracing_appender::non_blocking::WorkerGuard
-    _placeholder: (),
+    _worker_guard: WorkerGuard,
+    _dispatch_guard: tracing::dispatcher::DefaultGuard,
 }
 
 impl std::fmt::Debug for LogGuard {
@@ -31,12 +39,46 @@ impl std::fmt::Debug for LogGuard {
 /// - JSON-structured log format (timestamp, level, message, target, fields)
 /// - File appender with daily rotation to `{config.log_dir}`
 /// - Non-blocking writer for performance
-/// - Sensitive field redaction via [`crate::redact::RedactingLayer`]
+/// - Sensitive field redaction via [`crate::redact::RedactingJsonFormatter`]
 /// - Optional stdout output (if `config.log_to_stdout` is true)
 ///
 /// Returns a [`LogGuard`] that MUST be kept alive for the application lifetime.
 pub fn init_logging(config: &LoggingConfig) -> Result<LogGuard, LoggingError> {
-    todo!("RED phase: implement logging initialization with tracing-subscriber JSON format, file appender, redaction layer")
+    // Create log directory
+    fs::create_dir_all(&config.log_dir).map_err(|e| LoggingError::DirectoryCreationFailed {
+        path: config.log_dir.clone(),
+        cause: e.to_string(),
+        hint: "Verify permissions on the parent directory or set a different output_folder in config.yaml".to_string(),
+    })?;
+
+    // Build EnvFilter: RUST_LOG takes priority, otherwise use config.log_level
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new(&config.log_level)
+    });
+
+    // Set up daily rolling file appender
+    let file_appender = tracing_appender::rolling::daily(&config.log_dir, "app.log");
+    let (non_blocking, worker_guard) = tracing_appender::non_blocking(file_appender);
+
+    // Build the fmt layer with our custom RedactingJsonFormatter
+    let fmt_layer = fmt::layer()
+        .event_format(RedactingJsonFormatter)
+        .with_writer(non_blocking)
+        .with_ansi(false);
+
+    // Build subscriber
+    let subscriber = tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt_layer);
+
+    // Use set_default (thread-local) to allow multiple init calls in tests
+    let dispatch = Dispatch::new(subscriber);
+    let dispatch_guard = tracing::dispatcher::set_default(&dispatch);
+
+    Ok(LogGuard {
+        _worker_guard: worker_guard,
+        _dispatch_guard: dispatch_guard,
+    })
 }
 
 #[cfg(test)]
