@@ -62,7 +62,8 @@ pub mod profiles;
 pub mod template;
 
 pub use config::{
-    load_config, JiraConfig, LlmConfig, LlmMode, ProjectConfig, Redact, SquashConfig, TemplatesConfig,
+    load_config, redact_url_sensitive_params, JiraConfig, LlmConfig, LlmMode, ProjectConfig, Redact,
+    SquashConfig, TemplatesConfig,
 };
 pub use error::ConfigError;
 
