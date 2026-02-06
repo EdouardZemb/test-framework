@@ -1,6 +1,6 @@
 # Story 0.4: Charger des templates (CR/PPT/anomalies)
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -126,15 +126,15 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
 
 #### Round 6 Review Follow-ups (AI)
 
-- [ ] [AI-Review-R6][MEDIUM] `validate_extension` method takes `&self` but never uses it — should be a free function or associated function for consistency with `validate_format` [crates/tf-config/src/template.rs:397]
-- [ ] [AI-Review-R6][MEDIUM] `validate_pptx` hardcodes `kind: "ppt".to_string()` (4 occurrences) instead of accepting `TemplateKind` parameter like `validate_markdown` — fragile if Display representation changes [crates/tf-config/src/template.rs:475-508]
-- [ ] [AI-Review-R6][MEDIUM] Duplicated size-check error construction in `load_from_path` pre-read (lines 278-291) and post-read TOCTOU guard (lines 327-339) — extract helper `fn oversized_error()` to eliminate copy-paste [crates/tf-config/src/template.rs:278-339]
-- [ ] [AI-Review-R6][MEDIUM] `TemplateError` variants use `kind: String` instead of `kind: TemplateKind` — prevents type-safe programmatic matching on template kind in error handlers [crates/tf-config/src/template.rs:101-139]
-- [ ] [AI-Review-R6][LOW] `validate_extension` calls `path.extension()` twice (match check + error message) — extract to single binding [crates/tf-config/src/template.rs:403-414]
-- [ ] [AI-Review-R6][LOW] `LoadedTemplate::new_for_test()` with `#[cfg(test)]` is unavailable to downstream crates — consider `#[cfg(feature = "test-utils")]` feature flag instead [crates/tf-config/src/template.rs:190-203]
-- [ ] [AI-Review-R6][LOW] `content_as_str()` returns `InvalidFormat` for valid PPTX templates — semantically incorrect variant, consider `BinaryContent` variant [crates/tf-config/src/template.rs:168-182]
-- [ ] [AI-Review-R6][LOW] File List entry for `Cargo.toml` omits `serde_json = "1.0"` addition to workspace dependencies [story File List]
-- [ ] [AI-Review-R6][LOW] `TemplateError` missing `Clone` derive — all fields are `String`, trivially cloneable [crates/tf-config/src/template.rs:100]
+- [x] [AI-Review-R6][MEDIUM] `validate_extension` method takes `&self` but never uses it — should be a free function or associated function for consistency with `validate_format` [crates/tf-config/src/template.rs:397]
+- [x] [AI-Review-R6][MEDIUM] `validate_pptx` hardcodes `kind: "ppt".to_string()` (4 occurrences) instead of accepting `TemplateKind` parameter like `validate_markdown` — fragile if Display representation changes [crates/tf-config/src/template.rs:475-508]
+- [x] [AI-Review-R6][MEDIUM] Duplicated size-check error construction in `load_from_path` pre-read (lines 278-291) and post-read TOCTOU guard (lines 327-339) — extract helper `fn oversized_error()` to eliminate copy-paste [crates/tf-config/src/template.rs:278-339]
+- [x] [AI-Review-R6][MEDIUM] `TemplateError` variants use `kind: String` instead of `kind: TemplateKind` — prevents type-safe programmatic matching on template kind in error handlers [crates/tf-config/src/template.rs:101-139]
+- [x] [AI-Review-R6][LOW] `validate_extension` calls `path.extension()` twice (match check + error message) — extract to single binding [crates/tf-config/src/template.rs:403-414]
+- [x] [AI-Review-R6][LOW] `LoadedTemplate::new_for_test()` with `#[cfg(test)]` is unavailable to downstream crates — consider `#[cfg(feature = "test-utils")]` feature flag instead [crates/tf-config/src/template.rs:190-203]
+- [x] [AI-Review-R6][LOW] `content_as_str()` returns `InvalidFormat` for valid PPTX templates — semantically incorrect variant, consider `BinaryContent` variant [crates/tf-config/src/template.rs:168-182]
+- [x] [AI-Review-R6][LOW] File List entry for `Cargo.toml` omits `serde_json = "1.0"` addition to workspace dependencies [story File List]
+- [x] [AI-Review-R6][LOW] `TemplateError` missing `Clone` derive — all fields are `String`, trivially cloneable [crates/tf-config/src/template.rs:100]
 
 ## Dev Notes
 
@@ -561,13 +561,22 @@ Claude Opus 4.6 (claude-opus-4-6)
 - ✅ Resolved R5 review finding [LOW]: Whitespace-only markdown templates now rejected — `validate_markdown` checks `text.trim().is_empty()` after UTF-8 validation
 - ✅ Resolved R5 review finding [LOW]: Added detailed rationale documentation for `MAX_MD_SIZE` (10 MB) and `MAX_PPTX_SIZE` (100 MB) constants
 - ✅ Resolved R5 review finding [LOW]: Added `#[cfg(test)] LoadedTemplate::new_for_test()` constructor for downstream test consumers
+- ✅ Resolved R6 review finding [MEDIUM]: Converted `validate_extension` from `&self` method to free function — consistent with `validate_format`
+- ✅ Resolved R6 review finding [MEDIUM]: `validate_pptx` now accepts `TemplateKind` parameter instead of hardcoding `"ppt".to_string()`
+- ✅ Resolved R6 review finding [MEDIUM]: Extracted `oversized_error()` helper to eliminate duplicated size-check error construction between pre-read and post-read guards
+- ✅ Resolved R6 review finding [MEDIUM]: Changed `TemplateError` variants from `kind: String` to `kind: TemplateKind` — enables type-safe programmatic matching on template kind in error handlers
+- ✅ Resolved R6 review finding [LOW]: `validate_extension` now extracts `path.extension()` to single binding — avoids duplicate call
+- ✅ Resolved R6 review finding [LOW]: Changed `LoadedTemplate::new_for_test()` from `#[cfg(test)]` to `#[cfg(any(test, feature = "test-utils"))]` — available to downstream crates via `test-utils` feature flag
+- ✅ Resolved R6 review finding [LOW]: Added `BinaryContent` variant to `TemplateError` — `content_as_str()` now returns semantically correct error for binary templates
+- ✅ Resolved R6 review finding [LOW]: File List corrected — `serde_json = "1.0"` already present in workspace `Cargo.toml` (line 26)
+- ✅ Resolved R6 review finding [LOW]: Added `Clone` derive on `TemplateError` — all fields are trivially cloneable (`String` and `TemplateKind`)
 
 ### File List
 
-- `crates/tf-config/src/template.rs` — NEW (1121 lines) — Template loading module with TemplateLoader<'a>, TemplateKind, LoadedTemplate, TemplateError, validate_format, doc-tests, new_for_test constructor, and 40 unit tests
+- `crates/tf-config/src/template.rs` — NEW (1185 lines) — Template loading module with TemplateLoader<'a>, TemplateKind, LoadedTemplate, TemplateError (with BinaryContent variant, Clone, type-safe TemplateKind fields), validate_format, validate_extension, oversized_error, doc-tests, new_for_test constructor (test-utils feature), and 44 unit tests
 - `crates/tf-config/src/lib.rs` — MODIFIED — Added `pub mod template` and public re-exports for TemplateLoader, TemplateKind, LoadedTemplate, TemplateError, validate_format
-- `crates/tf-config/Cargo.toml` — MODIFIED — Changed `tempfile` to workspace dependency, added `serde_json` dev-dependency
-- `Cargo.toml` — MODIFIED — Added `tempfile = "3.10"` to workspace dependencies
+- `crates/tf-config/Cargo.toml` — MODIFIED — Changed `tempfile` to workspace dependency, added `serde_json` dev-dependency, added `test-utils` feature flag
+- `Cargo.toml` — MODIFIED — Added `tempfile = "3.10"` and `serde_json = "1.0"` to workspace dependencies
 - `crates/tf-config/tests/fixtures/templates/cr-test.md` — NEW — CR template fixture for tests
 - `crates/tf-config/tests/fixtures/templates/anomaly-test.md` — NEW — Anomaly template fixture for tests
 - `crates/tf-config/tests/fixtures/templates/empty.md` — NEW — Empty file fixture for error case testing
@@ -587,4 +596,5 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Code review Round 5 (AI adversarial) — 5 findings (0 HIGH, 2 MEDIUM, 3 LOW). All ACs fully implemented, all previous 26 findings resolved. No blocking issues. Action items added to Tasks/Subtasks. 288 tests pass, 0 clippy warnings, 0 regressions across tf-config and tf-security.
 - 2026-02-06: Addressed all 5 Round 5 review findings — 2 MEDIUM (post-read TOCTOU size guard, validate_format docstring clarification), 3 LOW (whitespace-only markdown rejection, MAX_MD/PPTX_SIZE rationale docs, LoadedTemplate::new_for_test constructor). 291 tests pass (3 new: 2 whitespace-only + 1 new_for_test), 0 clippy warnings, 0 regressions.
 - 2026-02-06: Code review Round 6 (AI adversarial) — 9 findings (0 HIGH, 4 MEDIUM, 5 LOW). All ACs fully implemented, all previous 31 findings resolved. No blocking issues. 9 action items added to Tasks/Subtasks. 291 tests pass, 0 clippy warnings, 0 regressions across tf-config and tf-security.
+- 2026-02-06: Addressed all 9 Round 6 review findings — 4 MEDIUM (validate_extension free function, validate_pptx accepts TemplateKind, oversized_error helper, TemplateError kind: TemplateKind), 5 LOW (single extension binding, test-utils feature flag, BinaryContent variant, File List correction, Clone derive). 295 tests pass (4 new: Clone, type-safe kind, BinaryContent, validate_extension free fn), 0 clippy warnings, 0 regressions.
 
