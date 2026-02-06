@@ -1,6 +1,6 @@
 # Story 0.4: Charger des templates (CR/PPT/anomalies)
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -147,12 +147,12 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
 
 #### Round 8 Review Follow-ups (AI)
 
-- [ ] [AI-Review-R8][MEDIUM] Duplicated extension validation between `config.rs:has_valid_extension()` and `template.rs:validate_extension()` — two separate implementations with slightly different approaches (full path lowercase vs extension-only case-insensitive). Consider making `TemplateKind::expected_extension()` or `validate_extension()` the single source of truth, called from `config.rs` validation [crates/tf-config/src/config.rs:1658, crates/tf-config/src/template.rs:390]
-- [ ] [AI-Review-R8][MEDIUM] `TemplateLoader` does not resolve relative paths against a base directory — `PathBuf::from(path_str)` resolves against CWD, not config file location. Users running CLI from a different directory get silent `FileNotFound`. Document as known limitation or accept optional `base_path` parameter [crates/tf-config/src/template.rs:279]
-- [ ] [AI-Review-R8][MEDIUM] `load_all()` evaluation order undocumented — docstring says "fail-fast" but doesn't specify iteration order `[Cr, Ppt, Anomaly]`. Callers may rely on knowing which template caused a failure. Add iteration order to docstring [crates/tf-config/src/template.rs:345-360]
-- [ ] [AI-Review-R8][LOW] `content_as_str()` returns `BinaryContent` for non-UTF-8 markdown templates — semantically incorrect for `.md` files. Should return `InvalidFormat` with "invalid UTF-8" cause for markdown kinds, reserve `BinaryContent` for PPTX only [crates/tf-config/src/template.rs:176-188]
-- [ ] [AI-Review-R8][LOW] Story test count discrepancy — Change Log says "296 tests" but `cargo test -- --list` shows 307 entries. Clarify canonical counting method (cargo test result lines vs --list entries) [story Change Log]
-- [ ] [AI-Review-R8][LOW] `validate_format` function name misleading — signature `(kind, content, path)` suggests file-level validation but only validates bytes. Consider renaming to `validate_content` or `validate_format_bytes` for clarity at call sites [crates/tf-config/src/template.rs:441]
+- [x] [AI-Review-R8][MEDIUM] Duplicated extension validation between `config.rs:has_valid_extension()` and `template.rs:validate_extension()` — two separate implementations with slightly different approaches (full path lowercase vs extension-only case-insensitive). Consider making `TemplateKind::expected_extension()` or `validate_extension()` the single source of truth, called from `config.rs` validation [crates/tf-config/src/config.rs:1658, crates/tf-config/src/template.rs:390]
+- [x] [AI-Review-R8][MEDIUM] `TemplateLoader` does not resolve relative paths against a base directory — `PathBuf::from(path_str)` resolves against CWD, not config file location. Users running CLI from a different directory get silent `FileNotFound`. Document as known limitation or accept optional `base_path` parameter [crates/tf-config/src/template.rs:279]
+- [x] [AI-Review-R8][MEDIUM] `load_all()` evaluation order undocumented — docstring says "fail-fast" but doesn't specify iteration order `[Cr, Ppt, Anomaly]`. Callers may rely on knowing which template caused a failure. Add iteration order to docstring [crates/tf-config/src/template.rs:345-360]
+- [x] [AI-Review-R8][LOW] `content_as_str()` returns `BinaryContent` for non-UTF-8 markdown templates — semantically incorrect for `.md` files. Should return `InvalidFormat` with "invalid UTF-8" cause for markdown kinds, reserve `BinaryContent` for PPTX only [crates/tf-config/src/template.rs:176-188]
+- [x] [AI-Review-R8][LOW] Story test count discrepancy — Change Log says "296 tests" but `cargo test -- --list` shows 307 entries. Clarify canonical counting method (cargo test result lines vs --list entries) [story Change Log]
+- [x] [AI-Review-R8][LOW] `validate_format` function name misleading — signature `(kind, content, path)` suggests file-level validation but only validates bytes. Consider renaming to `validate_content` or `validate_format_bytes` for clarity at call sites [crates/tf-config/src/template.rs:441]
 
 ## Dev Notes
 
@@ -594,11 +594,18 @@ Claude Opus 4.6 (claude-opus-4-6)
 - ✅ Resolved R7 review finding [LOW]: Added `PartialEq` derive on `TemplateError` — enables `assert_eq!` in tests and improves downstream ergonomics
 - ✅ Resolved R7 review finding [LOW]: Added `Cargo.lock` to File List documentation
 - ✅ Resolved R7 review finding [LOW]: Added test for file without any extension — covers `"path/to/README"` edge case, verifies `actual` field shows `"(none)"`
+- ✅ Resolved R8 review finding [MEDIUM]: Deduplicated extension validation — replaced `config.rs:has_valid_extension()` with `has_valid_template_extension()` that delegates to `TemplateKind::expected_extension()` as single source of truth
+- ✅ Resolved R8 review finding [MEDIUM]: Documented relative path limitation — added known limitation note to `load_from_path()` and `load_template()` docstrings
+- ✅ Resolved R8 review finding [MEDIUM]: Documented `load_all()` iteration order (`Cr`, `Ppt`, `Anomaly`) in docstring
+- ✅ Resolved R8 review finding [LOW]: `content_as_str()` now returns `InvalidFormat` with "invalid UTF-8" cause for non-UTF-8 markdown templates, reserves `BinaryContent` for PPTX only
+- ✅ Resolved R8 review finding [LOW]: Clarified test count — 297 tests pass via `cargo test` result lines (canonical method: sum of "N passed" across all test runners)
+- ✅ Resolved R8 review finding [LOW]: Renamed `validate_format` to `validate_content` for clarity — function validates bytes, not file-level format
 
 ### File List
 
-- `crates/tf-config/src/template.rs` — NEW (1215 lines) — Template loading module with TemplateLoader<'a>, TemplateKind, LoadedTemplate, TemplateError (with BinaryContent variant, Clone, PartialEq, type-safe TemplateKind fields), validate_format, validate_extension, oversized_error, doc-tests, new_for_test constructor (test-utils feature), and 46 unit tests
-- `crates/tf-config/src/lib.rs` — MODIFIED — Added `pub mod template` and public re-exports for TemplateLoader, TemplateKind, LoadedTemplate, TemplateError, validate_format
+- `crates/tf-config/src/template.rs` — NEW (1251 lines) — Template loading module with TemplateLoader<'a>, TemplateKind, LoadedTemplate, TemplateError (with BinaryContent variant, Clone, PartialEq, type-safe TemplateKind fields), validate_content (renamed from validate_format), validate_extension, oversized_error, doc-tests, new_for_test constructor (test-utils feature), and 47 unit tests
+- `crates/tf-config/src/config.rs` — MODIFIED — Replaced `has_valid_extension()` with `has_valid_template_extension()` that delegates to `TemplateKind::expected_extension()` as single source of truth for extension validation
+- `crates/tf-config/src/lib.rs` — MODIFIED — Added `pub mod template` and public re-exports for TemplateLoader, TemplateKind, LoadedTemplate, TemplateError, validate_content
 - `crates/tf-config/Cargo.toml` — MODIFIED — Changed `tempfile` to workspace dependency, added `serde_json` dev-dependency, added `test-utils` feature flag
 - `Cargo.toml` — MODIFIED — Added `tempfile = "3.10"` and `serde_json = "1.0"` to workspace dependencies
 - `Cargo.lock` — MODIFIED — Updated by workspace dependency changes (tempfile, serde_json)
@@ -624,5 +631,6 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Addressed all 9 Round 6 review findings — 4 MEDIUM (validate_extension free function, validate_pptx accepts TemplateKind, oversized_error helper, TemplateError kind: TemplateKind), 5 LOW (single extension binding, test-utils feature flag, BinaryContent variant, File List correction, Clone derive). 295 tests pass (4 new: Clone, type-safe kind, BinaryContent, validate_extension free fn), 0 clippy warnings, 0 regressions.
 - 2026-02-06: Code review Round 7 (AI adversarial, clean branch) — 6 findings (0 HIGH, 3 MEDIUM, 3 LOW). All ACs fully implemented, all previous 40 findings resolved. No blocking issues. 6 action items added to Tasks/Subtasks. 295 tests pass, 0 clippy warnings, 0 regressions across tf-config and tf-security.
 - 2026-02-06: Addressed all 6 Round 7 review findings — 3 MEDIUM (test_load_all error type verification, InvalidExtension "(none)" for no-extension files, oversized_error hint path redundancy), 3 LOW (PartialEq derive, Cargo.lock in File List, no-extension test). 296 tests pass (1 new: no-extension edge case), 0 clippy warnings, 0 regressions.
-- 2026-02-06: Code review Round 8 (AI adversarial) — 6 findings (0 HIGH, 3 MEDIUM, 3 LOW). All ACs fully implemented, all previous 46 findings resolved. No blocking issues. 6 action items added to Tasks/Subtasks. 296 tests pass, 0 clippy warnings, 0 regressions across tf-config and tf-security.
+- 2026-02-06: Code review Round 8 (AI adversarial) — 6 findings (0 HIGH, 3 MEDIUM, 3 LOW). All ACs fully implemented, all previous 46 findings resolved. No blocking issues. 6 action items added to Tasks/Subtasks. 296 tests pass (canonical: `cargo test` result lines), 0 clippy warnings, 0 regressions across tf-config and tf-security.
+- 2026-02-06: Addressed all 6 Round 8 review findings — 3 MEDIUM (deduplicated extension validation via TemplateKind::expected_extension(), documented relative path limitation, documented load_all() iteration order), 3 LOW (content_as_str() returns InvalidFormat for non-UTF-8 markdown, clarified test count method, renamed validate_format to validate_content). 297 tests pass (canonical: sum of `cargo test` "N passed" lines across all runners; 246 unit + 8 integration + 19 profile + 14 profile_unit + 10 doc-tests), 0 clippy warnings, 0 regressions.
 
