@@ -211,7 +211,7 @@ fn default_max_tokens() -> u32 {
 /// - `https://user:secret@jira.example.com` -> `https://[REDACTED]@jira.example.com`
 /// - `https://jira.example.com?token=secret123` -> `https://jira.example.com?token=[REDACTED]`
 /// - `https://api.example.com?api_key=sk-123&foo=bar` -> `https://api.example.com?api_key=[REDACTED]&foo=bar`
-fn redact_url_sensitive_params(url: &str) -> String {
+pub(crate) fn redact_url_sensitive_params(url: &str) -> String {
     // List of sensitive parameter names (case-insensitive matching)
     // Includes both snake_case and camelCase variants
     const SENSITIVE_PARAMS: &[&str] = &[
