@@ -1,6 +1,6 @@
 # Story 0.4: Charger des templates (CR/PPT/anomalies)
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -118,11 +118,11 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
 
 #### Round 5 Review Follow-ups (AI)
 
-- [ ] [AI-Review-R5][MEDIUM] TOCTOU between `fs::metadata()` size check and `fs::read()` — file could grow beyond limit between the two calls. Use single `fs::File::open()` handle for metadata+read, or add post-read `content.len()` check [crates/tf-config/src/template.rs:251-296]
-- [ ] [AI-Review-R5][MEDIUM] `validate_format` public API: `path: &Path` parameter only used for error context, not validated — docstring should clarify "path is used for error context only and is not validated" to prevent caller confusion [crates/tf-config/src/template.rs:384-395]
-- [ ] [AI-Review-R5][LOW] Whitespace-only markdown templates accepted as valid — `validate_markdown` checks non-empty and UTF-8 but not whitespace-only content. Document this behavior or add `from_utf8(content)?.trim().is_empty()` check [crates/tf-config/src/template.rs:398-416]
-- [ ] [AI-Review-R5][LOW] `MAX_MD_SIZE` and `MAX_PPTX_SIZE` constants lack rationale documentation — unlike `MIN_PPTX_SIZE` which has detailed doc comment, max size constants have minimal comments [crates/tf-config/src/template.rs:47-50]
-- [ ] [AI-Review-R5][LOW] No test constructor for `LoadedTemplate` — downstream consumers cannot create instances without real files. Consider `#[cfg(test)] LoadedTemplate::new_for_test()` or a builder [crates/tf-config/src/template.rs:132-136]
+- [x] [AI-Review-R5][MEDIUM] TOCTOU between `fs::metadata()` size check and `fs::read()` — file could grow beyond limit between the two calls. Use single `fs::File::open()` handle for metadata+read, or add post-read `content.len()` check [crates/tf-config/src/template.rs:251-296]
+- [x] [AI-Review-R5][MEDIUM] `validate_format` public API: `path: &Path` parameter only used for error context, not validated — docstring should clarify "path is used for error context only and is not validated" to prevent caller confusion [crates/tf-config/src/template.rs:384-395]
+- [x] [AI-Review-R5][LOW] Whitespace-only markdown templates accepted as valid — `validate_markdown` checks non-empty and UTF-8 but not whitespace-only content. Document this behavior or add `from_utf8(content)?.trim().is_empty()` check [crates/tf-config/src/template.rs:398-416]
+- [x] [AI-Review-R5][LOW] `MAX_MD_SIZE` and `MAX_PPTX_SIZE` constants lack rationale documentation — unlike `MIN_PPTX_SIZE` which has detailed doc comment, max size constants have minimal comments [crates/tf-config/src/template.rs:47-50]
+- [x] [AI-Review-R5][LOW] No test constructor for `LoadedTemplate` — downstream consumers cannot create instances without real files. Consider `#[cfg(test)] LoadedTemplate::new_for_test()` or a builder [crates/tf-config/src/template.rs:132-136]
 
 ## Dev Notes
 
@@ -544,10 +544,15 @@ Claude Opus 4.6 (claude-opus-4-6)
 - ✅ Resolved R4 review finding [MEDIUM]: Moved `tempfile` to workspace dependency pattern (`tempfile.workspace = true`) — consistent with `serde`, `thiserror`, `assert_matches`
 - ✅ Resolved R4 review finding [LOW]: Changed `validate_format` public API from `path: &str` to `path: &Path` — follows Rust path conventions
 - ✅ Resolved R4 review finding [LOW]: Changed `MIN_PPTX_SIZE` from `u64` to `usize` — eliminates all `as usize` / `as u64` casts
+- ✅ Resolved R5 review finding [MEDIUM]: Added post-read `content.len()` size check after `fs::read()` — guards against TOCTOU where file grows between `fs::metadata()` and `fs::read()`, or when metadata was unavailable
+- ✅ Resolved R5 review finding [MEDIUM]: Clarified `validate_format` docstring — `path` parameter documented as "used only for error context, not validated or resolved"
+- ✅ Resolved R5 review finding [LOW]: Whitespace-only markdown templates now rejected — `validate_markdown` checks `text.trim().is_empty()` after UTF-8 validation
+- ✅ Resolved R5 review finding [LOW]: Added detailed rationale documentation for `MAX_MD_SIZE` (10 MB) and `MAX_PPTX_SIZE` (100 MB) constants
+- ✅ Resolved R5 review finding [LOW]: Added `#[cfg(test)] LoadedTemplate::new_for_test()` constructor for downstream test consumers
 
 ### File List
 
-- `crates/tf-config/src/template.rs` — NEW (1018 lines) — Template loading module with TemplateLoader<'a>, TemplateKind, LoadedTemplate, TemplateError, validate_format, doc-tests, and 37 unit tests
+- `crates/tf-config/src/template.rs` — NEW (1121 lines) — Template loading module with TemplateLoader<'a>, TemplateKind, LoadedTemplate, TemplateError, validate_format, doc-tests, new_for_test constructor, and 40 unit tests
 - `crates/tf-config/src/lib.rs` — MODIFIED — Added `pub mod template` and public re-exports for TemplateLoader, TemplateKind, LoadedTemplate, TemplateError, validate_format
 - `crates/tf-config/Cargo.toml` — MODIFIED — Changed `tempfile` to workspace dependency, added `serde_json` dev-dependency
 - `Cargo.toml` — MODIFIED — Added `tempfile = "3.10"` to workspace dependencies
@@ -568,4 +573,5 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Code review Round 4 (AI adversarial) — 5 findings (0 HIGH, 3 MEDIUM, 2 LOW). All ACs fully implemented, all previous findings resolved. No blocking issues. Action items added to Tasks/Subtasks. 285 tests pass, 0 clippy warnings, 0 regressions across tf-config and tf-security.
 - 2026-02-06: Addressed all 5 Round 4 review findings — 3 MEDIUM (serde rename_all lowercase, max file size guard with metadata pre-check, tempfile workspace dep), 2 LOW (validate_format &Path API, MIN_PPTX_SIZE usize). 288 tests pass (3 new: 2 oversized file + 1 serde roundtrip), 0 clippy warnings, 0 regressions.
 - 2026-02-06: Code review Round 5 (AI adversarial) — 5 findings (0 HIGH, 2 MEDIUM, 3 LOW). All ACs fully implemented, all previous 26 findings resolved. No blocking issues. Action items added to Tasks/Subtasks. 288 tests pass, 0 clippy warnings, 0 regressions across tf-config and tf-security.
+- 2026-02-06: Addressed all 5 Round 5 review findings — 2 MEDIUM (post-read TOCTOU size guard, validate_format docstring clarification), 3 LOW (whitespace-only markdown rejection, MAX_MD/PPTX_SIZE rationale docs, LoadedTemplate::new_for_test constructor). 291 tests pass (3 new: 2 whitespace-only + 1 new_for_test), 0 clippy warnings, 0 regressions.
 
