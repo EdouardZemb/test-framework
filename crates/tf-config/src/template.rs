@@ -41,10 +41,17 @@ const ZIP_MAGIC: &[u8; 4] = b"PK\x03\x04";
 /// `[Content_Types].xml` and basic relationship entries. This threshold
 /// prevents truncated or corrupted files from being accepted. Full OOXML
 /// structural validation is deferred to `tf-export`.
-const MIN_PPTX_SIZE: u64 = 100;
+const MIN_PPTX_SIZE: usize = 100;
+
+/// Maximum allowed file size for Markdown templates (10 MB)
+const MAX_MD_SIZE: u64 = 10 * 1024 * 1024;
+
+/// Maximum allowed file size for PowerPoint templates (100 MB)
+const MAX_PPTX_SIZE: u64 = 100 * 1024 * 1024;
 
 /// Types of templates supported by the system
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TemplateKind {
     /// Daily report template (CR quotidien) - Markdown format
     Cr,
@@ -236,6 +243,30 @@ impl<'a> TemplateLoader<'a> {
         // Validate extension before reading (avoids unnecessary I/O)
         self.validate_extension(&path, kind)?;
 
+        // Pre-check file size to prevent unbounded memory allocation
+        let max_size = match kind {
+            TemplateKind::Cr | TemplateKind::Anomaly => MAX_MD_SIZE,
+            TemplateKind::Ppt => MAX_PPTX_SIZE,
+        };
+        if let Ok(metadata) = fs::metadata(&path) {
+            let file_size = metadata.len();
+            if file_size > max_size {
+                return Err(TemplateError::InvalidFormat {
+                    path: path_str.to_string(),
+                    kind: kind.to_string(),
+                    cause: format!(
+                        "file is too large ({} bytes, maximum {} bytes)",
+                        file_size, max_size
+                    ),
+                    hint: format!(
+                        "Reduce the file size or check that '{}' is a valid {} template",
+                        path_str, kind
+                    ),
+                });
+            }
+        }
+        // If metadata fails, proceed to fs::read which will surface the actual error
+
         // Read file content — handles NotFound directly to avoid TOCTOU race
         let content = fs::read(&path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -265,7 +296,7 @@ impl<'a> TemplateLoader<'a> {
         })?;
 
         // Validate format
-        validate_format(kind, &content, path_str)?;
+        validate_format(kind, &content, &path)?;
 
         Ok(LoadedTemplate {
             kind,
@@ -355,10 +386,11 @@ impl<'a> TemplateLoader<'a> {
 /// Checks that `content` is well-formed for the given [`TemplateKind`]:
 /// - Markdown (`.md`): non-empty valid UTF-8
 /// - PowerPoint (`.pptx`): ZIP magic bytes and minimum size
-pub fn validate_format(kind: TemplateKind, content: &[u8], path: &str) -> Result<(), TemplateError> {
+pub fn validate_format(kind: TemplateKind, content: &[u8], path: &Path) -> Result<(), TemplateError> {
+    let path_str = path.display().to_string();
     match kind {
-        TemplateKind::Cr | TemplateKind::Anomaly => validate_markdown(content, path, kind),
-        TemplateKind::Ppt => validate_pptx(content, path),
+        TemplateKind::Cr | TemplateKind::Anomaly => validate_markdown(content, &path_str, kind),
+        TemplateKind::Ppt => validate_pptx(content, &path_str),
     }
 }
 
@@ -403,7 +435,7 @@ fn validate_pptx(content: &[u8], path: &str) -> Result<(), TemplateError> {
         });
     }
 
-    if (content.len() as u64) < MIN_PPTX_SIZE {
+    if content.len() < MIN_PPTX_SIZE {
         return Err(TemplateError::InvalidFormat {
             path: path.to_string(),
             kind: "ppt".to_string(),
@@ -437,7 +469,7 @@ mod tests {
         // ZIP magic bytes
         content.extend_from_slice(b"PK\x03\x04");
         // Padding with invalid UTF-8 sequences to simulate binary content
-        content.resize(MIN_PPTX_SIZE as usize + 10, 0xFF);
+        content.resize(MIN_PPTX_SIZE + 10, 0xFF);
         content
     }
 
@@ -675,12 +707,12 @@ mod tests {
     #[test]
     fn test_validate_markdown_valid() {
         let content = b"# Hello World\n\nThis is valid markdown.";
-        assert!(validate_format(TemplateKind::Cr, content, "test.md").is_ok());
+        assert!(validate_format(TemplateKind::Cr, content, Path::new("test.md")).is_ok());
     }
 
     #[test]
     fn test_validate_markdown_empty_rejected() {
-        let err = validate_format(TemplateKind::Cr, b"", "empty.md").unwrap_err();
+        let err = validate_format(TemplateKind::Cr, b"", Path::new("empty.md")).unwrap_err();
         assert!(matches!(err, TemplateError::InvalidFormat { .. }));
         assert!(err.to_string().contains("empty"));
     }
@@ -688,7 +720,7 @@ mod tests {
     #[test]
     fn test_validate_markdown_binary_rejected() {
         let content: &[u8] = &[0x00, 0x01, 0x02, 0x80, 0x81, 0xFF];
-        let err = validate_format(TemplateKind::Cr, content, "binary.md").unwrap_err();
+        let err = validate_format(TemplateKind::Cr, content, Path::new("binary.md")).unwrap_err();
         assert!(matches!(err, TemplateError::InvalidFormat { .. }));
         assert!(err.to_string().contains("UTF-8"));
     }
@@ -696,12 +728,12 @@ mod tests {
     #[test]
     fn test_validate_pptx_valid() {
         let content = create_valid_pptx_bytes();
-        assert!(validate_format(TemplateKind::Ppt, &content, "test.pptx").is_ok());
+        assert!(validate_format(TemplateKind::Ppt, &content, Path::new("test.pptx")).is_ok());
     }
 
     #[test]
     fn test_validate_pptx_empty_rejected() {
-        let err = validate_format(TemplateKind::Ppt, b"", "empty.pptx").unwrap_err();
+        let err = validate_format(TemplateKind::Ppt, b"", Path::new("empty.pptx")).unwrap_err();
         assert!(matches!(err, TemplateError::InvalidFormat { .. }));
         assert!(err.to_string().contains("empty"));
     }
@@ -709,7 +741,7 @@ mod tests {
     #[test]
     fn test_validate_pptx_no_magic_rejected() {
         let content = b"This is just text, not a ZIP file";
-        let err = validate_format(TemplateKind::Ppt, content, "fake.pptx").unwrap_err();
+        let err = validate_format(TemplateKind::Ppt, content, Path::new("fake.pptx")).unwrap_err();
         assert!(matches!(err, TemplateError::InvalidFormat { .. }));
         assert!(err.to_string().contains("ZIP"));
     }
@@ -720,7 +752,7 @@ mod tests {
         let mut content = Vec::new();
         content.extend_from_slice(b"PK\x03\x04");
         content.resize(50, 0x00); // Below MIN_PPTX_SIZE
-        let err = validate_format(TemplateKind::Ppt, &content, "small.pptx").unwrap_err();
+        let err = validate_format(TemplateKind::Ppt, &content, Path::new("small.pptx")).unwrap_err();
         assert!(matches!(err, TemplateError::InvalidFormat { .. }));
         assert!(err.to_string().contains("too small"));
     }
@@ -730,8 +762,8 @@ mod tests {
         // Exactly MIN_PPTX_SIZE - 1 bytes: should be rejected
         let mut content = Vec::new();
         content.extend_from_slice(b"PK\x03\x04");
-        content.resize((MIN_PPTX_SIZE - 1) as usize, 0x00);
-        let err = validate_format(TemplateKind::Ppt, &content, "boundary.pptx").unwrap_err();
+        content.resize(MIN_PPTX_SIZE - 1, 0x00);
+        let err = validate_format(TemplateKind::Ppt, &content, Path::new("boundary.pptx")).unwrap_err();
         assert!(matches!(err, TemplateError::InvalidFormat { .. }));
         assert!(err.to_string().contains("too small"));
     }
@@ -741,8 +773,8 @@ mod tests {
         // Exactly MIN_PPTX_SIZE bytes: should be accepted
         let mut content = Vec::new();
         content.extend_from_slice(b"PK\x03\x04");
-        content.resize(MIN_PPTX_SIZE as usize, 0x00);
-        assert!(validate_format(TemplateKind::Ppt, &content, "boundary.pptx").is_ok());
+        content.resize(MIN_PPTX_SIZE, 0x00);
+        assert!(validate_format(TemplateKind::Ppt, &content, Path::new("boundary.pptx")).is_ok());
     }
 
     // =========================================================================
@@ -896,6 +928,69 @@ mod tests {
         let loader = TemplateLoader::new(&config);
         let template = loader.load_template(TemplateKind::Ppt).unwrap();
         assert_eq!(template.kind(), TemplateKind::Ppt);
+    }
+
+    // =========================================================================
+    // Round 4 Review: File size guard
+    // =========================================================================
+
+    #[test]
+    fn test_load_template_oversized_md_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("huge.md");
+        // Create a file that exceeds MAX_MD_SIZE (10 MB)
+        // We use fs::File and set_len to create a sparse file without allocating memory
+        let file = fs::File::create(&path).unwrap();
+        file.set_len(MAX_MD_SIZE + 1).unwrap();
+
+        let config = TemplatesConfig {
+            cr: Some(path.display().to_string()),
+            ppt: None,
+            anomaly: None,
+        };
+        let loader = TemplateLoader::new(&config);
+        let err = loader.load_template(TemplateKind::Cr).unwrap_err();
+        assert!(matches!(err, TemplateError::InvalidFormat { .. }));
+        assert!(err.to_string().contains("too large"));
+    }
+
+    #[test]
+    fn test_load_template_oversized_pptx_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("huge.pptx");
+        let file = fs::File::create(&path).unwrap();
+        file.set_len(MAX_PPTX_SIZE + 1).unwrap();
+
+        let config = TemplatesConfig {
+            cr: None,
+            ppt: Some(path.display().to_string()),
+            anomaly: None,
+        };
+        let loader = TemplateLoader::new(&config);
+        let err = loader.load_template(TemplateKind::Ppt).unwrap_err();
+        assert!(matches!(err, TemplateError::InvalidFormat { .. }));
+        assert!(err.to_string().contains("too large"));
+    }
+
+    // =========================================================================
+    // Round 4 Review: Serde representation alignment
+    // =========================================================================
+
+    #[test]
+    fn test_template_kind_serde_lowercase() {
+        // Serialize should produce lowercase matching Display output
+        let cr_json = serde_json::to_string(&TemplateKind::Cr).unwrap();
+        assert_eq!(cr_json, "\"cr\"");
+
+        let ppt_json = serde_json::to_string(&TemplateKind::Ppt).unwrap();
+        assert_eq!(ppt_json, "\"ppt\"");
+
+        let anomaly_json = serde_json::to_string(&TemplateKind::Anomaly).unwrap();
+        assert_eq!(anomaly_json, "\"anomaly\"");
+
+        // Deserialize should accept lowercase
+        let cr: TemplateKind = serde_json::from_str("\"cr\"").unwrap();
+        assert_eq!(cr, TemplateKind::Cr);
     }
 
     // =========================================================================
