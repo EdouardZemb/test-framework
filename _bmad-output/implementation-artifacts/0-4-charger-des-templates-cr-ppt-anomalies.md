@@ -1,6 +1,6 @@
 # Story 0.4: Charger des templates (CR/PPT/anomalies)
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -110,11 +110,11 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
 
 #### Round 4 Review Follow-ups (AI)
 
-- [ ] [AI-Review-R4][MEDIUM] `TemplateKind` Serialize/Deserialize produces PascalCase ("Cr", "Ppt", "Anomaly") but Display produces lowercase ("cr", "ppt", "anomaly") — add `#[serde(rename_all = "lowercase")]` to align representations [crates/tf-config/src/template.rs:47]
-- [ ] [AI-Review-R4][MEDIUM] No maximum file size guard — `fs::read()` loads entire file into memory without size check. Device files or very large files cause unbounded allocation. Add `fs::metadata().len()` pre-check with reasonable limits (10MB md, 100MB pptx) [crates/tf-config/src/template.rs:240]
-- [ ] [AI-Review-R4][MEDIUM] `tempfile` dev-dependency declared directly (`tempfile = "3.10"`) instead of workspace pattern (`tempfile.workspace = true`) — inconsistent with `serde`, `thiserror`, `assert_matches` which all use workspace refs [crates/tf-config/Cargo.toml:17]
-- [ ] [AI-Review-R4][LOW] `validate_format` public API takes `path: &str` instead of `&Path` — breaks Rust path conventions, forces external consumers to convert `PathBuf` → `&str` [crates/tf-config/src/template.rs:358]
-- [ ] [AI-Review-R4][LOW] `MIN_PPTX_SIZE` typed as `u64` but always compared to `content.len()` (`usize`) — requires cast on every usage, `usize` would be more idiomatic [crates/tf-config/src/template.rs:44,406]
+- [x] [AI-Review-R4][MEDIUM] `TemplateKind` Serialize/Deserialize produces PascalCase ("Cr", "Ppt", "Anomaly") but Display produces lowercase ("cr", "ppt", "anomaly") — add `#[serde(rename_all = "lowercase")]` to align representations [crates/tf-config/src/template.rs:47]
+- [x] [AI-Review-R4][MEDIUM] No maximum file size guard — `fs::read()` loads entire file into memory without size check. Device files or very large files cause unbounded allocation. Add `fs::metadata().len()` pre-check with reasonable limits (10MB md, 100MB pptx) [crates/tf-config/src/template.rs:240]
+- [x] [AI-Review-R4][MEDIUM] `tempfile` dev-dependency declared directly (`tempfile = "3.10"`) instead of workspace pattern (`tempfile.workspace = true`) — inconsistent with `serde`, `thiserror`, `assert_matches` which all use workspace refs [crates/tf-config/Cargo.toml:17]
+- [x] [AI-Review-R4][LOW] `validate_format` public API takes `path: &str` instead of `&Path` — breaks Rust path conventions, forces external consumers to convert `PathBuf` → `&str` [crates/tf-config/src/template.rs:358]
+- [x] [AI-Review-R4][LOW] `MIN_PPTX_SIZE` typed as `u64` but always compared to `content.len()` (`usize`) — requires cast on every usage, `usize` would be more idiomatic [crates/tf-config/src/template.rs:44,406]
 
 ## Dev Notes
 
@@ -531,11 +531,18 @@ Claude Opus 4.6 (claude-opus-4-6)
 - ✅ Resolved R3 review finding [LOW]: Added `#[derive(Debug)]` on `TemplateLoader` for consistency with other public types
 - ✅ Resolved R3 review finding [LOW]: `load_all()` now uses `HashMap::with_capacity(TemplateKind::all().len())` instead of `HashMap::new()`
 - ✅ Resolved R3 review finding [LOW]: Added directory-as-path edge case test and context-aware `ReadError` hint ("path is a directory" vs "check permissions")
+- ✅ Resolved R4 review finding [MEDIUM]: Added `#[serde(rename_all = "lowercase")]` on `TemplateKind` — serde now produces "cr", "ppt", "anomaly" matching `Display` output
+- ✅ Resolved R4 review finding [MEDIUM]: Added max file size guard via `fs::metadata().len()` pre-check (10MB for .md, 100MB for .pptx) before `fs::read()` — prevents unbounded memory allocation
+- ✅ Resolved R4 review finding [MEDIUM]: Moved `tempfile` to workspace dependency pattern (`tempfile.workspace = true`) — consistent with `serde`, `thiserror`, `assert_matches`
+- ✅ Resolved R4 review finding [LOW]: Changed `validate_format` public API from `path: &str` to `path: &Path` — follows Rust path conventions
+- ✅ Resolved R4 review finding [LOW]: Changed `MIN_PPTX_SIZE` from `u64` to `usize` — eliminates all `as usize` / `as u64` casts
 
 ### File List
 
-- `crates/tf-config/src/template.rs` — NEW (923 lines) — Template loading module with TemplateLoader<'a>, TemplateKind, LoadedTemplate, TemplateError, validate_format, doc-tests, and 34 unit tests
+- `crates/tf-config/src/template.rs` — NEW (1018 lines) — Template loading module with TemplateLoader<'a>, TemplateKind, LoadedTemplate, TemplateError, validate_format, doc-tests, and 37 unit tests
 - `crates/tf-config/src/lib.rs` — MODIFIED — Added `pub mod template` and public re-exports for TemplateLoader, TemplateKind, LoadedTemplate, TemplateError, validate_format
+- `crates/tf-config/Cargo.toml` — MODIFIED — Changed `tempfile` to workspace dependency, added `serde_json` dev-dependency
+- `Cargo.toml` — MODIFIED — Added `tempfile = "3.10"` to workspace dependencies
 - `crates/tf-config/tests/fixtures/templates/cr-test.md` — NEW — CR template fixture for tests
 - `crates/tf-config/tests/fixtures/templates/anomaly-test.md` — NEW — Anomaly template fixture for tests
 - `crates/tf-config/tests/fixtures/templates/empty.md` — NEW — Empty file fixture for error case testing
@@ -551,4 +558,5 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Code review Round 3 (AI adversarial) — 5 findings (0 HIGH, 2 MEDIUM, 3 LOW). All ACs fully implemented, all previous findings resolved. No blocking issues. Action items added to Tasks/Subtasks. 281 tests pass, 0 clippy warnings, 0 regressions.
 - 2026-02-06: Addressed all 5 Round 3 review findings — 2 MEDIUM (case-insensitive extension comparison, avoid heap allocation on happy path), 3 LOW (Debug derive on TemplateLoader, HashMap::with_capacity, directory-as-path edge case with contextual hint). 285 tests pass (4 new: 3 case-insensitive ext + 1 directory edge case), 0 clippy warnings, 0 regressions.
 - 2026-02-06: Code review Round 4 (AI adversarial) — 5 findings (0 HIGH, 3 MEDIUM, 2 LOW). All ACs fully implemented, all previous findings resolved. No blocking issues. Action items added to Tasks/Subtasks. 285 tests pass, 0 clippy warnings, 0 regressions across tf-config and tf-security.
+- 2026-02-06: Addressed all 5 Round 4 review findings — 3 MEDIUM (serde rename_all lowercase, max file size guard with metadata pre-check, tempfile workspace dep), 2 LOW (validate_format &Path API, MIN_PPTX_SIZE usize). 288 tests pass (3 new: 2 oversized file + 1 serde roundtrip), 0 clippy warnings, 0 regressions.
 
