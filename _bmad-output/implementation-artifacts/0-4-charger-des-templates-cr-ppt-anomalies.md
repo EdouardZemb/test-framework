@@ -1,6 +1,6 @@
 # Story 0.4: Charger des templates (CR/PPT/anomalies)
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -99,6 +99,14 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
 - [x] [AI-Review-R2][LOW] `size_bytes` field is redundant with `content.len()` — consider computing on-the-fly via accessor to reduce struct size [crates/tf-config/src/template.rs:129,246]
 - [x] [AI-Review-R2][LOW] Add boundary tests for `MIN_PPTX_SIZE`: test at exactly `MIN_PPTX_SIZE - 1` (reject) and `MIN_PPTX_SIZE` (accept) [crates/tf-config/src/template.rs:696-704]
 - [x] [AI-Review-R2][LOW] `TemplateKind::expected_extension()` is private but could be useful for external consumers — consider making it public [crates/tf-config/src/template.rs:69]
+
+#### Round 3 Review Follow-ups (AI)
+
+- [ ] [AI-Review-R3][MEDIUM] `validate_extension()` uses case-sensitive comparison — files with `.MD`, `.Md`, `.PPTX` extensions are rejected even though the format is correct. Use `eq_ignore_ascii_case()` instead of exact equality [crates/tf-config/src/template.rs:314-332]
+- [ ] [AI-Review-R3][MEDIUM] `validate_extension()` heap-allocates a `String` via `format!(".{}", e)` on every call including happy path — compare raw extension without dot prefix to avoid allocation [crates/tf-config/src/template.rs:316-320]
+- [ ] [AI-Review-R3][LOW] `TemplateLoader` missing `Debug` implementation — all other public types in the module have Debug, this is inconsistent [crates/tf-config/src/template.rs:185-187]
+- [ ] [AI-Review-R3][LOW] `HashMap::new()` in `load_all()` starts at capacity 0 — use `with_capacity(3)` since max template kinds is known [crates/tf-config/src/template.rs:275]
+- [ ] [AI-Review-R3][LOW] No test for directory-as-path edge case — `ReadError` hint "Check file permissions" is misleading when path points to a directory instead of a file [crates/tf-config/src/template.rs:239-256]
 
 ## Dev Notes
 
@@ -527,4 +535,5 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Addressed all 10 code review findings — 3 HIGH (TOCTOU fix, validate_format public, File List correction), 4 MEDIUM (load_all docs, all() public, doc-tests, Serialize/Deserialize), 3 LOW (Serialize derive, Usage section, MIN_PPTX_SIZE docs). All 228+8+19+14+10 tests pass, 0 clippy warnings, 0 regressions.
 - 2026-02-06: Code review Round 2 (AI adversarial) — 6 findings (0 HIGH, 3 MEDIUM, 3 LOW). All ACs fully implemented. No blocking issues. Action items added for future improvement. 279 tests pass, 0 clippy warnings, 0 regressions.
 - 2026-02-06: Addressed all 6 Round 2 review findings — 3 MEDIUM (TemplateLoader borrows instead of cloning, load_all() single resolution path, content_as_str() PPTX-specific hint), 3 LOW (size_bytes computed on-the-fly, MIN_PPTX_SIZE boundary tests, expected_extension() public). 281 tests pass (2 new boundary tests), 0 clippy warnings, 0 regressions.
+- 2026-02-06: Code review Round 3 (AI adversarial) — 5 findings (0 HIGH, 2 MEDIUM, 3 LOW). All ACs fully implemented, all previous findings resolved. No blocking issues. Action items added to Tasks/Subtasks. 281 tests pass, 0 clippy warnings, 0 regressions.
 
