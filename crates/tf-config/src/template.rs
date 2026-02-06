@@ -97,7 +97,7 @@ impl TemplateKind {
 }
 
 /// Errors that can occur when loading or validating templates
-#[derive(Clone, Debug, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum TemplateError {
     /// Template kind not configured in config.yaml
     #[error("Template {kind} not configured. {hint}")]
@@ -400,7 +400,7 @@ fn validate_extension(path: &Path, kind: TemplateKind) -> Result<(), TemplateErr
         .unwrap_or(false);
 
     if !matches {
-        let actual = ext_str.map(|e| format!(".{}", e)).unwrap_or_default();
+        let actual = ext_str.map(|e| format!(".{}", e)).unwrap_or_else(|| "(none)".to_string());
         return Err(TemplateError::InvalidExtension {
             path: path.display().to_string(),
             expected: expected.to_string(),
@@ -423,8 +423,8 @@ fn oversized_error(path: &str, kind: TemplateKind, actual_size: u64, max_size: u
             actual_size, max_size
         ),
         hint: format!(
-            "Reduce the file size or check that '{}' is a valid {} template",
-            path, kind
+            "Reduce the file size or verify this is a valid {} template",
+            kind
         ),
     }
 }
@@ -937,7 +937,10 @@ mod tests {
         };
         let loader = TemplateLoader::new(&config);
         let result = loader.load_all();
-        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            TemplateError::FileNotFound { .. }
+        ));
     }
 
     // =========================================================================
@@ -1172,6 +1175,33 @@ mod tests {
             }
             _ => panic!("Expected BinaryContent, got {:?}", err),
         }
+    }
+
+    // =========================================================================
+    // Round 7 Review: No-extension edge case
+    // =========================================================================
+
+    #[test]
+    fn test_load_template_no_extension_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("README");
+        fs::write(&path, "# Some content").unwrap();
+
+        let config = TemplatesConfig {
+            cr: Some(path.display().to_string()),
+            ppt: None,
+            anomaly: None,
+        };
+        let loader = TemplateLoader::new(&config);
+        let err = loader.load_template(TemplateKind::Cr).unwrap_err();
+        assert!(matches!(err, TemplateError::InvalidExtension { .. }));
+        match &err {
+            TemplateError::InvalidExtension { actual, .. } => {
+                assert_eq!(actual, "(none)");
+            }
+            _ => panic!("Expected InvalidExtension"),
+        }
+        assert!(err.to_string().contains("(none)"));
     }
 
     #[test]
