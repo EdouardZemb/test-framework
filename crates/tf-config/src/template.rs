@@ -171,20 +171,29 @@ impl LoadedTemplate {
 
     /// Get content as UTF-8 string (for Markdown templates)
     ///
-    /// Returns [`TemplateError::BinaryContent`] for binary templates (e.g. PPTX).
-    /// Use [`content()`](Self::content) to access raw bytes for binary formats.
+    /// Returns [`TemplateError::BinaryContent`] for PPTX templates (use
+    /// [`content()`](Self::content) to access raw bytes for binary formats).
+    /// Returns [`TemplateError::InvalidFormat`] for non-UTF-8 markdown templates.
     pub fn content_as_str(&self) -> Result<&str, TemplateError> {
-        std::str::from_utf8(&self.content).map_err(|_| TemplateError::BinaryContent {
-            path: self.path.display().to_string(),
-            kind: self.kind,
-            hint: if self.kind == TemplateKind::Ppt {
-                "This template is binary (PPTX); use content() for raw bytes instead".to_string()
+        std::str::from_utf8(&self.content).map_err(|_| {
+            if self.kind == TemplateKind::Ppt {
+                TemplateError::BinaryContent {
+                    path: self.path.display().to_string(),
+                    kind: self.kind,
+                    hint: "This template is binary (PPTX); use content() for raw bytes instead"
+                        .to_string(),
+                }
             } else {
-                format!(
-                    "Ensure the file is a valid {} template with UTF-8 encoding",
-                    self.kind
-                )
-            },
+                TemplateError::InvalidFormat {
+                    path: self.path.display().to_string(),
+                    kind: self.kind,
+                    cause: "invalid UTF-8".to_string(),
+                    hint: format!(
+                        "Ensure the file is a valid {} template with UTF-8 encoding",
+                        self.kind
+                    ),
+                }
+            }
         })
     }
 
@@ -257,6 +266,9 @@ impl<'a> TemplateLoader<'a> {
     /// Resolves the configured path, validates the file extension, reads the file,
     /// and validates the format before returning the loaded template.
     ///
+    /// **Note:** Relative paths are resolved against the current working directory,
+    /// not the config file location. Use absolute paths in config for portability.
+    ///
     /// ```no_run
     /// use tf_config::{TemplateLoader, TemplateKind, TemplatesConfig};
     ///
@@ -275,6 +287,12 @@ impl<'a> TemplateLoader<'a> {
     }
 
     /// Load a template from a resolved path string.
+    ///
+    /// **Known limitation:** Relative paths are resolved against the current
+    /// working directory (`std::env::current_dir`), not against the config file
+    /// location. Callers running the CLI from a different directory may get
+    /// unexpected `FileNotFound` errors. Use absolute paths in config to avoid
+    /// ambiguity.
     fn load_from_path(&self, kind: TemplateKind, path_str: &str) -> Result<LoadedTemplate, TemplateError> {
         let path = PathBuf::from(path_str);
 
@@ -330,7 +348,7 @@ impl<'a> TemplateLoader<'a> {
         }
 
         // Validate format
-        validate_format(kind, &content, &path)?;
+        validate_content(kind, &content, &path)?;
 
         Ok(LoadedTemplate {
             kind,
@@ -341,10 +359,11 @@ impl<'a> TemplateLoader<'a> {
 
     /// Load all configured templates
     ///
-    /// Iterates over every [`TemplateKind`] and loads each one that has a path
+    /// Iterates over every [`TemplateKind`] in declaration order
+    /// (`Cr`, `Ppt`, `Anomaly`) and loads each one that has a path
     /// set in the configuration. Skips unconfigured kinds. Uses **fail-fast**
-    /// semantics: returns the first error encountered and does not attempt to
-    /// load remaining templates.
+    /// semantics: returns the first error encountered (in iteration order) and
+    /// does not attempt to load remaining templates.
     pub fn load_all(&self) -> Result<HashMap<TemplateKind, LoadedTemplate>, TemplateError> {
         let mut templates = HashMap::with_capacity(TemplateKind::all().len());
 
@@ -438,7 +457,7 @@ fn oversized_error(path: &str, kind: TemplateKind, actual_size: u64, max_size: u
 /// The `path` parameter is used **only for error context** (included in error
 /// messages to help the user locate the problematic file). It is not validated,
 /// resolved, or read from — callers may pass any descriptive path.
-pub fn validate_format(kind: TemplateKind, content: &[u8], path: &Path) -> Result<(), TemplateError> {
+pub fn validate_content(kind: TemplateKind, content: &[u8], path: &Path) -> Result<(), TemplateError> {
     let path_str = path.display().to_string();
     match kind {
         TemplateKind::Cr | TemplateKind::Anomaly => validate_markdown(content, &path_str, kind),
@@ -768,12 +787,12 @@ mod tests {
     #[test]
     fn test_validate_markdown_valid() {
         let content = b"# Hello World\n\nThis is valid markdown.";
-        assert!(validate_format(TemplateKind::Cr, content, Path::new("test.md")).is_ok());
+        assert!(validate_content(TemplateKind::Cr, content, Path::new("test.md")).is_ok());
     }
 
     #[test]
     fn test_validate_markdown_empty_rejected() {
-        let err = validate_format(TemplateKind::Cr, b"", Path::new("empty.md")).unwrap_err();
+        let err = validate_content(TemplateKind::Cr, b"", Path::new("empty.md")).unwrap_err();
         assert!(matches!(err, TemplateError::InvalidFormat { .. }));
         assert!(err.to_string().contains("empty"));
     }
@@ -781,7 +800,7 @@ mod tests {
     #[test]
     fn test_validate_markdown_binary_rejected() {
         let content: &[u8] = &[0x00, 0x01, 0x02, 0x80, 0x81, 0xFF];
-        let err = validate_format(TemplateKind::Cr, content, Path::new("binary.md")).unwrap_err();
+        let err = validate_content(TemplateKind::Cr, content, Path::new("binary.md")).unwrap_err();
         assert!(matches!(err, TemplateError::InvalidFormat { .. }));
         assert!(err.to_string().contains("UTF-8"));
     }
@@ -789,12 +808,12 @@ mod tests {
     #[test]
     fn test_validate_pptx_valid() {
         let content = create_valid_pptx_bytes();
-        assert!(validate_format(TemplateKind::Ppt, &content, Path::new("test.pptx")).is_ok());
+        assert!(validate_content(TemplateKind::Ppt, &content, Path::new("test.pptx")).is_ok());
     }
 
     #[test]
     fn test_validate_pptx_empty_rejected() {
-        let err = validate_format(TemplateKind::Ppt, b"", Path::new("empty.pptx")).unwrap_err();
+        let err = validate_content(TemplateKind::Ppt, b"", Path::new("empty.pptx")).unwrap_err();
         assert!(matches!(err, TemplateError::InvalidFormat { .. }));
         assert!(err.to_string().contains("empty"));
     }
@@ -802,7 +821,7 @@ mod tests {
     #[test]
     fn test_validate_pptx_no_magic_rejected() {
         let content = b"This is just text, not a ZIP file";
-        let err = validate_format(TemplateKind::Ppt, content, Path::new("fake.pptx")).unwrap_err();
+        let err = validate_content(TemplateKind::Ppt, content, Path::new("fake.pptx")).unwrap_err();
         assert!(matches!(err, TemplateError::InvalidFormat { .. }));
         assert!(err.to_string().contains("ZIP"));
     }
@@ -813,7 +832,7 @@ mod tests {
         let mut content = Vec::new();
         content.extend_from_slice(b"PK\x03\x04");
         content.resize(50, 0x00); // Below MIN_PPTX_SIZE
-        let err = validate_format(TemplateKind::Ppt, &content, Path::new("small.pptx")).unwrap_err();
+        let err = validate_content(TemplateKind::Ppt, &content, Path::new("small.pptx")).unwrap_err();
         assert!(matches!(err, TemplateError::InvalidFormat { .. }));
         assert!(err.to_string().contains("too small"));
     }
@@ -824,7 +843,7 @@ mod tests {
         let mut content = Vec::new();
         content.extend_from_slice(b"PK\x03\x04");
         content.resize(MIN_PPTX_SIZE - 1, 0x00);
-        let err = validate_format(TemplateKind::Ppt, &content, Path::new("boundary.pptx")).unwrap_err();
+        let err = validate_content(TemplateKind::Ppt, &content, Path::new("boundary.pptx")).unwrap_err();
         assert!(matches!(err, TemplateError::InvalidFormat { .. }));
         assert!(err.to_string().contains("too small"));
     }
@@ -835,7 +854,7 @@ mod tests {
         let mut content = Vec::new();
         content.extend_from_slice(b"PK\x03\x04");
         content.resize(MIN_PPTX_SIZE, 0x00);
-        assert!(validate_format(TemplateKind::Ppt, &content, Path::new("boundary.pptx")).is_ok());
+        assert!(validate_content(TemplateKind::Ppt, &content, Path::new("boundary.pptx")).is_ok());
     }
 
     // =========================================================================
@@ -1088,7 +1107,7 @@ mod tests {
     #[test]
     fn test_validate_markdown_whitespace_only_rejected() {
         let content = b"   \n\t\n   \n";
-        let err = validate_format(TemplateKind::Cr, content, Path::new("whitespace.md")).unwrap_err();
+        let err = validate_content(TemplateKind::Cr, content, Path::new("whitespace.md")).unwrap_err();
         assert!(matches!(err, TemplateError::InvalidFormat { .. }));
         assert!(err.to_string().contains("whitespace"));
     }
@@ -1157,6 +1176,23 @@ mod tests {
                 assert_eq!(kind, TemplateKind::Ppt);
             }
             _ => panic!("Expected NotConfigured"),
+        }
+    }
+
+    #[test]
+    fn test_content_as_str_non_utf8_markdown_returns_invalid_format() {
+        let template = LoadedTemplate::new_for_test(
+            TemplateKind::Cr,
+            "test.md",
+            vec![0xFF, 0xFE, 0x80, 0x81],
+        );
+        let err = template.content_as_str().unwrap_err();
+        match err {
+            TemplateError::InvalidFormat { kind, cause, .. } => {
+                assert_eq!(kind, TemplateKind::Cr);
+                assert!(cause.contains("UTF-8"));
+            }
+            _ => panic!("Expected InvalidFormat for non-UTF-8 markdown, got {:?}", err),
         }
     }
 

@@ -70,4 +70,4 @@ pub use error::ConfigError;
 pub use profiles::{ProfileId, ProfileOverride};
 
 // Template types for Story 0.4
-pub use template::{validate_format, LoadedTemplate, TemplateError, TemplateKind, TemplateLoader};
+pub use template::{validate_content, LoadedTemplate, TemplateError, TemplateKind, TemplateLoader};
