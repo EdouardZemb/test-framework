@@ -45,7 +45,7 @@ development_status:
   0-1-configurer-un-projet-via-config-yaml: done
   0-2-definir-et-selectionner-des-profils-de-configuration: done
   0-3-gestion-des-secrets-via-secret-store: done
-  0-4-charger-des-templates-cr-ppt-anomalies: review
+  0-4-charger-des-templates-cr-ppt-anomalies: in-progress
   0-5-journalisation-baseline-sans-donnees-sensibles: backlog
   0-6-configurer-checklist-de-testabilite-et-regles-de-scoring: backlog
   0-7-anonymisation-automatique-avant-envoi-cloud: backlog

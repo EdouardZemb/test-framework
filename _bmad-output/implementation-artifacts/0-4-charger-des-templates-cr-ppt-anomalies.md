@@ -1,6 +1,6 @@
 # Story 0.4: Charger des templates (CR/PPT/anomalies)
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -135,6 +135,15 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
 - [x] [AI-Review-R6][LOW] `content_as_str()` returns `InvalidFormat` for valid PPTX templates — semantically incorrect variant, consider `BinaryContent` variant [crates/tf-config/src/template.rs:168-182]
 - [x] [AI-Review-R6][LOW] File List entry for `Cargo.toml` omits `serde_json = "1.0"` addition to workspace dependencies [story File List]
 - [x] [AI-Review-R6][LOW] `TemplateError` missing `Clone` derive — all fields are `String`, trivially cloneable [crates/tf-config/src/template.rs:100]
+
+#### Round 7 Review Follow-ups (AI)
+
+- [ ] [AI-Review-R7][MEDIUM] `test_load_all_fails_on_invalid_template` only checks `is_err()` without verifying error type — should use `assert!(matches!(result.unwrap_err(), TemplateError::FileNotFound { .. }))` to detect behavior regressions [crates/tf-config/src/template.rs:940]
+- [ ] [AI-Review-R7][MEDIUM] `InvalidExtension` error shows `got ''` for files with no extension — `actual` uses `unwrap_or_default()` producing empty string. Should display `"(none)"` instead. No test covers this edge case [crates/tf-config/src/template.rs:403]
+- [ ] [AI-Review-R7][MEDIUM] `oversized_error` hint includes path redundantly — path already appears in `InvalidFormat` error template (`'{path}'`), hint at line 426 repeats it. Simplify to `"Reduce the file size or verify this is a valid {kind} template"` [crates/tf-config/src/template.rs:425-428]
+- [ ] [AI-Review-R7][LOW] `TemplateError` missing `PartialEq` derive — all fields are `String` and `TemplateKind` (which has PartialEq). Would enable `assert_eq!` in tests and improve downstream ergonomics [crates/tf-config/src/template.rs:100]
+- [ ] [AI-Review-R7][LOW] `Cargo.lock` not documented in File List — modified by workspace dependency changes (tempfile, serde_json) but omitted from story File List [story File List]
+- [ ] [AI-Review-R7][LOW] No test for file without any extension — `cr: Some("path/to/README")` is handled by code but not covered by any test. Would document expected behavior and protect against regressions [crates/tf-config/src/template.rs]
 
 ## Dev Notes
 
@@ -597,4 +606,5 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Addressed all 5 Round 5 review findings — 2 MEDIUM (post-read TOCTOU size guard, validate_format docstring clarification), 3 LOW (whitespace-only markdown rejection, MAX_MD/PPTX_SIZE rationale docs, LoadedTemplate::new_for_test constructor). 291 tests pass (3 new: 2 whitespace-only + 1 new_for_test), 0 clippy warnings, 0 regressions.
 - 2026-02-06: Code review Round 6 (AI adversarial) — 9 findings (0 HIGH, 4 MEDIUM, 5 LOW). All ACs fully implemented, all previous 31 findings resolved. No blocking issues. 9 action items added to Tasks/Subtasks. 291 tests pass, 0 clippy warnings, 0 regressions across tf-config and tf-security.
 - 2026-02-06: Addressed all 9 Round 6 review findings — 4 MEDIUM (validate_extension free function, validate_pptx accepts TemplateKind, oversized_error helper, TemplateError kind: TemplateKind), 5 LOW (single extension binding, test-utils feature flag, BinaryContent variant, File List correction, Clone derive). 295 tests pass (4 new: Clone, type-safe kind, BinaryContent, validate_extension free fn), 0 clippy warnings, 0 regressions.
+- 2026-02-06: Code review Round 7 (AI adversarial, clean branch) — 6 findings (0 HIGH, 3 MEDIUM, 3 LOW). All ACs fully implemented, all previous 40 findings resolved. No blocking issues. 6 action items added to Tasks/Subtasks. 295 tests pass, 0 clippy warnings, 0 regressions across tf-config and tf-security.
 
