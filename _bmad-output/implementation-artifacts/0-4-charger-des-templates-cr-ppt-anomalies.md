@@ -1,6 +1,6 @@
 # Story 0.4: Charger des templates (CR/PPT/anomalies)
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -102,11 +102,11 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
 
 #### Round 3 Review Follow-ups (AI)
 
-- [ ] [AI-Review-R3][MEDIUM] `validate_extension()` uses case-sensitive comparison — files with `.MD`, `.Md`, `.PPTX` extensions are rejected even though the format is correct. Use `eq_ignore_ascii_case()` instead of exact equality [crates/tf-config/src/template.rs:314-332]
-- [ ] [AI-Review-R3][MEDIUM] `validate_extension()` heap-allocates a `String` via `format!(".{}", e)` on every call including happy path — compare raw extension without dot prefix to avoid allocation [crates/tf-config/src/template.rs:316-320]
-- [ ] [AI-Review-R3][LOW] `TemplateLoader` missing `Debug` implementation — all other public types in the module have Debug, this is inconsistent [crates/tf-config/src/template.rs:185-187]
-- [ ] [AI-Review-R3][LOW] `HashMap::new()` in `load_all()` starts at capacity 0 — use `with_capacity(3)` since max template kinds is known [crates/tf-config/src/template.rs:275]
-- [ ] [AI-Review-R3][LOW] No test for directory-as-path edge case — `ReadError` hint "Check file permissions" is misleading when path points to a directory instead of a file [crates/tf-config/src/template.rs:239-256]
+- [x] [AI-Review-R3][MEDIUM] `validate_extension()` uses case-sensitive comparison — files with `.MD`, `.Md`, `.PPTX` extensions are rejected even though the format is correct. Use `eq_ignore_ascii_case()` instead of exact equality [crates/tf-config/src/template.rs:314-332]
+- [x] [AI-Review-R3][MEDIUM] `validate_extension()` heap-allocates a `String` via `format!(".{}", e)` on every call including happy path — compare raw extension without dot prefix to avoid allocation [crates/tf-config/src/template.rs:316-320]
+- [x] [AI-Review-R3][LOW] `TemplateLoader` missing `Debug` implementation — all other public types in the module have Debug, this is inconsistent [crates/tf-config/src/template.rs:185-187]
+- [x] [AI-Review-R3][LOW] `HashMap::new()` in `load_all()` starts at capacity 0 — use `with_capacity(3)` since max template kinds is known [crates/tf-config/src/template.rs:275]
+- [x] [AI-Review-R3][LOW] No test for directory-as-path edge case — `ReadError` hint "Check file permissions" is misleading when path points to a directory instead of a file [crates/tf-config/src/template.rs:239-256]
 
 ## Dev Notes
 
@@ -518,10 +518,15 @@ Claude Opus 4.6 (claude-opus-4-6)
 - ✅ Resolved R2 review finding [LOW]: Removed redundant `size_bytes` field from `LoadedTemplate` struct — now computed on-the-fly from `content.len()`
 - ✅ Resolved R2 review finding [LOW]: Added boundary tests for `MIN_PPTX_SIZE` at exactly `MIN_PPTX_SIZE - 1` (reject) and `MIN_PPTX_SIZE` (accept)
 - ✅ Resolved R2 review finding [LOW]: Made `TemplateKind::expected_extension()` public for external consumers
+- ✅ Resolved R3 review finding [MEDIUM]: `validate_extension()` now uses `eq_ignore_ascii_case()` for case-insensitive extension comparison — `.MD`, `.Md`, `.PPTX` are accepted
+- ✅ Resolved R3 review finding [MEDIUM]: `validate_extension()` no longer allocates `String` on happy path — compares raw extension without dot prefix
+- ✅ Resolved R3 review finding [LOW]: Added `#[derive(Debug)]` on `TemplateLoader` for consistency with other public types
+- ✅ Resolved R3 review finding [LOW]: `load_all()` now uses `HashMap::with_capacity(TemplateKind::all().len())` instead of `HashMap::new()`
+- ✅ Resolved R3 review finding [LOW]: Added directory-as-path edge case test and context-aware `ReadError` hint ("path is a directory" vs "check permissions")
 
 ### File List
 
-- `crates/tf-config/src/template.rs` — NEW (830 lines) — Template loading module with TemplateLoader<'a>, TemplateKind, LoadedTemplate, TemplateError, validate_format, doc-tests, and 30 unit tests
+- `crates/tf-config/src/template.rs` — NEW (923 lines) — Template loading module with TemplateLoader<'a>, TemplateKind, LoadedTemplate, TemplateError, validate_format, doc-tests, and 34 unit tests
 - `crates/tf-config/src/lib.rs` — MODIFIED — Added `pub mod template` and public re-exports for TemplateLoader, TemplateKind, LoadedTemplate, TemplateError, validate_format
 - `crates/tf-config/tests/fixtures/templates/cr-test.md` — NEW — CR template fixture for tests
 - `crates/tf-config/tests/fixtures/templates/anomaly-test.md` — NEW — Anomaly template fixture for tests
@@ -536,4 +541,5 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Code review Round 2 (AI adversarial) — 6 findings (0 HIGH, 3 MEDIUM, 3 LOW). All ACs fully implemented. No blocking issues. Action items added for future improvement. 279 tests pass, 0 clippy warnings, 0 regressions.
 - 2026-02-06: Addressed all 6 Round 2 review findings — 3 MEDIUM (TemplateLoader borrows instead of cloning, load_all() single resolution path, content_as_str() PPTX-specific hint), 3 LOW (size_bytes computed on-the-fly, MIN_PPTX_SIZE boundary tests, expected_extension() public). 281 tests pass (2 new boundary tests), 0 clippy warnings, 0 regressions.
 - 2026-02-06: Code review Round 3 (AI adversarial) — 5 findings (0 HIGH, 2 MEDIUM, 3 LOW). All ACs fully implemented, all previous findings resolved. No blocking issues. Action items added to Tasks/Subtasks. 281 tests pass, 0 clippy warnings, 0 regressions.
+- 2026-02-06: Addressed all 5 Round 3 review findings — 2 MEDIUM (case-insensitive extension comparison, avoid heap allocation on happy path), 3 LOW (Debug derive on TemplateLoader, HashMap::with_capacity, directory-as-path edge case with contextual hint). 285 tests pass (4 new: 3 case-insensitive ext + 1 directory edge case), 0 clippy warnings, 0 regressions.
 
