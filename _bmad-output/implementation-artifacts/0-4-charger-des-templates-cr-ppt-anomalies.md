@@ -1,6 +1,6 @@
 # Story 0.4: Charger des templates (CR/PPT/anomalies)
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -123,6 +123,18 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
 - [x] [AI-Review-R5][LOW] Whitespace-only markdown templates accepted as valid — `validate_markdown` checks non-empty and UTF-8 but not whitespace-only content. Document this behavior or add `from_utf8(content)?.trim().is_empty()` check [crates/tf-config/src/template.rs:398-416]
 - [x] [AI-Review-R5][LOW] `MAX_MD_SIZE` and `MAX_PPTX_SIZE` constants lack rationale documentation — unlike `MIN_PPTX_SIZE` which has detailed doc comment, max size constants have minimal comments [crates/tf-config/src/template.rs:47-50]
 - [x] [AI-Review-R5][LOW] No test constructor for `LoadedTemplate` — downstream consumers cannot create instances without real files. Consider `#[cfg(test)] LoadedTemplate::new_for_test()` or a builder [crates/tf-config/src/template.rs:132-136]
+
+#### Round 6 Review Follow-ups (AI)
+
+- [ ] [AI-Review-R6][MEDIUM] `validate_extension` method takes `&self` but never uses it — should be a free function or associated function for consistency with `validate_format` [crates/tf-config/src/template.rs:397]
+- [ ] [AI-Review-R6][MEDIUM] `validate_pptx` hardcodes `kind: "ppt".to_string()` (4 occurrences) instead of accepting `TemplateKind` parameter like `validate_markdown` — fragile if Display representation changes [crates/tf-config/src/template.rs:475-508]
+- [ ] [AI-Review-R6][MEDIUM] Duplicated size-check error construction in `load_from_path` pre-read (lines 278-291) and post-read TOCTOU guard (lines 327-339) — extract helper `fn oversized_error()` to eliminate copy-paste [crates/tf-config/src/template.rs:278-339]
+- [ ] [AI-Review-R6][MEDIUM] `TemplateError` variants use `kind: String` instead of `kind: TemplateKind` — prevents type-safe programmatic matching on template kind in error handlers [crates/tf-config/src/template.rs:101-139]
+- [ ] [AI-Review-R6][LOW] `validate_extension` calls `path.extension()` twice (match check + error message) — extract to single binding [crates/tf-config/src/template.rs:403-414]
+- [ ] [AI-Review-R6][LOW] `LoadedTemplate::new_for_test()` with `#[cfg(test)]` is unavailable to downstream crates — consider `#[cfg(feature = "test-utils")]` feature flag instead [crates/tf-config/src/template.rs:190-203]
+- [ ] [AI-Review-R6][LOW] `content_as_str()` returns `InvalidFormat` for valid PPTX templates — semantically incorrect variant, consider `BinaryContent` variant [crates/tf-config/src/template.rs:168-182]
+- [ ] [AI-Review-R6][LOW] File List entry for `Cargo.toml` omits `serde_json = "1.0"` addition to workspace dependencies [story File List]
+- [ ] [AI-Review-R6][LOW] `TemplateError` missing `Clone` derive — all fields are `String`, trivially cloneable [crates/tf-config/src/template.rs:100]
 
 ## Dev Notes
 
@@ -574,4 +586,5 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Addressed all 5 Round 4 review findings — 3 MEDIUM (serde rename_all lowercase, max file size guard with metadata pre-check, tempfile workspace dep), 2 LOW (validate_format &Path API, MIN_PPTX_SIZE usize). 288 tests pass (3 new: 2 oversized file + 1 serde roundtrip), 0 clippy warnings, 0 regressions.
 - 2026-02-06: Code review Round 5 (AI adversarial) — 5 findings (0 HIGH, 2 MEDIUM, 3 LOW). All ACs fully implemented, all previous 26 findings resolved. No blocking issues. Action items added to Tasks/Subtasks. 288 tests pass, 0 clippy warnings, 0 regressions across tf-config and tf-security.
 - 2026-02-06: Addressed all 5 Round 5 review findings — 2 MEDIUM (post-read TOCTOU size guard, validate_format docstring clarification), 3 LOW (whitespace-only markdown rejection, MAX_MD/PPTX_SIZE rationale docs, LoadedTemplate::new_for_test constructor). 291 tests pass (3 new: 2 whitespace-only + 1 new_for_test), 0 clippy warnings, 0 regressions.
+- 2026-02-06: Code review Round 6 (AI adversarial) — 9 findings (0 HIGH, 4 MEDIUM, 5 LOW). All ACs fully implemented, all previous 31 findings resolved. No blocking issues. 9 action items added to Tasks/Subtasks. 291 tests pass, 0 clippy warnings, 0 regressions across tf-config and tf-security.
 
