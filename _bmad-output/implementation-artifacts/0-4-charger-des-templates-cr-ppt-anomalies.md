@@ -1,6 +1,6 @@
 # Story 0.4: Charger des templates (CR/PPT/anomalies)
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -93,12 +93,12 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
 
 #### Round 2 Review Follow-ups (AI)
 
-- [ ] [AI-Review-R2][MEDIUM] `TemplateLoader::new()` clones entire `TemplatesConfig` — consider storing a reference or `Arc` to avoid unnecessary copy as config grows [crates/tf-config/src/template.rs:196-200]
-- [ ] [AI-Review-R2][MEDIUM] `load_all()` duplicates config resolution: `is_configured()` checks `is_some()` then `get_configured_path()` re-matches and clones — refactor to single resolution path [crates/tf-config/src/template.rs:264-306]
-- [ ] [AI-Review-R2][MEDIUM] `content_as_str()` error hint is misleading for PPTX templates — should say "This template is binary (PPTX); use content() for raw bytes instead" rather than "Ensure the file is a valid ppt template" [crates/tf-config/src/template.rs:149-159]
-- [ ] [AI-Review-R2][LOW] `size_bytes` field is redundant with `content.len()` — consider computing on-the-fly via accessor to reduce struct size [crates/tf-config/src/template.rs:129,246]
-- [ ] [AI-Review-R2][LOW] Add boundary tests for `MIN_PPTX_SIZE`: test at exactly `MIN_PPTX_SIZE - 1` (reject) and `MIN_PPTX_SIZE` (accept) [crates/tf-config/src/template.rs:696-704]
-- [ ] [AI-Review-R2][LOW] `TemplateKind::expected_extension()` is private but could be useful for external consumers — consider making it public [crates/tf-config/src/template.rs:69]
+- [x] [AI-Review-R2][MEDIUM] `TemplateLoader::new()` clones entire `TemplatesConfig` — consider storing a reference or `Arc` to avoid unnecessary copy as config grows [crates/tf-config/src/template.rs:196-200]
+- [x] [AI-Review-R2][MEDIUM] `load_all()` duplicates config resolution: `is_configured()` checks `is_some()` then `get_configured_path()` re-matches and clones — refactor to single resolution path [crates/tf-config/src/template.rs:264-306]
+- [x] [AI-Review-R2][MEDIUM] `content_as_str()` error hint is misleading for PPTX templates — should say "This template is binary (PPTX); use content() for raw bytes instead" rather than "Ensure the file is a valid ppt template" [crates/tf-config/src/template.rs:149-159]
+- [x] [AI-Review-R2][LOW] `size_bytes` field is redundant with `content.len()` — consider computing on-the-fly via accessor to reduce struct size [crates/tf-config/src/template.rs:129,246]
+- [x] [AI-Review-R2][LOW] Add boundary tests for `MIN_PPTX_SIZE`: test at exactly `MIN_PPTX_SIZE - 1` (reject) and `MIN_PPTX_SIZE` (accept) [crates/tf-config/src/template.rs:696-704]
+- [x] [AI-Review-R2][LOW] `TemplateKind::expected_extension()` is private but could be useful for external consumers — consider making it public [crates/tf-config/src/template.rs:69]
 
 ## Dev Notes
 
@@ -504,10 +504,16 @@ Claude Opus 4.6 (claude-opus-4-6)
 - ✅ Resolved review finding [LOW]: `Serialize` on `TemplateKind` covered by MEDIUM item above
 - ✅ Resolved review finding [LOW]: Added `//! # Usage` section with code snippet in module doc
 - ✅ Resolved review finding [LOW]: Documented `MIN_PPTX_SIZE = 100` rationale in doc comment
+- ✅ Resolved R2 review finding [MEDIUM]: Changed `TemplateLoader` to borrow `&'a TemplatesConfig` instead of cloning — eliminates unnecessary copy
+- ✅ Resolved R2 review finding [MEDIUM]: Refactored `load_all()` to use single `resolve_path()` method — eliminates duplicated `is_configured()` + `get_configured_path()` resolution
+- ✅ Resolved R2 review finding [MEDIUM]: `content_as_str()` now returns PPTX-specific hint "use content() for raw bytes instead" for binary templates
+- ✅ Resolved R2 review finding [LOW]: Removed redundant `size_bytes` field from `LoadedTemplate` struct — now computed on-the-fly from `content.len()`
+- ✅ Resolved R2 review finding [LOW]: Added boundary tests for `MIN_PPTX_SIZE` at exactly `MIN_PPTX_SIZE - 1` (reject) and `MIN_PPTX_SIZE` (accept)
+- ✅ Resolved R2 review finding [LOW]: Made `TemplateKind::expected_extension()` public for external consumers
 
 ### File List
 
-- `crates/tf-config/src/template.rs` — NEW (805 lines) — Template loading module with TemplateLoader, TemplateKind, LoadedTemplate, TemplateError, validate_format, doc-tests, and 28 unit tests
+- `crates/tf-config/src/template.rs` — NEW (830 lines) — Template loading module with TemplateLoader<'a>, TemplateKind, LoadedTemplate, TemplateError, validate_format, doc-tests, and 30 unit tests
 - `crates/tf-config/src/lib.rs` — MODIFIED — Added `pub mod template` and public re-exports for TemplateLoader, TemplateKind, LoadedTemplate, TemplateError, validate_format
 - `crates/tf-config/tests/fixtures/templates/cr-test.md` — NEW — CR template fixture for tests
 - `crates/tf-config/tests/fixtures/templates/anomaly-test.md` — NEW — Anomaly template fixture for tests
@@ -520,4 +526,5 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Code review (AI adversarial) — 10 findings (3 HIGH, 4 MEDIUM, 3 LOW). Action items added to Tasks/Subtasks for follow-up. Story remains in-progress.
 - 2026-02-06: Addressed all 10 code review findings — 3 HIGH (TOCTOU fix, validate_format public, File List correction), 4 MEDIUM (load_all docs, all() public, doc-tests, Serialize/Deserialize), 3 LOW (Serialize derive, Usage section, MIN_PPTX_SIZE docs). All 228+8+19+14+10 tests pass, 0 clippy warnings, 0 regressions.
 - 2026-02-06: Code review Round 2 (AI adversarial) — 6 findings (0 HIGH, 3 MEDIUM, 3 LOW). All ACs fully implemented. No blocking issues. Action items added for future improvement. 279 tests pass, 0 clippy warnings, 0 regressions.
+- 2026-02-06: Addressed all 6 Round 2 review findings — 3 MEDIUM (TemplateLoader borrows instead of cloning, load_all() single resolution path, content_as_str() PPTX-specific hint), 3 LOW (size_bytes computed on-the-fly, MIN_PPTX_SIZE boundary tests, expected_extension() public). 281 tests pass (2 new boundary tests), 0 clippy warnings, 0 regressions.
 
