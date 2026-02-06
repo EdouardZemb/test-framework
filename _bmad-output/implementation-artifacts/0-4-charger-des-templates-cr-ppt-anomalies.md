@@ -1,6 +1,6 @@
 # Story 0.4: Charger des templates (CR/PPT/anomalies)
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -153,6 +153,13 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
 - [x] [AI-Review-R8][LOW] `content_as_str()` returns `BinaryContent` for non-UTF-8 markdown templates — semantically incorrect for `.md` files. Should return `InvalidFormat` with "invalid UTF-8" cause for markdown kinds, reserve `BinaryContent` for PPTX only [crates/tf-config/src/template.rs:176-188]
 - [x] [AI-Review-R8][LOW] Story test count discrepancy — Change Log says "296 tests" but `cargo test -- --list` shows 307 entries. Clarify canonical counting method (cargo test result lines vs --list entries) [story Change Log]
 - [x] [AI-Review-R8][LOW] `validate_format` function name misleading — signature `(kind, content, path)` suggests file-level validation but only validates bytes. Consider renaming to `validate_content` or `validate_format_bytes` for clarity at call sites [crates/tf-config/src/template.rs:441]
+
+#### Round 9 Review Follow-ups (AI)
+
+- [ ] [AI-Review-R9][HIGH] Subtask 5.2 is marked done but implementation does not validate PPTX contains `[Content_Types].xml`; current check only validates ZIP magic bytes + minimum size. Implement explicit OOXML entry check or update story scope to remove the claim [crates/tf-config/src/template.rs:499]
+- [ ] [AI-Review-R9][HIGH] Story File List cannot be validated against current source git diff (only `.codex/*` changes present). Add reviewed commit SHA/range in Dev Agent Record or refresh File List from actual reviewed diff to restore traceability [ _bmad-output/implementation-artifacts/0-4-charger-des-templates-cr-ppt-anomalies.md:604]
+- [ ] [AI-Review-R9][MEDIUM] Subtask 4.4 claims path logging guards aligned with `tf-config`, but template errors still embed raw configured paths directly. Reuse redaction guard/path sanitizer for error path fields [crates/tf-config/src/template.rs:319]
+- [ ] [AI-Review-R9][MEDIUM] Subtasks 3.2-3.5 still document `kind: String` while code exposes `kind: TemplateKind`; align story contract with shipped API to avoid future false positives in audits [ _bmad-output/implementation-artifacts/0-4-charger-des-templates-cr-ppt-anomalies.md:51]
 
 ## Dev Notes
 
@@ -633,4 +640,3 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Addressed all 6 Round 7 review findings — 3 MEDIUM (test_load_all error type verification, InvalidExtension "(none)" for no-extension files, oversized_error hint path redundancy), 3 LOW (PartialEq derive, Cargo.lock in File List, no-extension test). 296 tests pass (1 new: no-extension edge case), 0 clippy warnings, 0 regressions.
 - 2026-02-06: Code review Round 8 (AI adversarial) — 6 findings (0 HIGH, 3 MEDIUM, 3 LOW). All ACs fully implemented, all previous 46 findings resolved. No blocking issues. 6 action items added to Tasks/Subtasks. 296 tests pass (canonical: `cargo test` result lines), 0 clippy warnings, 0 regressions across tf-config and tf-security.
 - 2026-02-06: Addressed all 6 Round 8 review findings — 3 MEDIUM (deduplicated extension validation via TemplateKind::expected_extension(), documented relative path limitation, documented load_all() iteration order), 3 LOW (content_as_str() returns InvalidFormat for non-UTF-8 markdown, clarified test count method, renamed validate_format to validate_content). 297 tests pass (canonical: sum of `cargo test` "N passed" lines across all runners; 246 unit + 8 integration + 19 profile + 14 profile_unit + 10 doc-tests), 0 clippy warnings, 0 regressions.
-
