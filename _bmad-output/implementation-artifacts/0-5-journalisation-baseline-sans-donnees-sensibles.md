@@ -27,6 +27,7 @@ so that garantir l'auditabilite minimale des executions des le debut.
 ## Tasks / Subtasks
 
 - [ ] Task 1: Creer le crate tf-logging dans le workspace (AC: all)
+  - [ ] Subtask 1.0: Ajouter `"crates/tf-logging"` dans la liste `members` de `[workspace]` du `Cargo.toml` racine
   - [ ] Subtask 1.1: Creer `crates/tf-logging/Cargo.toml` avec dependances workspace (`tracing`, `tracing-subscriber`, `tracing-appender`, `serde`, `serde_json`, `thiserror`) + dependance interne `tf-config`
   - [ ] Subtask 1.2: Creer `crates/tf-logging/src/lib.rs` avec exports publics
   - [ ] Subtask 1.3: Ajouter les nouvelles dependances workspace dans `Cargo.toml` racine : `tracing = "0.1"`, `tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "fmt"] }`, `tracing-appender = "0.2"`
@@ -36,20 +37,22 @@ so that garantir l'auditabilite minimale des executions des le debut.
   - [ ] Subtask 2.2: Configurer `tracing-subscriber` avec format JSON structure (timestamp RFC 3339 UTC, level, message, target, spans)
   - [ ] Subtask 2.3: Configurer `tracing-appender::rolling::RollingFileAppender` avec rotation DAILY et ecriture dans `{output_folder}/logs/`
   - [ ] Subtask 2.4: Utiliser `tracing_appender::non_blocking()` pour performance non-bloquante ; retourner un `LogGuard` wrappant le `WorkerGuard` pour garantir le flush
-  - [ ] Subtask 2.5: Supporter la configuration du niveau de log via `EnvFilter` (RUST_LOG en priorite, sinon `config.log_level` du config.yaml, sinon `info` par defaut)
+  - [ ] Subtask 2.5: Supporter la configuration du niveau de log via `EnvFilter` (RUST_LOG en priorite, sinon `info` par defaut). Tant que `ProjectConfig` n'expose pas de champ logging dedie, ne pas introduire de dependance a `config.log_level`.
   - [ ] Subtask 2.6: Desactiver ANSI colors pour les logs fichier (`with_ansi(false)`)
 
 - [ ] Task 3: Implementer le layer de redaction des champs sensibles (AC: #2)
+  - [ ] Subtask 3.0: Exposer `redact_url_sensitive_params` comme `pub` dans `crates/tf-config/src/config.rs` (actuellement `pub(crate)`) et ajouter le re-export dans `crates/tf-config/src/lib.rs` pour que tf-logging puisse l'utiliser
   - [ ] Subtask 3.1: Creer `crates/tf-logging/src/redact.rs` avec un `RedactingLayer` implementant `tracing_subscriber::Layer`
   - [ ] Subtask 3.2: Definir la liste des noms de champs sensibles a masquer : `token`, `api_key`, `apikey`, `key`, `secret`, `password`, `passwd`, `pwd`, `auth`, `authorization`, `credential`, `credentials`
   - [ ] Subtask 3.3: Implementer un `RedactingVisitor` implementant `tracing::field::Visit` qui remplace les valeurs des champs sensibles par `[REDACTED]`
-  - [ ] Subtask 3.4: Integrer le `RedactingLayer` dans la stack du subscriber (avant le layer JSON)
+  - [ ] Subtask 3.4: Integrer le `RedactingLayer` dans la stack du subscriber (avant le layer JSON). Note technique : les events tracing sont immutables — l'approche recommandee est soit (a) implementer un custom `FormatEvent` qui redacte les champs avant ecriture JSON, soit (b) utiliser `Layer::on_event()` pour intercepter et re-emettre avec champs redactes. Privilegier l'approche la plus simple qui fonctionne avec `tracing-subscriber` 0.3.x
   - [ ] Subtask 3.5: Reutiliser `tf_config::redact_url_sensitive_params()` pour les champs contenant des URLs (detecter les valeurs qui ressemblent a des URLs et les redacter)
 
 - [ ] Task 4: Implementer la configuration du logging (AC: #1, #3)
-  - [ ] Subtask 4.1: Creer `crates/tf-logging/src/config.rs` avec struct `LoggingConfig { log_level: String, log_dir: Option<String>, log_to_stdout: bool }`
-  - [ ] Subtask 4.2: Implementer la derivation de `LoggingConfig` depuis `ProjectConfig` : extraire `output_folder` pour `log_dir`, avec fallback sur `./logs` si non configure
+  - [ ] Subtask 4.1: Creer `crates/tf-logging/src/config.rs` avec struct `LoggingConfig { log_level: String, log_dir: String, log_to_stdout: bool }` (pas Option — le fallback est applique dans `from_project_config()`)
+  - [ ] Subtask 4.2: Implementer la derivation de `LoggingConfig` depuis `ProjectConfig` : `log_dir = format!("{}/logs", config.output_folder)`, avec fallback sur `"./logs"` si `output_folder` est vide
   - [ ] Subtask 4.3: Creer le repertoire de logs s'il n'existe pas (`fs::create_dir_all`)
+  - [ ] Subtask 4.4: Definir explicitement la source de `log_to_stdout` pour eviter toute ambiguite: valeur par defaut `false` dans `from_project_config()`, puis override explicite possible uniquement depuis tf-cli (mode interactif) avant appel a `init_logging`.
 
 - [ ] Task 5: Implementer la gestion des erreurs (AC: all)
   - [ ] Subtask 5.1: Creer `crates/tf-logging/src/error.rs` avec `LoggingError` enum (thiserror)
@@ -73,6 +76,7 @@ so that garantir l'auditabilite minimale des executions des le debut.
   - [ ] Subtask 7.8: Test que LoggingError contient des hints actionnables
   - [ ] Subtask 7.9: Test que Debug impl de LogGuard ne contient aucune donnee sensible
   - [ ] Subtask 7.10: Test d'integration : simuler une commande CLI complete et verifier le contenu du fichier log JSON
+  - [ ] Subtask 7.11: Test de non-regression : executer `cargo test --workspace` et verifier que l'ensemble de la suite de tests passe toujours apres ajout de tf-logging (sans se baser sur un nombre fixe de tests).
 
 ## Dev Notes
 
@@ -106,6 +110,9 @@ so that garantir l'auditabilite minimale des executions des le debut.
 5. ... (autres crates)
 
 **Crate tf-logging — structure attendue :**
+
+> **Note architecture:** architecture.md montre `mod.rs` + `logging.rs` comme structure simplifiee. L'implementation detaillee utilise `lib.rs` + modules separes (init.rs, redact.rs, config.rs, error.rs), ce qui est plus idiomatique en Rust et suit le pattern etabli par tf-config et tf-security. **Suivre la structure ci-dessous, pas celle de architecture.md.**
+
 ```
 crates/
 └── tf-logging/
@@ -145,24 +152,9 @@ crates/
 
 ### Existing Redaction Infrastructure to Reuse
 
-**Le trait `Redact` existe dans tf-config :**
-```rust
-pub trait Redact {
-    fn redacted(&self) -> String;
-}
-```
-Implementations pour `JiraConfig`, `SquashConfig`, `LlmConfig`, `ProjectConfig`.
+**Trait `Redact`** (public, dans `tf-config::Redact`) : `fn redacted(&self) -> String` — implementations sur `JiraConfig`, `SquashConfig`, `LlmConfig`, `ProjectConfig`.
 
-**La fonction `redact_url_sensitive_params` existe dans tf-config :**
-- Redacte les parametres sensibles dans les URLs (token, api_key, password, etc.)
-- Gere snake_case, camelCase, kebab-case
-- Decode les noms URL-encodés (%5F → _)
-- Gere le double-encoding (3 iterations)
-- Redacte userinfo (user:password@host)
-- Redacte les segments de chemin sensibles
-
-**Fonction actuellement `pub(crate)` — verifier si elle doit etre rendue publique pour tf-logging.**
-Si `redact_url_sensitive_params` n'est pas `pub`, il faudra l'exposer dans `tf-config/lib.rs`.
+**`redact_url_sensitive_params(url: &str) -> String`** (dans `crates/tf-config/src/config.rs:214`) : redacte les params sensibles dans les URLs (token, api_key, password, etc. en snake_case/camelCase/kebab-case). **Actuellement `pub(crate)` — DOIT etre change en `pub` et re-exporte dans `tf-config/src/lib.rs` avant utilisation par tf-logging** (cf. Subtask 3.0).
 
 ### API Pattern Obligatoire
 
@@ -226,7 +218,7 @@ pub enum LoggingError {
 **Hints actionnables obligatoires (pattern stories precedentes) :**
 - `InitFailed` → `"Check that the log directory is writable and tracing is not already initialized"`
 - `DirectoryCreationFailed` → `"Verify permissions on the parent directory or set a different output_folder in config.yaml"`
-- `InvalidLogLevel` → `"Valid levels are: trace, debug, info, warn, error. Set via config.yaml or RUST_LOG env var"`
+- `InvalidLogLevel` → `"Valid levels are: trace, debug, info, warn, error. Set via RUST_LOG env var (or future dedicated logging config when available)."`
 
 ### Library & Framework Requirements
 
@@ -278,7 +270,9 @@ assert_matches.workspace = true
 - `crates/tf-logging/src/error.rs` (~40-60 lignes)
 
 **Fichiers a modifier :**
-- `Cargo.toml` (racine) — ajouter dependances workspace tracing*
+- `Cargo.toml` (racine) — ajouter `"crates/tf-logging"` dans `[workspace] members` ET ajouter dependances workspace `tracing`, `tracing-subscriber`, `tracing-appender`
+- `crates/tf-config/src/config.rs` — changer `pub(crate) fn redact_url_sensitive_params` en `pub fn redact_url_sensitive_params`
+- `crates/tf-config/src/lib.rs` — ajouter re-export `pub use config::redact_url_sensitive_params;`
 - `Cargo.lock` — mis a jour automatiquement
 
 ### Testing Requirements
@@ -289,6 +283,7 @@ assert_matches.workspace = true
 - Tests unitaires dans chaque module (`#[cfg(test)] mod tests`)
 - Tests d'integration dans `crates/tf-logging/tests/`
 - Utiliser `tempdir` pour les tests d'ecriture de fichiers logs
+- Utiliser `assert_matches!` (crate `assert_matches` en dev-dep) pour verifier les variants d'erreur — meilleurs messages d'erreur que `assert!(matches!(...))`
 - Tous les tests doivent pouvoir tourner en CI sans dependance externe
 
 **Patterns de test a implementer :**
@@ -298,8 +293,10 @@ assert_matches.workspace = true
 #[test]
 fn test_log_output_contains_required_json_fields() {
     // Setup: init logging vers un buffer ou tempdir
-    // Action: emettre un event tracing::info!
-    // Assert: le fichier contient du JSON avec timestamp, level, message
+    // Action: emettre un event tracing::info!(command = "triage", status = "success", "Command executed")
+    // Assert: chaque ligne du fichier est parseable par serde_json::from_str::<serde_json::Value>()
+    // Assert: le JSON contient "timestamp" (format ISO 8601), "level" (en MAJUSCULES: "INFO"), "message", "target"
+    // Note: tracing-subscriber JSON met les span fields dans "fields" et le level en MAJUSCULES
 }
 
 // Test AC #2: champs sensibles masques
@@ -365,7 +362,8 @@ fn test_logs_written_to_configured_directory() {
 - NE PAS utiliser `std::mem::forget(_guard)` — retourner le LogGuard a l'appelant pour qu'il le garde vivant
 - NE PAS hardcoder les chemins de repertoire de logs — lire depuis LoggingConfig
 - NE PAS ajouter de dependance a `chrono` — tracing-subscriber utilise `time` en interne
-- NE PAS modifier `tf-config` ou `tf-security` sauf pour exposer une fonction de redaction
+- NE PAS modifier `tf-config` ou `tf-security` sauf pour exposer `redact_url_sensitive_params` comme `pub` (cf. Subtask 3.0)
+- NE PAS ajouter de flag pour desactiver la redaction — la redaction est une exigence de securite (NFR4) et doit etre toujours active
 
 ### Git Intelligence (Recent Patterns)
 
@@ -399,19 +397,11 @@ feat(tf-logging): implement baseline structured logging (Story 0-5) (#PR)
 
 ### References
 
-- [Source: _bmad-output/planning-artifacts/architecture.md#Logging & Diagnostics] — `tracing = "0.1"`, `tracing-subscriber = "0.3"` (json)
-- [Source: _bmad-output/planning-artifacts/architecture.md#Technology Stack] — versions exactes des dependances
-- [Source: _bmad-output/planning-artifacts/architecture.md#Format Patterns] — JSON structured logs with fields: timestamp, level, message, context
-- [Source: _bmad-output/planning-artifacts/architecture.md#Implementation Patterns] — naming, errors, logs conventions
-- [Source: _bmad-output/planning-artifacts/architecture.md#Project Structure & Boundaries] — tf-logging crate structure
-- [Source: _bmad-output/planning-artifacts/architecture.md#Crate Dependencies] — tf-logging depend de tf-config (ordre #2)
-- [Source: _bmad-output/planning-artifacts/epics.md#Story 0.5] — AC et requirements
-- [Source: _bmad-output/planning-artifacts/prd.md#FR30] — Le systeme peut journaliser les executions sans donnees sensibles
-- [Source: _bmad-output/planning-artifacts/prd.md#NFR4] — Audit logs minimaux sans donnees sensibles, conservation 90 jours
-- [Source: _bmad-output/planning-artifacts/prd.md#NFR8] — CLI reactive < 2s pour commandes simples (non-blocking logging)
-- [Source: _bmad-output/implementation-artifacts/0-4-charger-des-templates-cr-ppt-anomalies.md] — patterns et learnings
-- [Source: crates/tf-config/src/config.rs:Redact trait] — trait de redaction existant
-- [Source: crates/tf-config/src/config.rs:redact_url_sensitive_params] — redaction URLs existante
+- [Source: architecture.md] — Logging & Diagnostics (tracing stack), Technology Stack (versions), Format Patterns (JSON logs), Implementation Patterns (naming/errors), Project Structure (crate boundaries), Crate Dependencies (tf-logging #2)
+- [Source: epics.md#Story 0.5] — AC et requirements
+- [Source: prd.md#FR30] — Journalisation sans donnees sensibles ; [#NFR4] — Audit logs minimaux, conservation 90 jours ; [#NFR8] — CLI < 2s (non-blocking logging)
+- [Source: 0-4-charger-des-templates-cr-ppt-anomalies.md] — patterns et learnings (thiserror, TOCTOU, hints, tests)
+- [Source: crates/tf-config/src/config.rs:214] — `redact_url_sensitive_params` (pub(crate) → a exposer pub) + trait `Redact`
 
 ## Dev Agent Record
 
