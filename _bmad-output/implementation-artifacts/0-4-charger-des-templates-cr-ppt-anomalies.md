@@ -1,6 +1,6 @@
 # Story 0.4: Charger des templates (CR/PPT/anomalies)
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -90,6 +90,15 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
 - [x] [AI-Review][LOW] Add `Serialize` derive on `TemplateKind` for consistency with other crate enums like `LlmMode` [crates/tf-config/src/template.rs:21]
 - [x] [AI-Review][LOW] Add `//! # Usage` section with code snippet in module doc [crates/tf-config/src/template.rs:1-5]
 - [x] [AI-Review][LOW] Document why `MIN_PPTX_SIZE = 100` (e.g., "prevents truncated files; full OOXML validation deferred to tf-export") [crates/tf-config/src/template.rs:18]
+
+#### Round 2 Review Follow-ups (AI)
+
+- [ ] [AI-Review-R2][MEDIUM] `TemplateLoader::new()` clones entire `TemplatesConfig` — consider storing a reference or `Arc` to avoid unnecessary copy as config grows [crates/tf-config/src/template.rs:196-200]
+- [ ] [AI-Review-R2][MEDIUM] `load_all()` duplicates config resolution: `is_configured()` checks `is_some()` then `get_configured_path()` re-matches and clones — refactor to single resolution path [crates/tf-config/src/template.rs:264-306]
+- [ ] [AI-Review-R2][MEDIUM] `content_as_str()` error hint is misleading for PPTX templates — should say "This template is binary (PPTX); use content() for raw bytes instead" rather than "Ensure the file is a valid ppt template" [crates/tf-config/src/template.rs:149-159]
+- [ ] [AI-Review-R2][LOW] `size_bytes` field is redundant with `content.len()` — consider computing on-the-fly via accessor to reduce struct size [crates/tf-config/src/template.rs:129,246]
+- [ ] [AI-Review-R2][LOW] Add boundary tests for `MIN_PPTX_SIZE`: test at exactly `MIN_PPTX_SIZE - 1` (reject) and `MIN_PPTX_SIZE` (accept) [crates/tf-config/src/template.rs:696-704]
+- [ ] [AI-Review-R2][LOW] `TemplateKind::expected_extension()` is private but could be useful for external consumers — consider making it public [crates/tf-config/src/template.rs:69]
 
 ## Dev Notes
 
@@ -510,4 +519,5 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Implemented story 0-4 template loading — created template.rs module in tf-config with TemplateLoader API, TemplateError enum, format validation (MD/PPTX), and 28 tests covering all 3 ACs
 - 2026-02-06: Code review (AI adversarial) — 10 findings (3 HIGH, 4 MEDIUM, 3 LOW). Action items added to Tasks/Subtasks for follow-up. Story remains in-progress.
 - 2026-02-06: Addressed all 10 code review findings — 3 HIGH (TOCTOU fix, validate_format public, File List correction), 4 MEDIUM (load_all docs, all() public, doc-tests, Serialize/Deserialize), 3 LOW (Serialize derive, Usage section, MIN_PPTX_SIZE docs). All 228+8+19+14+10 tests pass, 0 clippy warnings, 0 regressions.
+- 2026-02-06: Code review Round 2 (AI adversarial) — 6 findings (0 HIGH, 3 MEDIUM, 3 LOW). All ACs fully implemented. No blocking issues. Action items added for future improvement. 279 tests pass, 0 clippy warnings, 0 regressions.
 
