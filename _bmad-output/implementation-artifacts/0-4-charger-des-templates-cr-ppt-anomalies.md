@@ -1,6 +1,6 @@
 # Story 0.4: Charger des templates (CR/PPT/anomalies)
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -115,6 +115,14 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
 - [x] [AI-Review-R4][MEDIUM] `tempfile` dev-dependency declared directly (`tempfile = "3.10"`) instead of workspace pattern (`tempfile.workspace = true`) — inconsistent with `serde`, `thiserror`, `assert_matches` which all use workspace refs [crates/tf-config/Cargo.toml:17]
 - [x] [AI-Review-R4][LOW] `validate_format` public API takes `path: &str` instead of `&Path` — breaks Rust path conventions, forces external consumers to convert `PathBuf` → `&str` [crates/tf-config/src/template.rs:358]
 - [x] [AI-Review-R4][LOW] `MIN_PPTX_SIZE` typed as `u64` but always compared to `content.len()` (`usize`) — requires cast on every usage, `usize` would be more idiomatic [crates/tf-config/src/template.rs:44,406]
+
+#### Round 5 Review Follow-ups (AI)
+
+- [ ] [AI-Review-R5][MEDIUM] TOCTOU between `fs::metadata()` size check and `fs::read()` — file could grow beyond limit between the two calls. Use single `fs::File::open()` handle for metadata+read, or add post-read `content.len()` check [crates/tf-config/src/template.rs:251-296]
+- [ ] [AI-Review-R5][MEDIUM] `validate_format` public API: `path: &Path` parameter only used for error context, not validated — docstring should clarify "path is used for error context only and is not validated" to prevent caller confusion [crates/tf-config/src/template.rs:384-395]
+- [ ] [AI-Review-R5][LOW] Whitespace-only markdown templates accepted as valid — `validate_markdown` checks non-empty and UTF-8 but not whitespace-only content. Document this behavior or add `from_utf8(content)?.trim().is_empty()` check [crates/tf-config/src/template.rs:398-416]
+- [ ] [AI-Review-R5][LOW] `MAX_MD_SIZE` and `MAX_PPTX_SIZE` constants lack rationale documentation — unlike `MIN_PPTX_SIZE` which has detailed doc comment, max size constants have minimal comments [crates/tf-config/src/template.rs:47-50]
+- [ ] [AI-Review-R5][LOW] No test constructor for `LoadedTemplate` — downstream consumers cannot create instances without real files. Consider `#[cfg(test)] LoadedTemplate::new_for_test()` or a builder [crates/tf-config/src/template.rs:132-136]
 
 ## Dev Notes
 
@@ -559,4 +567,5 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Addressed all 5 Round 3 review findings — 2 MEDIUM (case-insensitive extension comparison, avoid heap allocation on happy path), 3 LOW (Debug derive on TemplateLoader, HashMap::with_capacity, directory-as-path edge case with contextual hint). 285 tests pass (4 new: 3 case-insensitive ext + 1 directory edge case), 0 clippy warnings, 0 regressions.
 - 2026-02-06: Code review Round 4 (AI adversarial) — 5 findings (0 HIGH, 3 MEDIUM, 2 LOW). All ACs fully implemented, all previous findings resolved. No blocking issues. Action items added to Tasks/Subtasks. 285 tests pass, 0 clippy warnings, 0 regressions across tf-config and tf-security.
 - 2026-02-06: Addressed all 5 Round 4 review findings — 3 MEDIUM (serde rename_all lowercase, max file size guard with metadata pre-check, tempfile workspace dep), 2 LOW (validate_format &Path API, MIN_PPTX_SIZE usize). 288 tests pass (3 new: 2 oversized file + 1 serde roundtrip), 0 clippy warnings, 0 regressions.
+- 2026-02-06: Code review Round 5 (AI adversarial) — 5 findings (0 HIGH, 2 MEDIUM, 3 LOW). All ACs fully implemented, all previous 26 findings resolved. No blocking issues. Action items added to Tasks/Subtasks. 288 tests pass, 0 clippy warnings, 0 regressions across tf-config and tf-security.
 
