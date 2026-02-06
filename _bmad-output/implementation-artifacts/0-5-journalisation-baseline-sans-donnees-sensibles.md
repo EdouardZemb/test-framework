@@ -1,6 +1,6 @@
 # Story 0.5: Journalisation baseline sans donnees sensibles
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -91,6 +91,15 @@ so that garantir l'auditabilite minimale des executions des le debut.
 - [x] [AI-Review][MEDIUM] `serde_yaml` dev-dependency not documented in story Dev Notes [crates/tf-logging/Cargo.toml:19]
 - [x] [AI-Review][LOW] Case-sensitive field matching in `SENSITIVE_FIELDS` — consider case-insensitive comparison for defense-in-depth [crates/tf-logging/src/redact.rs:56]
 - [x] [AI-Review][LOW] Obsolete TDD RED phase comment in integration tests — remove stale comment [crates/tf-logging/tests/integration_test.rs:9]
+
+### Review Follow-ups Round 2 (AI)
+
+- [ ] [AI-Review-R2][HIGH] H1: `InitFailed` variant is dead code — never returned by any production function, only constructed in unit test. Previous R1 finding marked [x] but only `InvalidLogLevel` was addressed. Either remove `InitFailed` (YAGNI) or document as reserved for future use [crates/tf-logging/src/error.rs:9-13]
+- [ ] [AI-Review-R2][MEDIUM] M1: Span fields silently dropped — `format_event` ignores `_ctx` (FmtContext), so fields from parent spans (e.g. via `#[instrument]`) won't appear in JSON output. Document as known baseline limitation [crates/tf-logging/src/redact.rs:150-153]
+- [ ] [AI-Review-R2][MEDIUM] M2: `RUST_LOG` test env manipulation can leak to parallel tests — `ENV_MUTEX` only guards modification, but other concurrent `init_logging()` calls read `RUST_LOG` without the mutex. Also no RAII guard for cleanup on panic [crates/tf-logging/src/init.rs:258-292]
+- [ ] [AI-Review-R2][MEDIUM] M3: Double slash possible in `log_dir` — `format!("{}/logs", output_folder)` produces `"/path//logs"` if output_folder has trailing slash. Use `Path::new(output_folder).join("logs")` instead [crates/tf-logging/src/config.rs:26]
+- [ ] [AI-Review-R2][LOW] L1: Redundant `write!` + `writeln!` — simplify to single `writeln!(writer, "{}", json_str)?;` [crates/tf-logging/src/redact.rs:201-202]
+- [ ] [AI-Review-R2][LOW] L2: No `#[non_exhaustive]` on public `LoggingError` enum — future variant additions would be breaking changes for downstream match expressions [crates/tf-logging/src/error.rs:7]
 
 ## Dev Notes
 
@@ -474,3 +483,4 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Implemented tf-logging crate with structured JSON logging, sensitive field redaction (12 field names + URL parameters), daily file rotation, non-blocking I/O, and LogGuard lifecycle. Exposed `redact_url_sensitive_params` as public API in tf-config. 35 tests added, 0 regressions on 368 workspace tests.
 - 2026-02-06: Code review (AI) — 11 findings (3 HIGH, 5 MEDIUM, 3 LOW). Key issues: `log_to_stdout` not implemented, dead error variants, incomplete File List. Action items added to Tasks/Subtasks.
 - 2026-02-06: Addressed code review findings — 11 items resolved. Implemented stdout layer, log level validation, extracted test helpers, macro-based parameterized tests, case-insensitive field matching, fixed env var race condition, corrected File List and test counts.
+- 2026-02-06: Code review Round 2 (AI) — 6 findings (1 HIGH, 3 MEDIUM, 2 LOW). Key issues: `InitFailed` still dead code (R1 incomplete fix), span fields dropped, env var test leakage, path double-slash. Action items added.
