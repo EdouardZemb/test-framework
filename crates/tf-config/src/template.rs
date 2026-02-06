@@ -182,6 +182,7 @@ impl fmt::Debug for LoadedTemplate {
 }
 
 /// Loads and validates templates from configured paths
+#[derive(Debug)]
 pub struct TemplateLoader<'a> {
     config: &'a TemplatesConfig,
 }
@@ -247,10 +248,18 @@ impl<'a> TemplateLoader<'a> {
                     ),
                 }
             } else {
+                let hint = if path.is_dir() {
+                    format!(
+                        "The path '{}' is a directory, not a file. Update config.yaml to point to a template file",
+                        path_str
+                    )
+                } else {
+                    "Check file permissions and ensure the file is readable".to_string()
+                };
                 TemplateError::ReadError {
                     path: path_str.to_string(),
                     cause: e.to_string(),
-                    hint: "Check file permissions and ensure the file is readable".to_string(),
+                    hint,
                 }
             }
         })?;
@@ -272,7 +281,7 @@ impl<'a> TemplateLoader<'a> {
     /// semantics: returns the first error encountered and does not attempt to
     /// load remaining templates.
     pub fn load_all(&self) -> Result<HashMap<TemplateKind, LoadedTemplate>, TemplateError> {
-        let mut templates = HashMap::new();
+        let mut templates = HashMap::with_capacity(TemplateKind::all().len());
 
         for &kind in TemplateKind::all() {
             // Single resolution: try to get the path, skip if not configured
@@ -310,16 +319,25 @@ impl<'a> TemplateLoader<'a> {
         })
     }
 
-    /// Validate the file extension matches the expected format
+    /// Validate the file extension matches the expected format (case-insensitive)
     fn validate_extension(&self, path: &Path, kind: TemplateKind) -> Result<(), TemplateError> {
         let expected = kind.expected_extension();
-        let actual = path
+        // Compare without dot prefix to avoid heap allocation on the happy path.
+        // expected_extension() returns ".md" or ".pptx", so skip the leading dot.
+        let expected_no_dot = &expected[1..];
+
+        let matches = path
             .extension()
             .and_then(|e| e.to_str())
-            .map(|e| format!(".{}", e))
-            .unwrap_or_default();
+            .map(|e| e.eq_ignore_ascii_case(expected_no_dot))
+            .unwrap_or(false);
 
-        if actual != expected {
+        if !matches {
+            let actual = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| format!(".{}", e))
+                .unwrap_or_default();
             return Err(TemplateError::InvalidExtension {
                 path: path.display().to_string(),
                 expected: expected.to_string(),
@@ -826,5 +844,80 @@ mod tests {
         let loader = TemplateLoader::new(&config);
         let result = loader.load_all();
         assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Round 3 Review: Case-insensitive extension validation
+    // =========================================================================
+
+    #[test]
+    fn test_load_template_uppercase_md_extension_accepted() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("template.MD");
+        fs::write(&path, "# Valid Markdown").unwrap();
+
+        let config = TemplatesConfig {
+            cr: Some(path.display().to_string()),
+            ppt: None,
+            anomaly: None,
+        };
+        let loader = TemplateLoader::new(&config);
+        let template = loader.load_template(TemplateKind::Cr).unwrap();
+        assert_eq!(template.kind(), TemplateKind::Cr);
+    }
+
+    #[test]
+    fn test_load_template_mixed_case_md_extension_accepted() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("template.Md");
+        fs::write(&path, "# Valid Markdown").unwrap();
+
+        let config = TemplatesConfig {
+            cr: Some(path.display().to_string()),
+            ppt: None,
+            anomaly: None,
+        };
+        let loader = TemplateLoader::new(&config);
+        let template = loader.load_template(TemplateKind::Cr).unwrap();
+        assert_eq!(template.kind(), TemplateKind::Cr);
+    }
+
+    #[test]
+    fn test_load_template_uppercase_pptx_extension_accepted() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("template.PPTX");
+        fs::write(&path, create_valid_pptx_bytes()).unwrap();
+
+        let config = TemplatesConfig {
+            cr: None,
+            ppt: Some(path.display().to_string()),
+            anomaly: None,
+        };
+        let loader = TemplateLoader::new(&config);
+        let template = loader.load_template(TemplateKind::Ppt).unwrap();
+        assert_eq!(template.kind(), TemplateKind::Ppt);
+    }
+
+    // =========================================================================
+    // Round 3 Review: Directory-as-path edge case
+    // =========================================================================
+
+    #[test]
+    fn test_load_template_directory_as_path_gives_meaningful_error() {
+        let dir = tempfile::tempdir().unwrap();
+        // Create a directory with .md extension
+        let dir_path = dir.path().join("fake-template.md");
+        fs::create_dir(&dir_path).unwrap();
+
+        let config = TemplatesConfig {
+            cr: Some(dir_path.display().to_string()),
+            ppt: None,
+            anomaly: None,
+        };
+        let loader = TemplateLoader::new(&config);
+        let err = loader.load_template(TemplateKind::Cr).unwrap_err();
+        // Should produce a ReadError (not FileNotFound) since the path exists but is a directory
+        assert!(matches!(err, TemplateError::ReadError { .. }));
+        assert!(err.to_string().contains("directory"));
     }
 }
