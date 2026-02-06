@@ -211,7 +211,7 @@ fn default_max_tokens() -> u32 {
 /// - `https://user:secret@jira.example.com` -> `https://[REDACTED]@jira.example.com`
 /// - `https://jira.example.com?token=secret123` -> `https://jira.example.com?token=[REDACTED]`
 /// - `https://api.example.com?api_key=sk-123&foo=bar` -> `https://api.example.com?api_key=[REDACTED]&foo=bar`
-fn redact_url_sensitive_params(url: &str) -> String {
+pub(crate) fn redact_url_sensitive_params(url: &str) -> String {
     // List of sensitive parameter names (case-insensitive matching)
     // Includes both snake_case and camelCase variants
     const SENSITIVE_PARAMS: &[&str] = &[
@@ -1654,10 +1654,15 @@ fn is_safe_path(path: &str) -> bool {
     true
 }
 
-/// Validate template file extension
-fn has_valid_extension(path: &str, expected_extensions: &[&str]) -> bool {
-    let lower = path.to_lowercase();
-    expected_extensions.iter().any(|ext| lower.ends_with(ext))
+/// Validate template file extension using [`TemplateKind::expected_extension()`] as
+/// single source of truth (shared with `template::validate_extension`).
+fn has_valid_template_extension(path: &str, kind: crate::template::TemplateKind) -> bool {
+    let expected_no_dot = &kind.expected_extension()[1..]; // skip leading dot
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case(expected_no_dot))
+        .unwrap_or(false)
 }
 
 /// Validate configuration fields
@@ -1936,7 +1941,7 @@ fn validate_config(config: &ProjectConfig) -> Result<(), ConfigError> {
                     "a direct path without '..' (e.g., './templates/cr.md')",
                 ));
             }
-            if !has_valid_extension(cr, &[".md"]) {
+            if !has_valid_template_extension(cr, crate::template::TemplateKind::Cr) {
                 return Err(ConfigError::invalid_value(
                     "templates.cr",
                     "must be a Markdown file",
@@ -1959,7 +1964,7 @@ fn validate_config(config: &ProjectConfig) -> Result<(), ConfigError> {
                     "a direct path without '..' (e.g., './templates/report.pptx')",
                 ));
             }
-            if !has_valid_extension(ppt, &[".pptx"]) {
+            if !has_valid_template_extension(ppt, crate::template::TemplateKind::Ppt) {
                 return Err(ConfigError::invalid_value(
                     "templates.ppt",
                     "must be a PowerPoint file",
@@ -1982,7 +1987,7 @@ fn validate_config(config: &ProjectConfig) -> Result<(), ConfigError> {
                     "a direct path without '..' (e.g., './templates/anomaly.md')",
                 ));
             }
-            if !has_valid_extension(anomaly, &[".md"]) {
+            if !has_valid_template_extension(anomaly, crate::template::TemplateKind::Anomaly) {
                 return Err(ConfigError::invalid_value(
                     "templates.anomaly",
                     "must be a Markdown file",
@@ -2634,11 +2639,12 @@ templates:
 
     #[test]
     fn test_extension_helper() {
-        assert!(has_valid_extension("file.md", &[".md"]));
-        assert!(has_valid_extension("file.MD", &[".md"]));
-        assert!(has_valid_extension("path/to/file.pptx", &[".pptx"]));
-        assert!(!has_valid_extension("file.txt", &[".md"]));
-        assert!(!has_valid_extension("file.ppt", &[".pptx"]));
+        use crate::template::TemplateKind;
+        assert!(has_valid_template_extension("file.md", TemplateKind::Cr));
+        assert!(has_valid_template_extension("file.MD", TemplateKind::Cr));
+        assert!(has_valid_template_extension("path/to/file.pptx", TemplateKind::Ppt));
+        assert!(!has_valid_template_extension("file.txt", TemplateKind::Cr));
+        assert!(!has_valid_template_extension("file.ppt", TemplateKind::Ppt));
     }
 
     #[test]
