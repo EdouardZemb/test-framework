@@ -44,7 +44,7 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
     - Valide le format (Markdown parsable pour .md, archive ZIP valide pour .pptx)
     - Retourne le template chargé
   - [x] Subtask 2.6: Implémenter `load_all() -> Result<HashMap<TemplateKind, LoadedTemplate>, TemplateError>` pour charger tous les templates configurés
-  - [x] Subtask 2.7: Implémenter `validate_format(kind: TemplateKind, content: &[u8]) -> Result<(), TemplateError>` pour validation de format
+  - [x] Subtask 2.7: Implémenter `validate_content(kind: TemplateKind, content: &[u8], path: &Path) -> Result<(), TemplateError>` pour validation de format
 
 - [x] Task 3: Implémenter la gestion des erreurs (AC: #2)
   - [x] Subtask 3.1: Créer `TemplateError` enum dans `crates/tf-config/src/template.rs` avec thiserror
