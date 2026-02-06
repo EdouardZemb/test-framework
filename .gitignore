@@ -35,3 +35,9 @@ incremental/
 *.rlib
 *.rmeta
 *.d
+
+# Node
+node_modules/
+
+# Playwright / test output
+test-results/
