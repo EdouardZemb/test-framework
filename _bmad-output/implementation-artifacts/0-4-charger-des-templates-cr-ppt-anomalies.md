@@ -1,6 +1,6 @@
 # Story 0.4: Charger des templates (CR/PPT/anomalies)
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -80,16 +80,16 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
 
 ### Review Follow-ups (AI)
 
-- [ ] [AI-Review][HIGH] Fix TOCTOU race condition: remove `path.exists()` check and handle `NotFound` from `fs::read()` directly in `map_err` [crates/tf-config/src/template.rs:170-201]
-- [ ] [AI-Review][HIGH] `validate_format` is a private free function but Subtask 2.7 specifies a public method — align implementation with spec or update spec [crates/tf-config/src/template.rs:273]
-- [ ] [AI-Review][HIGH] File List claims "307 lines" but actual file is 743 lines — correct to "743 lines (307 code + 436 tests)" [story File List]
-- [ ] [AI-Review][MEDIUM] Document `load_all()` fail-fast behavior in docstring, or consider `try_load_all()` returning all errors [crates/tf-config/src/template.rs:206-217]
-- [ ] [AI-Review][MEDIUM] Consider making `TemplateKind::all()` public for external consumers [crates/tf-config/src/template.rs:51-53]
-- [ ] [AI-Review][MEDIUM] Add doc-tests (`no_run`) for `TemplateLoader::new()` and `load_template()` — other modules have them [crates/tf-config/src/template.rs]
-- [ ] [AI-Review][MEDIUM] Consider adding `Serialize`/`Deserialize` on `TemplateKind` for future structured logging/config use [crates/tf-config/src/template.rs:21]
-- [ ] [AI-Review][LOW] Add `Serialize` derive on `TemplateKind` for consistency with other crate enums like `LlmMode` [crates/tf-config/src/template.rs:21]
-- [ ] [AI-Review][LOW] Add `//! # Usage` section with code snippet in module doc [crates/tf-config/src/template.rs:1-5]
-- [ ] [AI-Review][LOW] Document why `MIN_PPTX_SIZE = 100` (e.g., "prevents truncated files; full OOXML validation deferred to tf-export") [crates/tf-config/src/template.rs:18]
+- [x] [AI-Review][HIGH] Fix TOCTOU race condition: remove `path.exists()` check and handle `NotFound` from `fs::read()` directly in `map_err` [crates/tf-config/src/template.rs:170-201]
+- [x] [AI-Review][HIGH] `validate_format` is a private free function but Subtask 2.7 specifies a public method — align implementation with spec or update spec [crates/tf-config/src/template.rs:273]
+- [x] [AI-Review][HIGH] File List claims "307 lines" but actual file is 743 lines — correct to "805 lines" [story File List]
+- [x] [AI-Review][MEDIUM] Document `load_all()` fail-fast behavior in docstring, or consider `try_load_all()` returning all errors [crates/tf-config/src/template.rs:206-217]
+- [x] [AI-Review][MEDIUM] Consider making `TemplateKind::all()` public for external consumers [crates/tf-config/src/template.rs:51-53]
+- [x] [AI-Review][MEDIUM] Add doc-tests (`no_run`) for `TemplateLoader::new()` and `load_template()` — other modules have them [crates/tf-config/src/template.rs]
+- [x] [AI-Review][MEDIUM] Consider adding `Serialize`/`Deserialize` on `TemplateKind` for future structured logging/config use [crates/tf-config/src/template.rs:21]
+- [x] [AI-Review][LOW] Add `Serialize` derive on `TemplateKind` for consistency with other crate enums like `LlmMode` [crates/tf-config/src/template.rs:21]
+- [x] [AI-Review][LOW] Add `//! # Usage` section with code snippet in module doc [crates/tf-config/src/template.rs:1-5]
+- [x] [AI-Review][LOW] Document why `MIN_PPTX_SIZE = 100` (e.g., "prevents truncated files; full OOXML validation deferred to tf-export") [crates/tf-config/src/template.rs:18]
 
 ## Dev Notes
 
@@ -485,11 +485,21 @@ Claude Opus 4.6 (claude-opus-4-6)
 - Subtask 1.3 (calamine dependency) marked N/A per Dev Notes: no new external dependencies needed
 - 28 new template tests + 248 existing tf-config tests = 276 total, all passing
 - 0 clippy warnings, 0 regressions across tf-config and tf-security
+- ✅ Resolved review finding [HIGH]: Fixed TOCTOU race condition — removed `path.exists()` pre-check, handle `NotFound` from `fs::read()` directly
+- ✅ Resolved review finding [HIGH]: Made `validate_format` public with docstring, exported from `lib.rs` — aligned with Subtask 2.7 spec
+- ✅ Resolved review finding [HIGH]: Corrected File List line count from "307 lines" to "805 lines"
+- ✅ Resolved review finding [MEDIUM]: Documented `load_all()` fail-fast semantics in docstring
+- ✅ Resolved review finding [MEDIUM]: Made `TemplateKind::all()` public for external consumers
+- ✅ Resolved review finding [MEDIUM]: Added `no_run` doc-tests for `TemplateLoader::new()` and `load_template()`
+- ✅ Resolved review finding [MEDIUM]: Added `Serialize`/`Deserialize` derives on `TemplateKind`
+- ✅ Resolved review finding [LOW]: `Serialize` on `TemplateKind` covered by MEDIUM item above
+- ✅ Resolved review finding [LOW]: Added `//! # Usage` section with code snippet in module doc
+- ✅ Resolved review finding [LOW]: Documented `MIN_PPTX_SIZE = 100` rationale in doc comment
 
 ### File List
 
-- `crates/tf-config/src/template.rs` — NEW (307 lines) — Template loading module with TemplateLoader, TemplateKind, LoadedTemplate, TemplateError, and 28 unit tests
-- `crates/tf-config/src/lib.rs` — MODIFIED — Added `pub mod template` and public re-exports for TemplateLoader, TemplateKind, LoadedTemplate, TemplateError
+- `crates/tf-config/src/template.rs` — NEW (805 lines) — Template loading module with TemplateLoader, TemplateKind, LoadedTemplate, TemplateError, validate_format, doc-tests, and 28 unit tests
+- `crates/tf-config/src/lib.rs` — MODIFIED — Added `pub mod template` and public re-exports for TemplateLoader, TemplateKind, LoadedTemplate, TemplateError, validate_format
 - `crates/tf-config/tests/fixtures/templates/cr-test.md` — NEW — CR template fixture for tests
 - `crates/tf-config/tests/fixtures/templates/anomaly-test.md` — NEW — Anomaly template fixture for tests
 - `crates/tf-config/tests/fixtures/templates/empty.md` — NEW — Empty file fixture for error case testing
@@ -499,4 +509,5 @@ Claude Opus 4.6 (claude-opus-4-6)
 
 - 2026-02-06: Implemented story 0-4 template loading — created template.rs module in tf-config with TemplateLoader API, TemplateError enum, format validation (MD/PPTX), and 28 tests covering all 3 ACs
 - 2026-02-06: Code review (AI adversarial) — 10 findings (3 HIGH, 4 MEDIUM, 3 LOW). Action items added to Tasks/Subtasks for follow-up. Story remains in-progress.
+- 2026-02-06: Addressed all 10 code review findings — 3 HIGH (TOCTOU fix, validate_format public, File List correction), 4 MEDIUM (load_all docs, all() public, doc-tests, Serialize/Deserialize), 3 LOW (Serialize derive, Usage section, MIN_PPTX_SIZE docs). All 228+8+19+14+10 tests pass, 0 clippy warnings, 0 regressions.
 
