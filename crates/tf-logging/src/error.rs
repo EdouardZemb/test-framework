@@ -4,8 +4,13 @@ use thiserror::Error;
 
 /// Errors that can occur during logging initialization and operation.
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum LoggingError {
     /// Failed to initialize the tracing subscriber.
+    ///
+    /// Reserved for future use by tf-cli when subscriber initialization can fail
+    /// (e.g., global subscriber already set). Currently not returned by `init_logging()`
+    /// which uses thread-local dispatch (`set_default`) that cannot fail.
     #[error("Failed to initialize logging: {cause}. {hint}")]
     InitFailed {
         cause: String,

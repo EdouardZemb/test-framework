@@ -253,21 +253,38 @@ mod tests {
     }
 
     // Test 0.5-UNIT-007: RUST_LOG overrides configured level
-    // Uses a mutex to prevent race conditions with parallel tests that also
-    // modify environment variables.
+    //
+    // Uses a mutex to serialize env-var-dependent tests, plus an RAII guard to
+    // ensure RUST_LOG is always cleaned up — even if an assertion panics.
+    //
+    // Note: other concurrent `init_logging()` calls in parallel tests *could*
+    // observe the temporary RUST_LOG value. This is an inherent limitation of
+    // process-wide environment variables. The mutex prevents other env-mutating
+    // tests from conflicting, and `set_default` (thread-local subscriber) limits
+    // the blast radius to this test's thread.
     #[test]
     #[allow(unsafe_code)]
     fn test_rust_log_overrides_configured_level() {
         use std::sync::Mutex;
         static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
+        /// RAII guard that removes RUST_LOG on drop (including panic unwind).
+        struct EnvGuard;
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                // Safety: protected by ENV_MUTEX; no other thread modifies
+                // RUST_LOG concurrently.
+                unsafe { std::env::remove_var("RUST_LOG") };
+            }
+        }
+
         let _lock = ENV_MUTEX.lock().unwrap();
+        // Safety: protected by ENV_MUTEX to avoid race with other env-mutating tests
+        unsafe { std::env::set_var("RUST_LOG", "debug") };
+        let _env_guard = EnvGuard;
 
         let temp = tempdir().unwrap();
         let log_dir = temp.path().join("logs");
-
-        // Safety: protected by ENV_MUTEX to avoid race with parallel tests
-        unsafe { std::env::set_var("RUST_LOG", "debug") };
 
         let config = LoggingConfig {
             log_level: "info".to_string(),
@@ -286,9 +303,7 @@ mod tests {
 
         assert!(content.contains("Debug visible via RUST_LOG override"),
                 "RUST_LOG=debug should override config level and show debug messages");
-
-        // Cleanup
-        unsafe { std::env::remove_var("RUST_LOG") };
+        // _env_guard dropped here, cleaning up RUST_LOG
     }
 
     // Test 0.5-UNIT-011: ANSI colors disabled for file logs

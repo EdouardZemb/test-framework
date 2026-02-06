@@ -23,7 +23,10 @@ impl LoggingConfig {
         let log_dir = if config.output_folder.is_empty() {
             "./logs".to_string()
         } else {
-            format!("{}/logs", config.output_folder)
+            std::path::Path::new(&config.output_folder)
+                .join("logs")
+                .to_string_lossy()
+                .to_string()
         };
 
         Self {
@@ -57,6 +60,17 @@ mod tests {
         assert_eq!(logging_config.log_dir, "/tmp/test-output/logs");
         assert_eq!(logging_config.log_level, "info");
         assert!(!logging_config.log_to_stdout);
+    }
+
+    // Test [AI-Review-R2 M3]: trailing slash in output_folder should not produce double-slash
+    #[test]
+    fn test_logging_config_no_double_slash_with_trailing_slash() {
+        let yaml = "project_name: \"test-project\"\noutput_folder: \"/tmp/test-output/\"\n";
+        let project_config: tf_config::ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        let logging_config = LoggingConfig::from_project_config(&project_config);
+        assert_eq!(logging_config.log_dir, "/tmp/test-output/logs");
+        assert!(!logging_config.log_dir.contains("//"),
+                "log_dir should not contain double slashes, got: {}", logging_config.log_dir);
     }
 
     #[test]

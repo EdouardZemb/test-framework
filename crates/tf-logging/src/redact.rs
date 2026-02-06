@@ -153,6 +153,11 @@ where
         mut writer: Writer<'_>,
         event: &Event<'_>,
     ) -> std::fmt::Result {
+        // Note: _ctx (FmtContext) is intentionally unused. Span fields from
+        // parent spans (e.g., via #[instrument]) are not included in the JSON
+        // output. This is a known baseline limitation — span field collection
+        // may be added in a future story if needed.
+
         // Collect fields via our redacting visitor
         let mut visitor = RedactingVisitor::new();
         event.record(&mut visitor);
@@ -198,8 +203,7 @@ where
         }
 
         let json_str = serde_json::to_string(&obj).map_err(|_| std::fmt::Error)?;
-        write!(writer, "{}", json_str)?;
-        writeln!(writer)?;
+        writeln!(writer, "{}", json_str)?;
 
         Ok(())
     }
