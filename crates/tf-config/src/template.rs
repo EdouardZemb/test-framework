@@ -28,6 +28,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::config::{redact_url_sensitive_params, TemplatesConfig};
@@ -36,6 +37,14 @@ use crate::config::{redact_url_sensitive_params, TemplatesConfig};
 const ZIP_MAGIC: &[u8; 4] = b"PK\x03\x04";
 /// Required OOXML entry for valid PPTX archives.
 const PPTX_CONTENT_TYPES_ENTRY: &[u8] = b"[Content_Types].xml";
+/// End of central directory (EOCD) signature.
+const ZIP_EOCD_SIGNATURE: &[u8; 4] = b"PK\x05\x06";
+/// Central directory file header signature.
+const ZIP_CENTRAL_DIR_SIGNATURE: &[u8; 4] = b"PK\x01\x02";
+/// Minimum EOCD record size without ZIP comment.
+const ZIP_EOCD_MIN_SIZE: usize = 22;
+/// Maximum ZIP comment length per spec (u16::MAX).
+const ZIP_MAX_COMMENT_LEN: usize = u16::MAX as usize;
 
 /// Minimum size for a valid .pptx file in bytes.
 ///
@@ -303,21 +312,13 @@ impl<'a> TemplateLoader<'a> {
         // Validate extension before reading (avoids unnecessary I/O)
         validate_extension(&path, kind)?;
 
-        // Pre-check file size to prevent unbounded memory allocation
         let max_size = match kind {
             TemplateKind::Cr | TemplateKind::Anomaly => MAX_MD_SIZE,
             TemplateKind::Ppt => MAX_PPTX_SIZE,
         };
-        if let Ok(metadata) = fs::metadata(&path) {
-            let file_size = metadata.len();
-            if file_size > max_size {
-                return Err(oversized_error(path_str, kind, file_size, max_size));
-            }
-        }
-        // If metadata fails, proceed to fs::read which will surface the actual error
 
-        // Read file content — handles NotFound directly to avoid TOCTOU race
-        let content = fs::read(&path).map_err(|e| {
+        // Open file and handle NotFound directly to avoid TOCTOU race.
+        let file = fs::File::open(&path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 TemplateError::FileNotFound {
                     path: path_for_error.clone(),
@@ -337,15 +338,32 @@ impl<'a> TemplateLoader<'a> {
                     "Check file permissions and ensure the file is readable".to_string()
                 };
                 TemplateError::ReadError {
-                    path: path_for_error,
+                    path: path_for_error.clone(),
                     cause: e.to_string(),
                     hint,
                 }
             }
         })?;
 
-        // Post-read size check: guards against TOCTOU where file grows between
-        // metadata check and read, or when metadata was unavailable above.
+        // Stream a bounded amount (max + 1) so oversized files are rejected
+        // without allocating full file content into memory.
+        let content = read_bounded(file, max_size).map_err(|e| {
+            let hint = if path.is_dir() {
+                format!(
+                    "The path '{}' is a directory, not a file. Update config.yaml to point to a template file",
+                    path_for_error
+                )
+            } else {
+                "Check file permissions and ensure the file is readable".to_string()
+            };
+            TemplateError::ReadError {
+                path: path_for_error.clone(),
+                cause: e.to_string(),
+                hint,
+            }
+        })?;
+
+        // Size check after bounded read: if max + 1 bytes were read, input exceeded limit.
         let content_size = content.len() as u64;
         if content_size > max_size {
             return Err(oversized_error(path_str, kind, content_size, max_size));
@@ -456,7 +474,8 @@ fn oversized_error(path: &str, kind: TemplateKind, actual_size: u64, max_size: u
 ///
 /// Checks that `content` is well-formed for the given [`TemplateKind`]:
 /// - Markdown (`.md`): non-empty, non-whitespace-only, valid UTF-8
-/// - PowerPoint (`.pptx`): ZIP magic bytes and minimum size
+/// - PowerPoint (`.pptx`): ZIP magic bytes, minimum size, valid central
+///   directory structure, and presence of `[Content_Types].xml` entry
 ///
 /// The `path` parameter is used **only for error context** (included in error
 /// messages to help the user locate the problematic file). It is not validated,
@@ -471,9 +490,70 @@ pub fn validate_content(kind: TemplateKind, content: &[u8], path: &Path) -> Resu
 
 /// Sanitize paths for logging/error messages by redacting URL-like secrets
 /// (`token`, `api_key`, userinfo credentials, etc.). Plain filesystem paths
-/// are returned unchanged.
+/// also pass through a generic path-segment redactor.
 fn sanitize_path_for_error(path: &str) -> String {
-    redact_url_sensitive_params(path)
+    let redacted = redact_url_sensitive_params(path);
+    redact_generic_path_secrets(&redacted)
+}
+
+fn redact_generic_path_secrets(path: &str) -> String {
+    const SENSITIVE_SEGMENTS: &[&str] = &[
+        "token",
+        "tokens",
+        "api_key",
+        "apikey",
+        "key",
+        "keys",
+        "secret",
+        "secrets",
+        "password",
+        "passwd",
+        "pwd",
+        "auth",
+        "credential",
+        "credentials",
+        "access_token",
+        "refresh_token",
+        "client_secret",
+        "private_key",
+    ];
+
+    fn redact_with_sep(path: &str, sep: char, sensitive_segments: &[&str]) -> String {
+        let parts: Vec<&str> = path.split(sep).collect();
+        if parts.len() < 2 {
+            return path.to_string();
+        }
+
+        let mut out = Vec::with_capacity(parts.len());
+        let mut redact_next = false;
+        for segment in parts {
+            if redact_next && !segment.is_empty() {
+                let looks_like_secret = segment.len() > 8
+                    || (segment.len() > 4
+                        && segment.chars().any(|c| c.is_ascii_digit())
+                        && segment.chars().any(|c| c.is_ascii_alphabetic()))
+                    || segment.starts_with("sk-")
+                    || segment.starts_with("pk-")
+                    || (segment.len() > 8 && segment.chars().all(|c| c.is_ascii_hexdigit()));
+                if looks_like_secret {
+                    out.push("[REDACTED]");
+                } else {
+                    out.push(segment);
+                }
+                redact_next = false;
+                continue;
+            }
+
+            out.push(segment);
+            let lower = segment.to_lowercase();
+            redact_next = sensitive_segments.iter().any(|s| lower == *s);
+        }
+
+        out.join(&sep.to_string())
+    }
+
+    let slash_redacted = redact_with_sep(path, '/', SENSITIVE_SEGMENTS);
+    redact_with_sep(&slash_redacted, '\\', SENSITIVE_SEGMENTS)
 }
 
 /// Validate Markdown template: must be non-empty, non-whitespace-only, valid UTF-8
@@ -507,7 +587,8 @@ fn validate_markdown(content: &[u8], path: &str, kind: TemplateKind) -> Result<(
 }
 
 /// Validate PowerPoint template: must have ZIP magic bytes, minimum size,
-/// and include the required OOXML `[Content_Types].xml` entry marker.
+/// valid ZIP central directory structure, and include the required OOXML
+/// `[Content_Types].xml` entry.
 fn validate_pptx(content: &[u8], path: &str, kind: TemplateKind) -> Result<(), TemplateError> {
     if content.is_empty() {
         return Err(TemplateError::InvalidFormat {
@@ -540,19 +621,116 @@ fn validate_pptx(content: &[u8], path: &str, kind: TemplateKind) -> Result<(), T
         });
     }
 
-    if !content
-        .windows(PPTX_CONTENT_TYPES_ENTRY.len())
-        .any(|window| window == PPTX_CONTENT_TYPES_ENTRY)
-    {
+    if !has_content_types_entry_in_central_directory(content) {
         return Err(TemplateError::InvalidFormat {
             path: path.to_string(),
             kind,
-            cause: "missing required OOXML entry '[Content_Types].xml'".to_string(),
-            hint: "Ensure the file is a valid .pptx template containing the OOXML '[Content_Types].xml' entry".to_string(),
+            cause: "invalid ZIP central directory structure or missing required OOXML entry '[Content_Types].xml'".to_string(),
+            hint: "Ensure the file is a valid .pptx template with a valid ZIP central directory containing '[Content_Types].xml'".to_string(),
         });
     }
 
     Ok(())
+}
+
+fn has_content_types_entry_in_central_directory(content: &[u8]) -> bool {
+    let parse = || -> Option<bool> {
+        if content.len() < ZIP_EOCD_MIN_SIZE {
+            return Some(false);
+        }
+
+        let eocd_start = find_eocd_offset(content)?;
+        let comment_len = le_u16(content, eocd_start + 20)? as usize;
+        let expected_eocd_end = eocd_start
+            .checked_add(ZIP_EOCD_MIN_SIZE)?
+            .checked_add(comment_len)?;
+        if expected_eocd_end != content.len() {
+            return Some(false);
+        }
+
+        let total_entries = le_u16(content, eocd_start + 10)? as usize;
+        if total_entries == 0 {
+            return Some(false);
+        }
+
+        let central_dir_size = le_u32(content, eocd_start + 12)? as usize;
+        let central_dir_offset = le_u32(content, eocd_start + 16)? as usize;
+        let central_dir_end = central_dir_offset.checked_add(central_dir_size)?;
+
+        // Central directory must be located before EOCD and within content bounds.
+        if central_dir_end > eocd_start || central_dir_end > content.len() {
+            return Some(false);
+        }
+
+        let mut cursor = central_dir_offset;
+        let mut parsed_entries = 0usize;
+        let mut has_content_types = false;
+
+        while cursor < central_dir_end && parsed_entries < total_entries {
+            let min_header_end = cursor.checked_add(46)?;
+            if min_header_end > central_dir_end {
+                return Some(false);
+            }
+
+            if content.get(cursor..cursor + 4)? != ZIP_CENTRAL_DIR_SIGNATURE {
+                return Some(false);
+            }
+
+            let file_name_len = le_u16(content, cursor + 28)? as usize;
+            let extra_len = le_u16(content, cursor + 30)? as usize;
+            let comment_len = le_u16(content, cursor + 32)? as usize;
+
+            let header_size = 46usize
+                .checked_add(file_name_len)?
+                .checked_add(extra_len)?
+                .checked_add(comment_len)?;
+            let header_end = cursor.checked_add(header_size)?;
+            if header_end > central_dir_end {
+                return Some(false);
+            }
+
+            let file_name_start = cursor + 46;
+            let file_name_end = file_name_start + file_name_len;
+            if content.get(file_name_start..file_name_end)? == PPTX_CONTENT_TYPES_ENTRY {
+                has_content_types = true;
+            }
+
+            cursor = header_end;
+            parsed_entries += 1;
+        }
+
+        Some(parsed_entries == total_entries && cursor == central_dir_end && has_content_types)
+    };
+
+    parse().unwrap_or(false)
+}
+
+fn find_eocd_offset(content: &[u8]) -> Option<usize> {
+    let min_search_index = content
+        .len()
+        .saturating_sub(ZIP_EOCD_MIN_SIZE + ZIP_MAX_COMMENT_LEN);
+    let max_search_index = content.len().checked_sub(ZIP_EOCD_MIN_SIZE)?;
+
+    (min_search_index..=max_search_index)
+        .rev()
+        .find(|&idx| content.get(idx..idx + 4) == Some(ZIP_EOCD_SIGNATURE))
+}
+
+fn le_u16(content: &[u8], offset: usize) -> Option<u16> {
+    let bytes = content.get(offset..offset + 2)?;
+    Some(u16::from_le_bytes([bytes[0], bytes[1]]))
+}
+
+fn le_u32(content: &[u8], offset: usize) -> Option<u32> {
+    let bytes = content.get(offset..offset + 4)?;
+    Some(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
+fn read_bounded<R: Read>(reader: R, max_size: u64) -> std::io::Result<Vec<u8>> {
+    let mut limited = reader.take(max_size.saturating_add(1));
+    let mut content = Vec::new();
+    limited.read_to_end(&mut content)?;
+    Ok(content)
 }
 
 #[cfg(test)]
@@ -567,16 +745,78 @@ mod tests {
             .join("templates")
     }
 
-    // Helper to create a minimal valid pptx content (ZIP header + padding with invalid UTF-8)
+    fn create_single_entry_zip(file_name: &str, file_data: &[u8]) -> Vec<u8> {
+        fn push_u16(buf: &mut Vec<u8>, value: u16) {
+            buf.extend_from_slice(&value.to_le_bytes());
+        }
+        fn push_u32(buf: &mut Vec<u8>, value: u32) {
+            buf.extend_from_slice(&value.to_le_bytes());
+        }
+
+        let file_name_bytes = file_name.as_bytes();
+        let file_size = file_data.len() as u32;
+
+        let mut local_header = Vec::new();
+        push_u32(&mut local_header, 0x0403_4b50); // Local file header signature
+        push_u16(&mut local_header, 20); // Version needed to extract
+        push_u16(&mut local_header, 0); // General purpose bit flag
+        push_u16(&mut local_header, 0); // Compression method (stored)
+        push_u16(&mut local_header, 0); // Last mod file time
+        push_u16(&mut local_header, 0); // Last mod file date
+        push_u32(&mut local_header, 0); // CRC-32 (not validated by parser)
+        push_u32(&mut local_header, file_size); // Compressed size
+        push_u32(&mut local_header, file_size); // Uncompressed size
+        push_u16(&mut local_header, file_name_bytes.len() as u16); // File name length
+        push_u16(&mut local_header, 0); // Extra field length
+        local_header.extend_from_slice(file_name_bytes);
+        local_header.extend_from_slice(file_data);
+
+        let mut central_header = Vec::new();
+        push_u32(&mut central_header, 0x0201_4b50); // Central directory header signature
+        push_u16(&mut central_header, 20); // Version made by
+        push_u16(&mut central_header, 20); // Version needed to extract
+        push_u16(&mut central_header, 0); // General purpose bit flag
+        push_u16(&mut central_header, 0); // Compression method
+        push_u16(&mut central_header, 0); // Last mod file time
+        push_u16(&mut central_header, 0); // Last mod file date
+        push_u32(&mut central_header, 0); // CRC-32
+        push_u32(&mut central_header, file_size); // Compressed size
+        push_u32(&mut central_header, file_size); // Uncompressed size
+        push_u16(&mut central_header, file_name_bytes.len() as u16); // File name length
+        push_u16(&mut central_header, 0); // Extra field length
+        push_u16(&mut central_header, 0); // File comment length
+        push_u16(&mut central_header, 0); // Disk number start
+        push_u16(&mut central_header, 0); // Internal file attributes
+        push_u32(&mut central_header, 0); // External file attributes
+        push_u32(&mut central_header, 0); // Relative offset of local header
+        central_header.extend_from_slice(file_name_bytes);
+
+        let central_offset = local_header.len() as u32;
+        let central_size = central_header.len() as u32;
+
+        let mut eocd = Vec::new();
+        push_u32(&mut eocd, 0x0605_4b50); // EOCD signature
+        push_u16(&mut eocd, 0); // Number of this disk
+        push_u16(&mut eocd, 0); // Number of the disk with start of central dir
+        push_u16(&mut eocd, 1); // Total entries in central dir on this disk
+        push_u16(&mut eocd, 1); // Total entries in central dir
+        push_u32(&mut eocd, central_size); // Size of central directory
+        push_u32(&mut eocd, central_offset); // Offset of central directory
+        push_u16(&mut eocd, 0); // ZIP file comment length
+
+        let mut zip = Vec::new();
+        zip.extend_from_slice(&local_header);
+        zip.extend_from_slice(&central_header);
+        zip.extend_from_slice(&eocd);
+        zip
+    }
+
+    // Helper to create a minimal valid pptx content (valid ZIP + OOXML entry).
     fn create_valid_pptx_bytes() -> Vec<u8> {
-        let mut content = Vec::new();
-        // ZIP magic bytes
-        content.extend_from_slice(b"PK\x03\x04");
-        // Minimal OOXML marker required for PPTX validation.
-        content.extend_from_slice(PPTX_CONTENT_TYPES_ENTRY);
-        // Padding with invalid UTF-8 bytes to simulate binary content
-        content.resize(MIN_PPTX_SIZE + 10, 0xFF);
-        content
+        // Keep payload large enough to exceed MIN_PPTX_SIZE and include invalid UTF-8
+        // so `content_as_str()` on PPTX follows the binary-content path.
+        let payload = vec![0xFF; 64];
+        create_single_entry_zip("[Content_Types].xml", &payload)
     }
 
     // =========================================================================
@@ -875,25 +1115,34 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_pptx_boundary_at_min_size_accepted() {
-        // Exactly MIN_PPTX_SIZE bytes: should be accepted
-        let mut content = Vec::new();
-        content.extend_from_slice(b"PK\x03\x04");
-        content.extend_from_slice(PPTX_CONTENT_TYPES_ENTRY);
-        content.resize(MIN_PPTX_SIZE, 0x00);
+    fn test_validate_pptx_valid_archive_above_min_size_accepted() {
+        let content = create_valid_pptx_bytes();
+        assert!(content.len() >= MIN_PPTX_SIZE);
         assert!(validate_content(TemplateKind::Ppt, &content, Path::new("boundary.pptx")).is_ok());
     }
 
     #[test]
     fn test_validate_pptx_missing_content_types_rejected() {
-        let mut content = Vec::new();
-        content.extend_from_slice(b"PK\x03\x04");
-        content.resize(MIN_PPTX_SIZE + 10, 0xFF);
+        let content = create_single_entry_zip("ppt/slides/slide1.xml", &[0x01; 64]);
 
         let err = validate_content(TemplateKind::Ppt, &content, Path::new("missing-content-types.pptx"))
             .unwrap_err();
         assert!(matches!(err, TemplateError::InvalidFormat { .. }));
         assert!(err.to_string().contains("[Content_Types].xml"));
+    }
+
+    #[test]
+    fn test_validate_pptx_invalid_zip_structure_rejected() {
+        // Contains ZIP magic + required marker + minimum size, but is not
+        // a structurally valid ZIP archive (no central directory).
+        let mut content = Vec::new();
+        content.extend_from_slice(b"PK\x03\x04");
+        content.extend_from_slice(PPTX_CONTENT_TYPES_ENTRY);
+        content.resize(MIN_PPTX_SIZE + 10, 0xFF);
+
+        let err = validate_content(TemplateKind::Ppt, &content, Path::new("invalid-zip.pptx")).unwrap_err();
+        assert!(matches!(err, TemplateError::InvalidFormat { .. }));
+        assert!(err.to_string().contains("ZIP"));
     }
 
     #[test]
@@ -910,6 +1159,30 @@ mod tests {
         assert!(!msg.contains("super-secret"));
         assert!(msg.contains("[REDACTED]"));
         assert!(msg.contains("https://[REDACTED]@example.com/template.md"));
+    }
+
+    #[test]
+    fn test_error_paths_redact_sensitive_non_url_path_segments() {
+        let config = TemplatesConfig {
+            cr: Some("/tmp/token/sk-very-secret-123456/template.md".to_string()),
+            ppt: None,
+            anomaly: None,
+        };
+        let loader = TemplateLoader::new(&config);
+        let err = loader.load_template(TemplateKind::Cr).unwrap_err();
+        let msg = err.to_string();
+
+        assert!(!msg.contains("sk-very-secret-123456"));
+        assert!(msg.contains("/tmp/token/[REDACTED]/template.md"));
+    }
+
+    #[test]
+    fn test_read_bounded_caps_output_at_max_plus_one() {
+        use std::io::Cursor;
+
+        let source = vec![0xAB; 2048];
+        let result = read_bounded(Cursor::new(source), 1024).unwrap();
+        assert_eq!(result.len(), 1025);
     }
 
     // =========================================================================
