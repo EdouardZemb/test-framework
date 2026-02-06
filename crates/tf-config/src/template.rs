@@ -3,6 +3,27 @@
 //! Provides loading and basic format validation of templates (CR, PPT, Anomaly)
 //! from configured file paths. Templates are validated for existence, correct
 //! file extension, and basic format integrity before being made available.
+//!
+//! # Usage
+//!
+//! ```no_run
+//! use tf_config::{TemplateLoader, TemplateKind, TemplatesConfig};
+//!
+//! let config = TemplatesConfig {
+//!     cr: Some("templates/cr.md".to_string()),
+//!     ppt: Some("templates/report.pptx".to_string()),
+//!     anomaly: None,
+//! };
+//! let loader = TemplateLoader::new(&config);
+//!
+//! // Load a single template
+//! let cr = loader.load_template(TemplateKind::Cr).unwrap();
+//! println!("CR template: {} bytes", cr.size_bytes());
+//!
+//! // Load all configured templates at once
+//! let all = loader.load_all().unwrap();
+//! println!("Loaded {} templates", all.len());
+//! ```
 
 use std::collections::HashMap;
 use std::fmt;
@@ -14,11 +35,16 @@ use crate::config::TemplatesConfig;
 /// ZIP magic bytes: PK\x03\x04
 const ZIP_MAGIC: &[u8; 4] = b"PK\x03\x04";
 
-/// Minimum size for a valid .pptx file (ZIP with at least some content)
+/// Minimum size for a valid .pptx file in bytes.
+///
+/// A valid .pptx is an OOXML ZIP archive that must contain at least
+/// `[Content_Types].xml` and basic relationship entries. This threshold
+/// prevents truncated or corrupted files from being accepted. Full OOXML
+/// structural validation is deferred to `tf-export`.
 const MIN_PPTX_SIZE: u64 = 100;
 
 /// Types of templates supported by the system
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum TemplateKind {
     /// Daily report template (CR quotidien) - Markdown format
     Cr,
@@ -48,7 +74,7 @@ impl TemplateKind {
     }
 
     /// Returns all template kinds
-    fn all() -> &'static [TemplateKind] {
+    pub fn all() -> &'static [TemplateKind] {
         &[TemplateKind::Cr, TemplateKind::Ppt, TemplateKind::Anomaly]
     }
 }
@@ -156,6 +182,17 @@ pub struct TemplateLoader {
 
 impl TemplateLoader {
     /// Create a new template loader from configuration
+    ///
+    /// ```no_run
+    /// use tf_config::{TemplateLoader, TemplatesConfig};
+    ///
+    /// let config = TemplatesConfig {
+    ///     cr: Some("templates/cr.md".to_string()),
+    ///     ppt: None,
+    ///     anomaly: None,
+    /// };
+    /// let loader = TemplateLoader::new(&config);
+    /// ```
     pub fn new(config: &TemplatesConfig) -> Self {
         Self {
             config: config.clone(),
@@ -163,30 +200,47 @@ impl TemplateLoader {
     }
 
     /// Load a specific template by kind
+    ///
+    /// Resolves the configured path, validates the file extension, reads the file,
+    /// and validates the format before returning the loaded template.
+    ///
+    /// ```no_run
+    /// use tf_config::{TemplateLoader, TemplateKind, TemplatesConfig};
+    ///
+    /// let config = TemplatesConfig {
+    ///     cr: Some("templates/cr.md".to_string()),
+    ///     ppt: None,
+    ///     anomaly: None,
+    /// };
+    /// let loader = TemplateLoader::new(&config);
+    /// let template = loader.load_template(TemplateKind::Cr).unwrap();
+    /// println!("Loaded {} ({} bytes)", template.kind(), template.size_bytes());
+    /// ```
     pub fn load_template(&self, kind: TemplateKind) -> Result<LoadedTemplate, TemplateError> {
         let path_str = self.get_configured_path(kind)?;
         let path = PathBuf::from(&path_str);
 
-        // Check file existence
-        if !path.exists() {
-            return Err(TemplateError::FileNotFound {
-                path: path_str.clone(),
-                kind: kind.to_string(),
-                hint: format!(
-                    "Check the path in config.yaml or create the template file at '{}'",
-                    path_str
-                ),
-            });
-        }
-
-        // Validate extension
+        // Validate extension before reading (avoids unnecessary I/O)
         self.validate_extension(&path, kind)?;
 
-        // Read file content
-        let content = fs::read(&path).map_err(|e| TemplateError::ReadError {
-            path: path_str.clone(),
-            cause: e.to_string(),
-            hint: "Check file permissions and ensure the file is readable".to_string(),
+        // Read file content — handles NotFound directly to avoid TOCTOU race
+        let content = fs::read(&path).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                TemplateError::FileNotFound {
+                    path: path_str.clone(),
+                    kind: kind.to_string(),
+                    hint: format!(
+                        "Check the path in config.yaml or create the template file at '{}'",
+                        path_str
+                    ),
+                }
+            } else {
+                TemplateError::ReadError {
+                    path: path_str.clone(),
+                    cause: e.to_string(),
+                    hint: "Check file permissions and ensure the file is readable".to_string(),
+                }
+            }
         })?;
 
         let size_bytes = content.len() as u64;
@@ -203,6 +257,10 @@ impl TemplateLoader {
     }
 
     /// Load all configured templates
+    ///
+    /// Iterates over every [`TemplateKind`] and loads each one that has a path
+    /// set in the configuration. Uses **fail-fast** semantics: returns the first
+    /// error encountered and does not attempt to load remaining templates.
     pub fn load_all(&self) -> Result<HashMap<TemplateKind, LoadedTemplate>, TemplateError> {
         let mut templates = HashMap::new();
 
@@ -270,7 +328,11 @@ impl TemplateLoader {
 }
 
 /// Validate the format of a template based on its kind
-fn validate_format(kind: TemplateKind, content: &[u8], path: &str) -> Result<(), TemplateError> {
+///
+/// Checks that `content` is well-formed for the given [`TemplateKind`]:
+/// - Markdown (`.md`): non-empty valid UTF-8
+/// - PowerPoint (`.pptx`): ZIP magic bytes and minimum size
+pub fn validate_format(kind: TemplateKind, content: &[u8], path: &str) -> Result<(), TemplateError> {
     match kind {
         TemplateKind::Cr | TemplateKind::Anomaly => validate_markdown(content, path, kind),
         TemplateKind::Ppt => validate_pptx(content, path),
