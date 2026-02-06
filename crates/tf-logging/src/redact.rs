@@ -570,4 +570,71 @@ mod tests {
         assert!(!RedactingVisitor::looks_like_url("not a url"));
         assert!(!RedactingVisitor::looks_like_url("ftp://example.com"));
     }
+
+    // --- P0: format_rfc3339() tests ---
+
+    #[test]
+    fn test_format_rfc3339_unix_epoch() {
+        // Unix epoch: 0 seconds, 0 nanos
+        let result = format_rfc3339(0, 0);
+        assert_eq!(result, "1970-01-01T00:00:00.000Z");
+    }
+
+    #[test]
+    fn test_format_rfc3339_known_timestamp_2024() {
+        // 1704067200 = 2024-01-01T00:00:00Z
+        let result = format_rfc3339(1704067200, 0);
+        assert_eq!(result, "2024-01-01T00:00:00.000Z");
+    }
+
+    #[test]
+    fn test_format_rfc3339_leap_year_feb29() {
+        // 1709209845 = 2024-02-29T12:30:45Z (2024 is a leap year)
+        let result = format_rfc3339(1709209845, 0);
+        assert_eq!(result, "2024-02-29T12:30:45.000Z");
+    }
+
+    #[test]
+    fn test_format_rfc3339_end_of_year_boundary() {
+        // 1735689599 = 2024-12-31T23:59:59Z
+        let result = format_rfc3339(1735689599, 0);
+        assert_eq!(result, "2024-12-31T23:59:59.000Z");
+    }
+
+    #[test]
+    fn test_format_rfc3339_end_of_year_with_millis() {
+        // 1735689599 = 2024-12-31T23:59:59Z with 999 ms
+        let result = format_rfc3339(1735689599, 999_000_000);
+        assert_eq!(result, "2024-12-31T23:59:59.999Z");
+    }
+
+    // --- P0: days_to_ymd() tests ---
+
+    #[test]
+    fn test_days_to_ymd_epoch() {
+        // Day 0 = 1970-01-01
+        let (y, m, d) = days_to_ymd(0);
+        assert_eq!((y, m, d), (1970, 1, 1));
+    }
+
+    #[test]
+    fn test_days_to_ymd_known_date_2024() {
+        // 19723 days since epoch = 2024-01-01
+        let (y, m, d) = days_to_ymd(19723);
+        assert_eq!((y, m, d), (2024, 1, 1));
+    }
+
+    #[test]
+    fn test_days_to_ymd_leap_year_feb29() {
+        // 19782 days since epoch = 2024-02-29 (leap year)
+        let (y, m, d) = days_to_ymd(19782);
+        assert_eq!((y, m, d), (2024, 2, 29));
+    }
+
+    #[test]
+    fn test_days_to_ymd_after_leap_day() {
+        // 11017 days since epoch = 2000-03-01 (day after Feb 29, 2000)
+        let (y, m, d) = days_to_ymd(11017);
+        assert_eq!((y, m, d), (2000, 3, 1));
+    }
 }

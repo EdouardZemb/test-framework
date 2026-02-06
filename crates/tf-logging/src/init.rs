@@ -288,4 +288,76 @@ mod tests {
                 "Log file should not contain ANSI escape codes");
         assert!(content.contains("Message to verify no ANSI escape codes"));
     }
+
+    // --- P0: LogGuard Debug impl + lifecycle tests ---
+
+    // Test that Debug output of LogGuard shows opaque representation
+    // (no internal state leaked, just "LogGuard" struct name)
+    #[test]
+    fn test_log_guard_debug_shows_opaque_struct() {
+        let temp = tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+
+        let config = LoggingConfig {
+            log_level: "info".to_string(),
+            log_dir: log_dir.to_string_lossy().to_string(),
+            log_to_stdout: false,
+        };
+
+        let guard = init_logging(&config).unwrap();
+        let debug_output = format!("{:?}", guard);
+
+        // Must contain the struct name
+        assert!(debug_output.contains("LogGuard"),
+                "Debug output should contain 'LogGuard', got: {debug_output}");
+
+        // Must NOT expose internal field names
+        assert!(!debug_output.contains("_worker_guard"),
+                "Debug output must not expose _worker_guard field");
+        assert!(!debug_output.contains("_dispatch_guard"),
+                "Debug output must not expose _dispatch_guard field");
+        assert!(!debug_output.contains("WorkerGuard"),
+                "Debug output must not expose WorkerGuard type");
+        assert!(!debug_output.contains("DefaultGuard"),
+                "Debug output must not expose DefaultGuard type");
+
+        drop(guard);
+    }
+
+    // Test that LogGuard can be successfully created and that it is a valid
+    // object that survives being moved and dropped
+    #[test]
+    fn test_log_guard_lifecycle_create_and_drop() {
+        let temp = tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+
+        let config = LoggingConfig {
+            log_level: "info".to_string(),
+            log_dir: log_dir.to_string_lossy().to_string(),
+            log_to_stdout: false,
+        };
+
+        // Create guard
+        let guard = init_logging(&config).unwrap();
+
+        // Emit a log event while guard is alive
+        tracing::info!("lifecycle test message");
+
+        // Move the guard to a new binding (tests Send-like behavior)
+        let moved_guard = guard;
+
+        // Emit another event after move
+        tracing::info!("after move message");
+
+        // Drop flushes logs
+        drop(moved_guard);
+
+        // After drop, verify logs were flushed to disk
+        let log_file = find_log_file(&log_dir);
+        let content = fs::read_to_string(&log_file).unwrap();
+        assert!(content.contains("lifecycle test message"),
+                "Log should contain message emitted before guard move");
+        assert!(content.contains("after move message"),
+                "Log should contain message emitted after guard move");
+    }
 }
