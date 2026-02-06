@@ -30,10 +30,12 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::config::TemplatesConfig;
+use crate::config::{redact_url_sensitive_params, TemplatesConfig};
 
 /// ZIP magic bytes: PK\x03\x04
 const ZIP_MAGIC: &[u8; 4] = b"PK\x03\x04";
+/// Required OOXML entry for valid PPTX archives.
+const PPTX_CONTENT_TYPES_ENTRY: &[u8] = b"[Content_Types].xml";
 
 /// Minimum size for a valid .pptx file in bytes.
 ///
@@ -176,16 +178,17 @@ impl LoadedTemplate {
     /// Returns [`TemplateError::InvalidFormat`] for non-UTF-8 markdown templates.
     pub fn content_as_str(&self) -> Result<&str, TemplateError> {
         std::str::from_utf8(&self.content).map_err(|_| {
+            let path = sanitize_path_for_error(&self.path.display().to_string());
             if self.kind == TemplateKind::Ppt {
                 TemplateError::BinaryContent {
-                    path: self.path.display().to_string(),
+                    path,
                     kind: self.kind,
                     hint: "This template is binary (PPTX); use content() for raw bytes instead"
                         .to_string(),
                 }
             } else {
                 TemplateError::InvalidFormat {
-                    path: self.path.display().to_string(),
+                    path,
                     kind: self.kind,
                     cause: "invalid UTF-8".to_string(),
                     hint: format!(
@@ -295,6 +298,7 @@ impl<'a> TemplateLoader<'a> {
     /// ambiguity.
     fn load_from_path(&self, kind: TemplateKind, path_str: &str) -> Result<LoadedTemplate, TemplateError> {
         let path = PathBuf::from(path_str);
+        let path_for_error = sanitize_path_for_error(path_str);
 
         // Validate extension before reading (avoids unnecessary I/O)
         validate_extension(&path, kind)?;
@@ -316,24 +320,24 @@ impl<'a> TemplateLoader<'a> {
         let content = fs::read(&path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 TemplateError::FileNotFound {
-                    path: path_str.to_string(),
+                    path: path_for_error.clone(),
                     kind,
                     hint: format!(
                         "Check the path in config.yaml or create the template file at '{}'",
-                        path_str
+                        path_for_error
                     ),
                 }
             } else {
                 let hint = if path.is_dir() {
                     format!(
                         "The path '{}' is a directory, not a file. Update config.yaml to point to a template file",
-                        path_str
+                        path_for_error
                     )
                 } else {
                     "Check file permissions and ensure the file is readable".to_string()
                 };
                 TemplateError::ReadError {
-                    path: path_str.to_string(),
+                    path: path_for_error,
                     cause: e.to_string(),
                     hint,
                 }
@@ -421,7 +425,7 @@ fn validate_extension(path: &Path, kind: TemplateKind) -> Result<(), TemplateErr
     if !matches {
         let actual = ext_str.map(|e| format!(".{}", e)).unwrap_or_else(|| "(none)".to_string());
         return Err(TemplateError::InvalidExtension {
-            path: path.display().to_string(),
+            path: sanitize_path_for_error(&path.display().to_string()),
             expected: expected.to_string(),
             actual,
             hint: format!("Rename the file to use {} extension", expected),
@@ -435,7 +439,7 @@ fn validate_extension(path: &Path, kind: TemplateKind) -> Result<(), TemplateErr
 /// pre-read metadata check and the post-read TOCTOU guard.
 fn oversized_error(path: &str, kind: TemplateKind, actual_size: u64, max_size: u64) -> TemplateError {
     TemplateError::InvalidFormat {
-        path: path.to_string(),
+        path: sanitize_path_for_error(path),
         kind,
         cause: format!(
             "file is too large ({} bytes, maximum {} bytes)",
@@ -458,11 +462,18 @@ fn oversized_error(path: &str, kind: TemplateKind, actual_size: u64, max_size: u
 /// messages to help the user locate the problematic file). It is not validated,
 /// resolved, or read from — callers may pass any descriptive path.
 pub fn validate_content(kind: TemplateKind, content: &[u8], path: &Path) -> Result<(), TemplateError> {
-    let path_str = path.display().to_string();
+    let path_str = sanitize_path_for_error(&path.display().to_string());
     match kind {
         TemplateKind::Cr | TemplateKind::Anomaly => validate_markdown(content, &path_str, kind),
         TemplateKind::Ppt => validate_pptx(content, &path_str, kind),
     }
+}
+
+/// Sanitize paths for logging/error messages by redacting URL-like secrets
+/// (`token`, `api_key`, userinfo credentials, etc.). Plain filesystem paths
+/// are returned unchanged.
+fn sanitize_path_for_error(path: &str) -> String {
+    redact_url_sensitive_params(path)
 }
 
 /// Validate Markdown template: must be non-empty, non-whitespace-only, valid UTF-8
@@ -495,7 +506,8 @@ fn validate_markdown(content: &[u8], path: &str, kind: TemplateKind) -> Result<(
     Ok(())
 }
 
-/// Validate PowerPoint template: must have ZIP magic bytes and minimum size
+/// Validate PowerPoint template: must have ZIP magic bytes, minimum size,
+/// and include the required OOXML `[Content_Types].xml` entry marker.
 fn validate_pptx(content: &[u8], path: &str, kind: TemplateKind) -> Result<(), TemplateError> {
     if content.is_empty() {
         return Err(TemplateError::InvalidFormat {
@@ -528,6 +540,18 @@ fn validate_pptx(content: &[u8], path: &str, kind: TemplateKind) -> Result<(), T
         });
     }
 
+    if !content
+        .windows(PPTX_CONTENT_TYPES_ENTRY.len())
+        .any(|window| window == PPTX_CONTENT_TYPES_ENTRY)
+    {
+        return Err(TemplateError::InvalidFormat {
+            path: path.to_string(),
+            kind,
+            cause: "missing required OOXML entry '[Content_Types].xml'".to_string(),
+            hint: "Ensure the file is a valid .pptx template containing the OOXML '[Content_Types].xml' entry".to_string(),
+        });
+    }
+
     Ok(())
 }
 
@@ -548,7 +572,9 @@ mod tests {
         let mut content = Vec::new();
         // ZIP magic bytes
         content.extend_from_slice(b"PK\x03\x04");
-        // Padding with invalid UTF-8 sequences to simulate binary content
+        // Minimal OOXML marker required for PPTX validation.
+        content.extend_from_slice(PPTX_CONTENT_TYPES_ENTRY);
+        // Padding with invalid UTF-8 bytes to simulate binary content
         content.resize(MIN_PPTX_SIZE + 10, 0xFF);
         content
     }
@@ -853,8 +879,37 @@ mod tests {
         // Exactly MIN_PPTX_SIZE bytes: should be accepted
         let mut content = Vec::new();
         content.extend_from_slice(b"PK\x03\x04");
+        content.extend_from_slice(PPTX_CONTENT_TYPES_ENTRY);
         content.resize(MIN_PPTX_SIZE, 0x00);
         assert!(validate_content(TemplateKind::Ppt, &content, Path::new("boundary.pptx")).is_ok());
+    }
+
+    #[test]
+    fn test_validate_pptx_missing_content_types_rejected() {
+        let mut content = Vec::new();
+        content.extend_from_slice(b"PK\x03\x04");
+        content.resize(MIN_PPTX_SIZE + 10, 0xFF);
+
+        let err = validate_content(TemplateKind::Ppt, &content, Path::new("missing-content-types.pptx"))
+            .unwrap_err();
+        assert!(matches!(err, TemplateError::InvalidFormat { .. }));
+        assert!(err.to_string().contains("[Content_Types].xml"));
+    }
+
+    #[test]
+    fn test_error_paths_redact_sensitive_url_query_params() {
+        let config = TemplatesConfig {
+            cr: Some("https://user:super-secret@example.com/template.md".to_string()),
+            ppt: None,
+            anomaly: None,
+        };
+        let loader = TemplateLoader::new(&config);
+        let err = loader.load_template(TemplateKind::Cr).unwrap_err();
+        let msg = err.to_string();
+
+        assert!(!msg.contains("super-secret"));
+        assert!(msg.contains("[REDACTED]"));
+        assert!(msg.contains("https://[REDACTED]@example.com/template.md"));
     }
 
     // =========================================================================
