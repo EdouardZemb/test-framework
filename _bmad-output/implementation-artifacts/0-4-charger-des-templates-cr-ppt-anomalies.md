@@ -1,6 +1,6 @@
 # Story 0.4: Charger des templates (CR/PPT/anomalies)
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -138,12 +138,12 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
 
 #### Round 7 Review Follow-ups (AI)
 
-- [ ] [AI-Review-R7][MEDIUM] `test_load_all_fails_on_invalid_template` only checks `is_err()` without verifying error type — should use `assert!(matches!(result.unwrap_err(), TemplateError::FileNotFound { .. }))` to detect behavior regressions [crates/tf-config/src/template.rs:940]
-- [ ] [AI-Review-R7][MEDIUM] `InvalidExtension` error shows `got ''` for files with no extension — `actual` uses `unwrap_or_default()` producing empty string. Should display `"(none)"` instead. No test covers this edge case [crates/tf-config/src/template.rs:403]
-- [ ] [AI-Review-R7][MEDIUM] `oversized_error` hint includes path redundantly — path already appears in `InvalidFormat` error template (`'{path}'`), hint at line 426 repeats it. Simplify to `"Reduce the file size or verify this is a valid {kind} template"` [crates/tf-config/src/template.rs:425-428]
-- [ ] [AI-Review-R7][LOW] `TemplateError` missing `PartialEq` derive — all fields are `String` and `TemplateKind` (which has PartialEq). Would enable `assert_eq!` in tests and improve downstream ergonomics [crates/tf-config/src/template.rs:100]
-- [ ] [AI-Review-R7][LOW] `Cargo.lock` not documented in File List — modified by workspace dependency changes (tempfile, serde_json) but omitted from story File List [story File List]
-- [ ] [AI-Review-R7][LOW] No test for file without any extension — `cr: Some("path/to/README")` is handled by code but not covered by any test. Would document expected behavior and protect against regressions [crates/tf-config/src/template.rs]
+- [x] [AI-Review-R7][MEDIUM] `test_load_all_fails_on_invalid_template` only checks `is_err()` without verifying error type — should use `assert!(matches!(result.unwrap_err(), TemplateError::FileNotFound { .. }))` to detect behavior regressions [crates/tf-config/src/template.rs:940]
+- [x] [AI-Review-R7][MEDIUM] `InvalidExtension` error shows `got ''` for files with no extension — `actual` uses `unwrap_or_default()` producing empty string. Should display `"(none)"` instead. No test covers this edge case [crates/tf-config/src/template.rs:403]
+- [x] [AI-Review-R7][MEDIUM] `oversized_error` hint includes path redundantly — path already appears in `InvalidFormat` error template (`'{path}'`), hint at line 426 repeats it. Simplify to `"Reduce the file size or verify this is a valid {kind} template"` [crates/tf-config/src/template.rs:425-428]
+- [x] [AI-Review-R7][LOW] `TemplateError` missing `PartialEq` derive — all fields are `String` and `TemplateKind` (which has PartialEq). Would enable `assert_eq!` in tests and improve downstream ergonomics [crates/tf-config/src/template.rs:100]
+- [x] [AI-Review-R7][LOW] `Cargo.lock` not documented in File List — modified by workspace dependency changes (tempfile, serde_json) but omitted from story File List [story File List]
+- [x] [AI-Review-R7][LOW] No test for file without any extension — `cr: Some("path/to/README")` is handled by code but not covered by any test. Would document expected behavior and protect against regressions [crates/tf-config/src/template.rs]
 
 ## Dev Notes
 
@@ -579,13 +579,20 @@ Claude Opus 4.6 (claude-opus-4-6)
 - ✅ Resolved R6 review finding [LOW]: Added `BinaryContent` variant to `TemplateError` — `content_as_str()` now returns semantically correct error for binary templates
 - ✅ Resolved R6 review finding [LOW]: File List corrected — `serde_json = "1.0"` already present in workspace `Cargo.toml` (line 26)
 - ✅ Resolved R6 review finding [LOW]: Added `Clone` derive on `TemplateError` — all fields are trivially cloneable (`String` and `TemplateKind`)
+- ✅ Resolved R7 review finding [MEDIUM]: `test_load_all_fails_on_invalid_template` now verifies `TemplateError::FileNotFound` instead of just `is_err()` — detects behavior regressions
+- ✅ Resolved R7 review finding [MEDIUM]: `InvalidExtension` error now displays `"(none)"` instead of empty string `""` for files without any extension
+- ✅ Resolved R7 review finding [MEDIUM]: `oversized_error` hint no longer includes redundant path — simplified to "Reduce the file size or verify this is a valid {kind} template"
+- ✅ Resolved R7 review finding [LOW]: Added `PartialEq` derive on `TemplateError` — enables `assert_eq!` in tests and improves downstream ergonomics
+- ✅ Resolved R7 review finding [LOW]: Added `Cargo.lock` to File List documentation
+- ✅ Resolved R7 review finding [LOW]: Added test for file without any extension — covers `"path/to/README"` edge case, verifies `actual` field shows `"(none)"`
 
 ### File List
 
-- `crates/tf-config/src/template.rs` — NEW (1185 lines) — Template loading module with TemplateLoader<'a>, TemplateKind, LoadedTemplate, TemplateError (with BinaryContent variant, Clone, type-safe TemplateKind fields), validate_format, validate_extension, oversized_error, doc-tests, new_for_test constructor (test-utils feature), and 44 unit tests
+- `crates/tf-config/src/template.rs` — NEW (1215 lines) — Template loading module with TemplateLoader<'a>, TemplateKind, LoadedTemplate, TemplateError (with BinaryContent variant, Clone, PartialEq, type-safe TemplateKind fields), validate_format, validate_extension, oversized_error, doc-tests, new_for_test constructor (test-utils feature), and 46 unit tests
 - `crates/tf-config/src/lib.rs` — MODIFIED — Added `pub mod template` and public re-exports for TemplateLoader, TemplateKind, LoadedTemplate, TemplateError, validate_format
 - `crates/tf-config/Cargo.toml` — MODIFIED — Changed `tempfile` to workspace dependency, added `serde_json` dev-dependency, added `test-utils` feature flag
 - `Cargo.toml` — MODIFIED — Added `tempfile = "3.10"` and `serde_json = "1.0"` to workspace dependencies
+- `Cargo.lock` — MODIFIED — Updated by workspace dependency changes (tempfile, serde_json)
 - `crates/tf-config/tests/fixtures/templates/cr-test.md` — NEW — CR template fixture for tests
 - `crates/tf-config/tests/fixtures/templates/anomaly-test.md` — NEW — Anomaly template fixture for tests
 - `crates/tf-config/tests/fixtures/templates/empty.md` — NEW — Empty file fixture for error case testing
@@ -607,4 +614,5 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Code review Round 6 (AI adversarial) — 9 findings (0 HIGH, 4 MEDIUM, 5 LOW). All ACs fully implemented, all previous 31 findings resolved. No blocking issues. 9 action items added to Tasks/Subtasks. 291 tests pass, 0 clippy warnings, 0 regressions across tf-config and tf-security.
 - 2026-02-06: Addressed all 9 Round 6 review findings — 4 MEDIUM (validate_extension free function, validate_pptx accepts TemplateKind, oversized_error helper, TemplateError kind: TemplateKind), 5 LOW (single extension binding, test-utils feature flag, BinaryContent variant, File List correction, Clone derive). 295 tests pass (4 new: Clone, type-safe kind, BinaryContent, validate_extension free fn), 0 clippy warnings, 0 regressions.
 - 2026-02-06: Code review Round 7 (AI adversarial, clean branch) — 6 findings (0 HIGH, 3 MEDIUM, 3 LOW). All ACs fully implemented, all previous 40 findings resolved. No blocking issues. 6 action items added to Tasks/Subtasks. 295 tests pass, 0 clippy warnings, 0 regressions across tf-config and tf-security.
+- 2026-02-06: Addressed all 6 Round 7 review findings — 3 MEDIUM (test_load_all error type verification, InvalidExtension "(none)" for no-extension files, oversized_error hint path redundancy), 3 LOW (PartialEq derive, Cargo.lock in File List, no-extension test). 296 tests pass (1 new: no-extension edge case), 0 clippy warnings, 0 regressions.
 
