@@ -65,8 +65,8 @@ impl fmt::Display for TemplateKind {
 }
 
 impl TemplateKind {
-    /// Returns the expected file extension for this template kind
-    fn expected_extension(&self) -> &'static str {
+    /// Returns the expected file extension for this template kind (e.g. `".md"`, `".pptx"`)
+    pub fn expected_extension(&self) -> &'static str {
         match self {
             TemplateKind::Cr | TemplateKind::Anomaly => ".md",
             TemplateKind::Ppt => ".pptx",
@@ -126,7 +126,6 @@ pub struct LoadedTemplate {
     kind: TemplateKind,
     path: PathBuf,
     content: Vec<u8>,
-    size_bytes: u64,
 }
 
 impl LoadedTemplate {
@@ -146,21 +145,28 @@ impl LoadedTemplate {
     }
 
     /// Get content as UTF-8 string (for Markdown templates)
+    ///
+    /// Returns an error for binary templates (e.g. PPTX). Use [`content()`](Self::content)
+    /// to access raw bytes for binary formats.
     pub fn content_as_str(&self) -> Result<&str, TemplateError> {
         std::str::from_utf8(&self.content).map_err(|_| TemplateError::InvalidFormat {
             path: self.path.display().to_string(),
             kind: self.kind.to_string(),
             cause: "content is not valid UTF-8 text".to_string(),
-            hint: format!(
-                "Ensure the file is a valid {} template with UTF-8 encoding",
-                self.kind
-            ),
+            hint: if self.kind == TemplateKind::Ppt {
+                "This template is binary (PPTX); use content() for raw bytes instead".to_string()
+            } else {
+                format!(
+                    "Ensure the file is a valid {} template with UTF-8 encoding",
+                    self.kind
+                )
+            },
         })
     }
 
-    /// Get the file size in bytes
+    /// Get the file size in bytes (computed from content length)
     pub fn size_bytes(&self) -> u64 {
-        self.size_bytes
+        self.content.len() as u64
     }
 }
 
@@ -170,18 +176,21 @@ impl fmt::Debug for LoadedTemplate {
         f.debug_struct("LoadedTemplate")
             .field("kind", &self.kind)
             .field("path", &self.path)
-            .field("size_bytes", &self.size_bytes)
+            .field("size_bytes", &self.size_bytes())
             .finish()
     }
 }
 
 /// Loads and validates templates from configured paths
-pub struct TemplateLoader {
-    config: TemplatesConfig,
+pub struct TemplateLoader<'a> {
+    config: &'a TemplatesConfig,
 }
 
-impl TemplateLoader {
+impl<'a> TemplateLoader<'a> {
     /// Create a new template loader from configuration
+    ///
+    /// Borrows the configuration rather than cloning it, so the loader
+    /// must not outlive the referenced `TemplatesConfig`.
     ///
     /// ```no_run
     /// use tf_config::{TemplateLoader, TemplatesConfig};
@@ -193,10 +202,8 @@ impl TemplateLoader {
     /// };
     /// let loader = TemplateLoader::new(&config);
     /// ```
-    pub fn new(config: &TemplatesConfig) -> Self {
-        Self {
-            config: config.clone(),
-        }
+    pub fn new(config: &'a TemplatesConfig) -> Self {
+        Self { config }
     }
 
     /// Load a specific template by kind
@@ -218,7 +225,12 @@ impl TemplateLoader {
     /// ```
     pub fn load_template(&self, kind: TemplateKind) -> Result<LoadedTemplate, TemplateError> {
         let path_str = self.get_configured_path(kind)?;
-        let path = PathBuf::from(&path_str);
+        self.load_from_path(kind, path_str)
+    }
+
+    /// Load a template from a resolved path string.
+    fn load_from_path(&self, kind: TemplateKind, path_str: &str) -> Result<LoadedTemplate, TemplateError> {
+        let path = PathBuf::from(path_str);
 
         // Validate extension before reading (avoids unnecessary I/O)
         self.validate_extension(&path, kind)?;
@@ -227,7 +239,7 @@ impl TemplateLoader {
         let content = fs::read(&path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 TemplateError::FileNotFound {
-                    path: path_str.clone(),
+                    path: path_str.to_string(),
                     kind: kind.to_string(),
                     hint: format!(
                         "Check the path in config.yaml or create the template file at '{}'",
@@ -236,37 +248,36 @@ impl TemplateLoader {
                 }
             } else {
                 TemplateError::ReadError {
-                    path: path_str.clone(),
+                    path: path_str.to_string(),
                     cause: e.to_string(),
                     hint: "Check file permissions and ensure the file is readable".to_string(),
                 }
             }
         })?;
 
-        let size_bytes = content.len() as u64;
-
         // Validate format
-        validate_format(kind, &content, &path_str)?;
+        validate_format(kind, &content, path_str)?;
 
         Ok(LoadedTemplate {
             kind,
             path,
             content,
-            size_bytes,
         })
     }
 
     /// Load all configured templates
     ///
     /// Iterates over every [`TemplateKind`] and loads each one that has a path
-    /// set in the configuration. Uses **fail-fast** semantics: returns the first
-    /// error encountered and does not attempt to load remaining templates.
+    /// set in the configuration. Skips unconfigured kinds. Uses **fail-fast**
+    /// semantics: returns the first error encountered and does not attempt to
+    /// load remaining templates.
     pub fn load_all(&self) -> Result<HashMap<TemplateKind, LoadedTemplate>, TemplateError> {
         let mut templates = HashMap::new();
 
         for &kind in TemplateKind::all() {
-            if self.is_configured(kind) {
-                let template = self.load_template(kind)?;
+            // Single resolution: try to get the path, skip if not configured
+            if let Some(path_str) = self.resolve_path(kind) {
+                let template = self.load_from_path(kind, path_str)?;
                 templates.insert(kind, template);
             }
         }
@@ -274,15 +285,18 @@ impl TemplateLoader {
         Ok(templates)
     }
 
-    /// Get the configured path for a template kind
-    fn get_configured_path(&self, kind: TemplateKind) -> Result<String, TemplateError> {
-        let path = match kind {
-            TemplateKind::Cr => &self.config.cr,
-            TemplateKind::Ppt => &self.config.ppt,
-            TemplateKind::Anomaly => &self.config.anomaly,
-        };
+    /// Resolve the configured path for a template kind, returning `None` if not configured.
+    fn resolve_path(&self, kind: TemplateKind) -> Option<&str> {
+        match kind {
+            TemplateKind::Cr => self.config.cr.as_deref(),
+            TemplateKind::Ppt => self.config.ppt.as_deref(),
+            TemplateKind::Anomaly => self.config.anomaly.as_deref(),
+        }
+    }
 
-        path.clone().ok_or_else(|| TemplateError::NotConfigured {
+    /// Get the configured path for a template kind, returning an error if not configured.
+    fn get_configured_path(&self, kind: TemplateKind) -> Result<&str, TemplateError> {
+        self.resolve_path(kind).ok_or_else(|| TemplateError::NotConfigured {
             kind: kind.to_string(),
             hint: format!(
                 "Add 'templates.{}: ./path/to/{template_file}' to your config.yaml",
@@ -294,15 +308,6 @@ impl TemplateLoader {
                 }
             ),
         })
-    }
-
-    /// Check if a template kind is configured
-    fn is_configured(&self, kind: TemplateKind) -> bool {
-        match kind {
-            TemplateKind::Cr => self.config.cr.is_some(),
-            TemplateKind::Ppt => self.config.ppt.is_some(),
-            TemplateKind::Anomaly => self.config.anomaly.is_some(),
-        }
     }
 
     /// Validate the file extension matches the expected format
@@ -621,12 +626,11 @@ mod tests {
             kind: TemplateKind::Cr,
             path: PathBuf::from("test.md"),
             content: b"This is secret template content that should not appear in debug".to_vec(),
-            size_bytes: 62,
         };
         let debug_str = format!("{:?}", template);
         assert!(debug_str.contains("Cr"));
         assert!(debug_str.contains("test.md"));
-        assert!(debug_str.contains("62"));
+        assert!(debug_str.contains("size_bytes: 63"));
         assert!(!debug_str.contains("secret template content"));
         assert!(!debug_str.contains("should not appear"));
     }
@@ -701,6 +705,26 @@ mod tests {
         let err = validate_format(TemplateKind::Ppt, &content, "small.pptx").unwrap_err();
         assert!(matches!(err, TemplateError::InvalidFormat { .. }));
         assert!(err.to_string().contains("too small"));
+    }
+
+    #[test]
+    fn test_validate_pptx_boundary_at_min_size_minus_one_rejected() {
+        // Exactly MIN_PPTX_SIZE - 1 bytes: should be rejected
+        let mut content = Vec::new();
+        content.extend_from_slice(b"PK\x03\x04");
+        content.resize((MIN_PPTX_SIZE - 1) as usize, 0x00);
+        let err = validate_format(TemplateKind::Ppt, &content, "boundary.pptx").unwrap_err();
+        assert!(matches!(err, TemplateError::InvalidFormat { .. }));
+        assert!(err.to_string().contains("too small"));
+    }
+
+    #[test]
+    fn test_validate_pptx_boundary_at_min_size_accepted() {
+        // Exactly MIN_PPTX_SIZE bytes: should be accepted
+        let mut content = Vec::new();
+        content.extend_from_slice(b"PK\x03\x04");
+        content.resize(MIN_PPTX_SIZE as usize, 0x00);
+        assert!(validate_format(TemplateKind::Ppt, &content, "boundary.pptx").is_ok());
     }
 
     // =========================================================================
@@ -786,8 +810,9 @@ mod tests {
         };
         let loader = TemplateLoader::new(&config);
         let template = loader.load_template(TemplateKind::Ppt).unwrap();
-        // Binary content should fail UTF-8 conversion
-        assert!(template.content_as_str().is_err());
+        // Binary content should fail UTF-8 conversion with PPTX-specific hint
+        let err = template.content_as_str().unwrap_err();
+        assert!(err.to_string().contains("use content() for raw bytes instead"));
     }
 
     #[test]
