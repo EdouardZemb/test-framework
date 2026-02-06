@@ -59,6 +59,7 @@
 pub mod config;
 pub mod error;
 pub mod profiles;
+pub mod template;
 
 pub use config::{
     load_config, JiraConfig, LlmConfig, LlmMode, ProjectConfig, Redact, SquashConfig, TemplatesConfig,
@@ -67,3 +68,6 @@ pub use error::ConfigError;
 
 // Profile types for Story 0.2
 pub use profiles::{ProfileId, ProfileOverride};
+
+// Template types for Story 0.4
+pub use template::{LoadedTemplate, TemplateError, TemplateKind, TemplateLoader};
