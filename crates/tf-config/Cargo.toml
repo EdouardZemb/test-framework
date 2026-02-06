@@ -7,6 +7,9 @@ license.workspace = true
 description = "Configuration management for test-framework"
 readme = "README.md"
 
+[features]
+test-utils = []
+
 [dependencies]
 serde.workspace = true
 serde_yaml.workspace = true
