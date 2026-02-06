@@ -186,26 +186,24 @@ impl LoadedTemplate {
     /// [`content()`](Self::content) to access raw bytes for binary formats).
     /// Returns [`TemplateError::InvalidFormat`] for non-UTF-8 markdown templates.
     pub fn content_as_str(&self) -> Result<&str, TemplateError> {
-        std::str::from_utf8(&self.content).map_err(|_| {
-            let path = sanitize_path_for_error(&self.path.display().to_string());
-            if self.kind == TemplateKind::Ppt {
-                TemplateError::BinaryContent {
-                    path,
-                    kind: self.kind,
-                    hint: "This template is binary (PPTX); use content() for raw bytes instead"
-                        .to_string(),
-                }
-            } else {
-                TemplateError::InvalidFormat {
-                    path,
-                    kind: self.kind,
-                    cause: "invalid UTF-8".to_string(),
-                    hint: format!(
-                        "Ensure the file is a valid {} template with UTF-8 encoding",
-                        self.kind
-                    ),
-                }
-            }
+        let path = sanitize_path_for_error(&self.path.display().to_string());
+        if self.kind == TemplateKind::Ppt {
+            return Err(TemplateError::BinaryContent {
+                path,
+                kind: self.kind,
+                hint: "This template is binary (PPTX); use content() for raw bytes instead"
+                    .to_string(),
+            });
+        }
+
+        std::str::from_utf8(&self.content).map_err(|_| TemplateError::InvalidFormat {
+            path,
+            kind: self.kind,
+            cause: "invalid UTF-8".to_string(),
+            hint: format!(
+                "Ensure the file is a valid {} template with UTF-8 encoding",
+                self.kind
+            ),
         })
     }
 
@@ -1539,6 +1537,17 @@ mod tests {
             }
             _ => panic!("Expected BinaryContent, got {:?}", err),
         }
+    }
+
+    #[test]
+    fn test_binary_content_variant_for_pptx_even_when_utf8() {
+        let template = LoadedTemplate::new_for_test(
+            TemplateKind::Ppt,
+            "test.pptx",
+            b"this is valid utf8 but still binary template bytes".to_vec(),
+        );
+        let err = template.content_as_str().unwrap_err();
+        assert!(matches!(err, TemplateError::BinaryContent { .. }));
     }
 
     // =========================================================================

@@ -1,6 +1,6 @@
 # Story 0.4: Charger des templates (CR/PPT/anomalies)
 
-Status: in-progress
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -163,11 +163,11 @@ so that standardiser les livrables des epics de reporting et d'anomalies.
 
 #### Round 10 Review Follow-ups (AI)
 
-- [ ] [AI-Review-R10][HIGH] PPTX validation still relies on byte-pattern heuristics (`PK` magic + `[Content_Types].xml` substring) and does not validate ZIP structure integrity; use ZIP central directory parsing for robust archive validity checks [crates/tf-config/src/template.rs:521]
-- [ ] [AI-Review-R10][HIGH] `fs::read()` can allocate the full file before rejection when metadata is unavailable/inaccurate; switch to bounded streaming read to enforce limits pre-allocation [crates/tf-config/src/template.rs:320]
-- [ ] [AI-Review-R10][MEDIUM] Story Subtask 2.7 claims `validate_format(kind, content)` while shipped API is `validate_content(kind, content, path)`; align task wording with actual public contract [ _bmad-output/implementation-artifacts/0-4-charger-des-templates-cr-ppt-anomalies.md:47]
-- [ ] [AI-Review-R10][MEDIUM] Path sanitization is URL-focused and may not redact secret-bearing non-URL filesystem strings; harden redaction strategy for generic path content [crates/tf-config/src/template.rs:475]
-- [ ] [AI-Review-R10][LOW] `validate_content` doc comment still says PPTX validation is only magic-bytes + minimum size; update docs to include OOXML marker check for accuracy [crates/tf-config/src/template.rs:459]
+- [x] [AI-Review-R10][HIGH] PPTX validation now validates ZIP structure integrity via central directory parsing and OOXML entry presence, not only byte-pattern heuristics [crates/tf-config/src/template.rs:592]
+- [x] [AI-Review-R10][HIGH] Replaced unbounded `fs::read()` path with bounded streaming read (`read_bounded`) after `File::open()` to enforce size limits before full allocation [crates/tf-config/src/template.rs:321]
+- [x] [AI-Review-R10][MEDIUM] Story Subtask 2.7 aligned to shipped public contract `validate_content(kind, content, path)` [ _bmad-output/implementation-artifacts/0-4-charger-des-templates-cr-ppt-anomalies.md:47]
+- [x] [AI-Review-R10][MEDIUM] Path sanitization hardened for non-URL filesystem paths with generic secret-segment redaction [crates/tf-config/src/template.rs:494]
+- [x] [AI-Review-R10][LOW] `validate_content` doc comments updated to include ZIP central directory and `[Content_Types].xml` checks [crates/tf-config/src/template.rs:473]
 
 ## Dev Notes
 
@@ -623,9 +623,11 @@ Claude Opus 4.6 (claude-opus-4-6)
 
 ### File List
 
-- `crates/tf-config/src/template.rs` — MODIFIED (1306 lines) — Round 9 updates: enforce OOXML marker `[Content_Types].xml` for PPTX validation, sanitize error paths with tf-config redaction guard, add regression tests for missing OOXML marker and sensitive URL redaction; total template unit tests now 49
+- Review traceability baseline for this pass: `d4010f70c0e7b1a5947f7240181dcaec78dabe23..3f40fec`
+- Files changed in that reviewed range: `_bmad-output/implementation-artifacts/0-4-charger-des-templates-cr-ppt-anomalies.md`, `crates/tf-config/src/config.rs`, `crates/tf-config/src/template.rs`
+- `crates/tf-config/src/template.rs` — MODIFIED (1588 lines) — Includes Round 9/10 hardening and commit-aware re-review fix: `content_as_str()` now always returns `BinaryContent` for PPTX plus UTF-8-compatible regression test
 - `crates/tf-config/src/config.rs` — MODIFIED (5019 lines) — Exposed `redact_url_sensitive_params` as `pub(crate)` for internal reuse by template path sanitization
-- `_bmad-output/implementation-artifacts/0-4-charger-des-templates-cr-ppt-anomalies.md` — MODIFIED — Round 9 follow-ups marked resolved, Subtasks 3.2/3.3/3.5 aligned to `TemplateKind`, Dev Agent Record/File List/Change Log refreshed, Status set to `review`
+- `_bmad-output/implementation-artifacts/0-4-charger-des-templates-cr-ppt-anomalies.md` — MODIFIED — Round 10 follow-ups marked resolved, commit-range traceability added, status set to `done`
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` — MODIFIED — Story key `0-4-charger-des-templates-cr-ppt-anomalies` updated from `in-progress` to `review`
 - `crates/tf-config/src/lib.rs` — MODIFIED — Added `pub mod template` and public re-exports for TemplateLoader, TemplateKind, LoadedTemplate, TemplateError, validate_content
 - `crates/tf-config/Cargo.toml` — MODIFIED — Changed `tempfile` to workspace dependency, added `serde_json` dev-dependency, added `test-utils` feature flag
@@ -658,3 +660,5 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Addressed all 4 Round 9 review findings — 2 HIGH (OOXML `[Content_Types].xml` marker check for PPTX + traceability baseline SHA documented), 2 MEDIUM (template path redaction guard reuse + story contract alignment to `TemplateKind`). 299 tests pass (248 unit + 8 integration + 19 profile + 14 profile_unit + 10 doc-tests), `cargo clippy -p tf-config --all-targets -- -D warnings` passes, 0 regressions.
 - 2026-02-06: Full workspace regression validation completed (`cargo test`): tf-config and tf-security suites passed (tf-security keyring integration tests remain ignored by design in this environment); story and sprint statuses advanced to `review`.
 - 2026-02-06: Code review Round 10 (AI adversarial) — 5 findings (2 HIGH, 2 MEDIUM, 1 LOW). Action items added to Tasks/Subtasks for follow-up. Story status moved back to `in-progress`.
+- 2026-02-06: Addressed Round 10 findings in code and docs — PPTX ZIP validation hardened (central directory + `[Content_Types].xml`), bounded template reads enforced pre-allocation, path redaction hardened, and story traceability aligned to reviewed commit range.
+- 2026-02-06: Code review rerun (commit-aware) — fixed `content_as_str()` contract for PPTX to always return `BinaryContent` and added regression test for UTF-8-compatible binary payload; status moved to `done`.
