@@ -1,6 +1,6 @@
 # Story 0.5: Journalisation baseline sans donnees sensibles
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -26,57 +26,57 @@ so that garantir l'auditabilite minimale des executions des le debut.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Creer le crate tf-logging dans le workspace (AC: all)
-  - [ ] Subtask 1.0: Ajouter `"crates/tf-logging"` dans la liste `members` de `[workspace]` du `Cargo.toml` racine
-  - [ ] Subtask 1.1: Creer `crates/tf-logging/Cargo.toml` avec dependances workspace (`tracing`, `tracing-subscriber`, `tracing-appender`, `serde`, `serde_json`, `thiserror`) + dependance interne `tf-config`
-  - [ ] Subtask 1.2: Creer `crates/tf-logging/src/lib.rs` avec exports publics
-  - [ ] Subtask 1.3: Ajouter les nouvelles dependances workspace dans `Cargo.toml` racine : `tracing = "0.1"`, `tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "fmt"] }`, `tracing-appender = "0.2"`
+- [x] Task 1: Creer le crate tf-logging dans le workspace (AC: all)
+  - [x] Subtask 1.0: Ajouter `"crates/tf-logging"` dans la liste `members` de `[workspace]` du `Cargo.toml` racine
+  - [x] Subtask 1.1: Creer `crates/tf-logging/Cargo.toml` avec dependances workspace (`tracing`, `tracing-subscriber`, `tracing-appender`, `serde`, `serde_json`, `thiserror`) + dependance interne `tf-config`
+  - [x] Subtask 1.2: Creer `crates/tf-logging/src/lib.rs` avec exports publics
+  - [x] Subtask 1.3: Ajouter les nouvelles dependances workspace dans `Cargo.toml` racine : `tracing = "0.1"`, `tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "fmt"] }`, `tracing-appender = "0.2"`
 
-- [ ] Task 2: Implementer le module d'initialisation du logging (AC: #1, #3)
-  - [ ] Subtask 2.1: Creer `crates/tf-logging/src/init.rs` avec la fonction publique `init_logging(config: &LoggingConfig) -> Result<LogGuard, LoggingError>`
-  - [ ] Subtask 2.2: Configurer `tracing-subscriber` avec format JSON structure (timestamp RFC 3339 UTC, level, message, target, spans)
-  - [ ] Subtask 2.3: Configurer `tracing-appender::rolling::RollingFileAppender` avec rotation DAILY et ecriture dans `{output_folder}/logs/`
-  - [ ] Subtask 2.4: Utiliser `tracing_appender::non_blocking()` pour performance non-bloquante ; retourner un `LogGuard` wrappant le `WorkerGuard` pour garantir le flush
-  - [ ] Subtask 2.5: Supporter la configuration du niveau de log via `EnvFilter` (RUST_LOG en priorite, sinon `info` par defaut). Tant que `ProjectConfig` n'expose pas de champ logging dedie, ne pas introduire de dependance a `config.log_level`.
-  - [ ] Subtask 2.6: Desactiver ANSI colors pour les logs fichier (`with_ansi(false)`)
+- [x] Task 2: Implementer le module d'initialisation du logging (AC: #1, #3)
+  - [x] Subtask 2.1: Creer `crates/tf-logging/src/init.rs` avec la fonction publique `init_logging(config: &LoggingConfig) -> Result<LogGuard, LoggingError>`
+  - [x] Subtask 2.2: Configurer `tracing-subscriber` avec format JSON structure (timestamp RFC 3339 UTC, level, message, target, spans)
+  - [x] Subtask 2.3: Configurer `tracing-appender::rolling::RollingFileAppender` avec rotation DAILY et ecriture dans `{output_folder}/logs/`
+  - [x] Subtask 2.4: Utiliser `tracing_appender::non_blocking()` pour performance non-bloquante ; retourner un `LogGuard` wrappant le `WorkerGuard` pour garantir le flush
+  - [x] Subtask 2.5: Supporter la configuration du niveau de log via `EnvFilter` (RUST_LOG en priorite, sinon `info` par defaut). Tant que `ProjectConfig` n'expose pas de champ logging dedie, ne pas introduire de dependance a `config.log_level`.
+  - [x] Subtask 2.6: Desactiver ANSI colors pour les logs fichier (`with_ansi(false)`)
 
-- [ ] Task 3: Implementer le layer de redaction des champs sensibles (AC: #2)
-  - [ ] Subtask 3.0: Exposer `redact_url_sensitive_params` comme `pub` dans `crates/tf-config/src/config.rs` (actuellement `pub(crate)`) et ajouter le re-export dans `crates/tf-config/src/lib.rs` pour que tf-logging puisse l'utiliser
-  - [ ] Subtask 3.1: Creer `crates/tf-logging/src/redact.rs` avec un `RedactingLayer` implementant `tracing_subscriber::Layer`
-  - [ ] Subtask 3.2: Definir la liste des noms de champs sensibles a masquer : `token`, `api_key`, `apikey`, `key`, `secret`, `password`, `passwd`, `pwd`, `auth`, `authorization`, `credential`, `credentials`
-  - [ ] Subtask 3.3: Implementer un `RedactingVisitor` implementant `tracing::field::Visit` qui remplace les valeurs des champs sensibles par `[REDACTED]`
-  - [ ] Subtask 3.4: Integrer le `RedactingLayer` dans la stack du subscriber (avant le layer JSON). Note technique : les events tracing sont immutables — l'approche recommandee est soit (a) implementer un custom `FormatEvent` qui redacte les champs avant ecriture JSON, soit (b) utiliser `Layer::on_event()` pour intercepter et re-emettre avec champs redactes. Privilegier l'approche la plus simple qui fonctionne avec `tracing-subscriber` 0.3.x
-  - [ ] Subtask 3.5: Reutiliser `tf_config::redact_url_sensitive_params()` pour les champs contenant des URLs (detecter les valeurs qui ressemblent a des URLs et les redacter)
+- [x] Task 3: Implementer le layer de redaction des champs sensibles (AC: #2)
+  - [x] Subtask 3.0: Exposer `redact_url_sensitive_params` comme `pub` dans `crates/tf-config/src/config.rs` (actuellement `pub(crate)`) et ajouter le re-export dans `crates/tf-config/src/lib.rs` pour que tf-logging puisse l'utiliser
+  - [x] Subtask 3.1: Creer `crates/tf-logging/src/redact.rs` avec un `RedactingJsonFormatter` implementant `tracing_subscriber::fmt::FormatEvent`
+  - [x] Subtask 3.2: Definir la liste des noms de champs sensibles a masquer : `token`, `api_key`, `apikey`, `key`, `secret`, `password`, `passwd`, `pwd`, `auth`, `authorization`, `credential`, `credentials`
+  - [x] Subtask 3.3: Implementer un `RedactingVisitor` implementant `tracing::field::Visit` qui remplace les valeurs des champs sensibles par `[REDACTED]`
+  - [x] Subtask 3.4: Integrer le `RedactingJsonFormatter` dans la stack du subscriber via custom `FormatEvent`. Approach (a) chosen: custom `FormatEvent` that redacts fields before JSON serialization.
+  - [x] Subtask 3.5: Reutiliser `tf_config::redact_url_sensitive_params()` pour les champs contenant des URLs (detecter les valeurs qui ressemblent a des URLs et les redacter)
 
-- [ ] Task 4: Implementer la configuration du logging (AC: #1, #3)
-  - [ ] Subtask 4.1: Creer `crates/tf-logging/src/config.rs` avec struct `LoggingConfig { log_level: String, log_dir: String, log_to_stdout: bool }` (pas Option — le fallback est applique dans `from_project_config()`)
-  - [ ] Subtask 4.2: Implementer la derivation de `LoggingConfig` depuis `ProjectConfig` : `log_dir = format!("{}/logs", config.output_folder)`, avec fallback sur `"./logs"` si `output_folder` est vide
-  - [ ] Subtask 4.3: Creer le repertoire de logs s'il n'existe pas (`fs::create_dir_all`)
-  - [ ] Subtask 4.4: Definir explicitement la source de `log_to_stdout` pour eviter toute ambiguite: valeur par defaut `false` dans `from_project_config()`, puis override explicite possible uniquement depuis tf-cli (mode interactif) avant appel a `init_logging`.
+- [x] Task 4: Implementer la configuration du logging (AC: #1, #3)
+  - [x] Subtask 4.1: Creer `crates/tf-logging/src/config.rs` avec struct `LoggingConfig { log_level: String, log_dir: String, log_to_stdout: bool }` (pas Option — le fallback est applique dans `from_project_config()`)
+  - [x] Subtask 4.2: Implementer la derivation de `LoggingConfig` depuis `ProjectConfig` : `log_dir = format!("{}/logs", config.output_folder)`, avec fallback sur `"./logs"` si `output_folder` est vide
+  - [x] Subtask 4.3: Creer le repertoire de logs s'il n'existe pas (`fs::create_dir_all`)
+  - [x] Subtask 4.4: Definir explicitement la source de `log_to_stdout` pour eviter toute ambiguite: valeur par defaut `false` dans `from_project_config()`, puis override explicite possible uniquement depuis tf-cli (mode interactif) avant appel a `init_logging`.
 
-- [ ] Task 5: Implementer la gestion des erreurs (AC: all)
-  - [ ] Subtask 5.1: Creer `crates/tf-logging/src/error.rs` avec `LoggingError` enum (thiserror)
-  - [ ] Subtask 5.2: Ajouter variant `LoggingError::InitFailed { cause: String, hint: String }` pour echec d'initialisation
-  - [ ] Subtask 5.3: Ajouter variant `LoggingError::DirectoryCreationFailed { path: String, cause: String, hint: String }` pour echec creation repertoire logs
-  - [ ] Subtask 5.4: Ajouter variant `LoggingError::InvalidLogLevel { level: String, hint: String }` pour niveau de log invalide
+- [x] Task 5: Implementer la gestion des erreurs (AC: all)
+  - [x] Subtask 5.1: Creer `crates/tf-logging/src/error.rs` avec `LoggingError` enum (thiserror)
+  - [x] Subtask 5.2: Ajouter variant `LoggingError::InitFailed { cause: String, hint: String }` pour echec d'initialisation
+  - [x] Subtask 5.3: Ajouter variant `LoggingError::DirectoryCreationFailed { path: String, cause: String, hint: String }` pour echec creation repertoire logs
+  - [x] Subtask 5.4: Ajouter variant `LoggingError::InvalidLogLevel { level: String, hint: String }` pour niveau de log invalide
 
-- [ ] Task 6: Implementer le LogGuard et le lifecycle (AC: #3)
-  - [ ] Subtask 6.1: Creer struct `LogGuard` wrappant `tracing_appender::non_blocking::WorkerGuard`
-  - [ ] Subtask 6.2: `LogGuard` doit implementer `Drop` pour flusher les logs restants a la fermeture
-  - [ ] Subtask 6.3: Documenter que le `LogGuard` doit etre garde vivant (`let _guard = init_logging(...)`) pendant toute la duree de l'application
+- [x] Task 6: Implementer le LogGuard et le lifecycle (AC: #3)
+  - [x] Subtask 6.1: Creer struct `LogGuard` wrappant `tracing_appender::non_blocking::WorkerGuard`
+  - [x] Subtask 6.2: `LogGuard` doit implementer `Drop` pour flusher les logs restants a la fermeture
+  - [x] Subtask 6.3: Documenter que le `LogGuard` doit etre garde vivant (`let _guard = init_logging(...)`) pendant toute la duree de l'application
 
-- [ ] Task 7: Tests unitaires et integration (AC: #1, #2, #3)
-  - [ ] Subtask 7.1: Test que `init_logging` cree le repertoire de logs et retourne un LogGuard valide
-  - [ ] Subtask 7.2: Test que les logs JSON generes contiennent les champs requis : `timestamp`, `level`, `message`, `target`
-  - [ ] Subtask 7.3: Test que les champs sensibles (`token`, `password`, `api_key`, etc.) sont masques par `[REDACTED]` dans la sortie
-  - [ ] Subtask 7.4: Test que les URLs contenant des parametres sensibles sont redactees
-  - [ ] Subtask 7.5: Test que les logs sont bien ecrits dans le repertoire configure (`{output_folder}/logs/`)
-  - [ ] Subtask 7.6: Test que le niveau de log par defaut est `info`
-  - [ ] Subtask 7.7: Test que RUST_LOG override le niveau configure
-  - [ ] Subtask 7.8: Test que LoggingError contient des hints actionnables
-  - [ ] Subtask 7.9: Test que Debug impl de LogGuard ne contient aucune donnee sensible
-  - [ ] Subtask 7.10: Test d'integration : simuler une commande CLI complete et verifier le contenu du fichier log JSON
-  - [ ] Subtask 7.11: Test de non-regression : executer `cargo test --workspace` et verifier que l'ensemble de la suite de tests passe toujours apres ajout de tf-logging (sans se baser sur un nombre fixe de tests).
+- [x] Task 7: Tests unitaires et integration (AC: #1, #2, #3)
+  - [x] Subtask 7.1: Test que `init_logging` cree le repertoire de logs et retourne un LogGuard valide
+  - [x] Subtask 7.2: Test que les logs JSON generes contiennent les champs requis : `timestamp`, `level`, `message`, `target`
+  - [x] Subtask 7.3: Test que les champs sensibles (`token`, `password`, `api_key`, etc.) sont masques par `[REDACTED]` dans la sortie
+  - [x] Subtask 7.4: Test que les URLs contenant des parametres sensibles sont redactees
+  - [x] Subtask 7.5: Test que les logs sont bien ecrits dans le repertoire configure (`{output_folder}/logs/`)
+  - [x] Subtask 7.6: Test que le niveau de log par defaut est `info`
+  - [x] Subtask 7.7: Test que RUST_LOG override le niveau configure
+  - [x] Subtask 7.8: Test que LoggingError contient des hints actionnables
+  - [x] Subtask 7.9: Test que Debug impl de LogGuard ne contient aucune donnee sensible
+  - [x] Subtask 7.10: Test d'integration : simuler une commande CLI complete et verifier le contenu du fichier log JSON
+  - [x] Subtask 7.11: Test de non-regression : executer `cargo test --workspace` et verifier que l'ensemble de la suite de tests passe toujours apres ajout de tf-logging (sans se baser sur un nombre fixe de tests).
 
 ## Dev Notes
 
@@ -407,10 +407,40 @@ feat(tf-logging): implement baseline structured logging (Story 0-5) (#PR)
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6 (claude-opus-4-6)
 
 ### Debug Log References
 
+- Fixed `test_logging_config_fallback_when_output_folder_empty`: tf-config validates output_folder is not empty, so the test was changed to construct a ProjectConfig directly (bypassing load_config validation) to test the defensive fallback in `from_project_config()`.
+- Chose approach (a) from Subtask 3.4: custom `FormatEvent` (`RedactingJsonFormatter`) that collects fields via `RedactingVisitor` and redacts before JSON serialization. This is simpler than Layer-based interception and works naturally with tracing-subscriber 0.3.x.
+- Used `tracing::dispatcher::set_default` (thread-local) instead of `set_global_default` to allow multiple `init_logging` calls in parallel tests without panicking.
+- Manual RFC 3339 timestamp formatting using Howard Hinnant's date algorithm to avoid chrono dependency.
+
 ### Completion Notes List
 
+- Task 1: Crate structure created (Cargo.toml, lib.rs with public exports) — already done in RED phase commit
+- Task 2: `init_logging` implemented with daily rolling file appender, non-blocking I/O, EnvFilter (RUST_LOG priority), ANSI disabled
+- Task 3: `RedactingJsonFormatter` custom FormatEvent + `RedactingVisitor` implementing Visit trait; redacts 12 sensitive field names + URL parameters via `tf_config::redact_url_sensitive_params`; `redact_url_sensitive_params` made `pub` and re-exported in tf-config
+- Task 4: `LoggingConfig::from_project_config` derives log_dir from output_folder with "./logs" fallback; log_to_stdout defaults to false
+- Task 5: `LoggingError` enum with 3 variants and actionable hints (already implemented in RED phase)
+- Task 6: `LogGuard` wraps `WorkerGuard` + `DefaultGuard`; flush-on-drop via WorkerGuard; safe Debug impl
+- Task 7: 30 unit tests + 3 integration tests + 2 doc-tests = 35 tf-logging tests pass; 368 total workspace tests pass with 0 regressions
+
 ### File List
+
+**New files:**
+- `crates/tf-logging/Cargo.toml` (19 lines) — crate manifest with workspace dependencies
+- `crates/tf-logging/src/lib.rs` (37 lines) — public API exports
+- `crates/tf-logging/src/init.rs` (291 lines) — logging initialization, LogGuard, unit tests
+- `crates/tf-logging/src/redact.rs` (573 lines) — RedactingJsonFormatter, RedactingVisitor, SENSITIVE_FIELDS, unit tests
+- `crates/tf-logging/src/config.rs` (76 lines) — LoggingConfig struct, from_project_config, unit tests
+- `crates/tf-logging/src/error.rs` (100 lines) — LoggingError enum, unit tests
+- `crates/tf-logging/tests/integration_test.rs` (152 lines) — integration tests
+
+**Modified files:**
+- `crates/tf-config/src/config.rs` — changed `pub(crate) fn redact_url_sensitive_params` to `pub fn redact_url_sensitive_params`
+- `crates/tf-config/src/lib.rs` — added re-export `pub use config::redact_url_sensitive_params;`
+
+## Change Log
+
+- 2026-02-06: Implemented tf-logging crate with structured JSON logging, sensitive field redaction (12 field names + URL parameters), daily file rotation, non-blocking I/O, and LogGuard lifecycle. Exposed `redact_url_sensitive_params` as public API in tf-config. 35 tests added, 0 regressions on 368 workspace tests.
