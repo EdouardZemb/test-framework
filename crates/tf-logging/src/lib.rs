@@ -27,10 +27,10 @@
 //! tracing::info!(token = "secret", "This token value will appear as [REDACTED]");
 //! ```
 
-pub mod config;
-pub mod error;
-pub mod init;
-pub mod redact;
+pub(crate) mod config;
+pub(crate) mod error;
+pub(crate) mod init;
+pub(crate) mod redact;
 
 pub use config::LoggingConfig;
 pub use error::LoggingError;

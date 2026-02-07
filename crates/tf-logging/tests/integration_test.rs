@@ -176,6 +176,15 @@ fn test_log_output_includes_parent_spans() {
         spans.iter().any(|span| span["name"] == "cli_command"),
         "Expected cli_command span to be present"
     );
+
+    // Verify span fields are structured JSON objects (not opaque strings)
+    let cli_span = spans.iter().find(|s| s["name"] == "cli_command").unwrap();
+    let fields = cli_span.get("fields").expect("Expected 'fields' in span");
+    assert!(fields.is_object(),
+        "Span fields should be a JSON object, got: {fields}");
+    let fields_map = fields.as_object().unwrap();
+    assert_eq!(fields_map.get("command").unwrap(), "triage");
+    assert_eq!(fields_map.get("scope").unwrap(), "lot-42");
 }
 
 // Test 0.5-INT-004: Simulate a full CLI command execution in a subprocess.

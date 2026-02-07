@@ -117,6 +117,10 @@ impl tracing::field::Visit for RedactingVisitor {
             return;
         }
 
+        // Note: outer quotes are stripped but inner Debug-escaped sequences (e.g., `\"`,
+        // `\\`) are NOT unescaped. This is intentional — a full unescape would require
+        // replicating Rust's Debug parser and could introduce bugs on non-standard Debug
+        // impls. The raw escaped content is safe and lossless for log consumers.
         let raw = format!("{:?}", value);
         let cleaned = if raw.starts_with('"') && raw.ends_with('"') {
             raw[1..raw.len() - 1].to_string()
@@ -245,6 +249,9 @@ where
         }
 
         // Parent spans (from root to leaf), when available.
+        // Span fields are re-parsed from their pre-rendered format and redacted
+        // through the same `is_sensitive` / URL-redaction pipeline as event fields,
+        // ensuring AC #2 compliance (no sensitive data leaks via spans).
         if let Some(scope) = ctx.event_scope() {
             let mut spans = Vec::new();
             for span in scope.from_root() {
@@ -258,10 +265,13 @@ where
                 if let Some(fields) = ext.get::<FormattedFields<N>>() {
                     let rendered = fields.fields.as_str().trim();
                     if !rendered.is_empty() {
-                        span_obj.insert(
-                            "fields".to_string(),
-                            Value::String(rendered.to_string()),
-                        );
+                        let span_fields = parse_and_redact_span_fields(rendered);
+                        if !span_fields.is_empty() {
+                            span_obj.insert(
+                                "fields".to_string(),
+                                Value::Object(span_fields),
+                            );
+                        }
                     }
                 }
 
@@ -278,6 +288,84 @@ where
 
         Ok(())
     }
+}
+
+/// Parse pre-rendered span fields (format: `key=value key2="string"`) and redact
+/// sensitive values. Returns a structured JSON map instead of an opaque flat string.
+///
+/// `DefaultFields` renders span fields as space-separated `key=debug_value` pairs:
+/// - String values: `key="value"` (Debug-formatted with surrounding quotes)
+/// - Numbers: `key=42`
+/// - Booleans: `key=true`
+///
+/// This function splits on `key=` boundaries, applies `is_sensitive()` and URL
+/// redaction, and returns individual key-value entries as a `serde_json::Map`.
+fn parse_and_redact_span_fields(rendered: &str) -> serde_json::Map<String, Value> {
+    let mut result = serde_json::Map::new();
+
+    // Split into key=value segments. We scan for patterns where a word followed
+    // by '=' starts a new field.
+    let mut remaining = rendered.trim();
+
+    while !remaining.is_empty() {
+        // Find the next '=' to extract the key
+        let eq_pos = match remaining.find('=') {
+            Some(p) => p,
+            None => break,
+        };
+
+        let key = &remaining[..eq_pos];
+        remaining = &remaining[eq_pos + 1..];
+
+        // Parse the value: either quoted string or bare token
+        let (value_str, rest) = if let Some(after_quote) = remaining.strip_prefix('"') {
+            // Quoted value: find matching close quote (handling escaped quotes)
+            parse_quoted_value(after_quote)
+        } else {
+            // Bare value: read until next space or end
+            match remaining.find(' ') {
+                Some(sp) => (&remaining[..sp], remaining[sp..].trim_start()),
+                None => (remaining, ""),
+            }
+        };
+
+        // Apply redaction
+        let redacted = if RedactingVisitor::is_sensitive(key) {
+            "[REDACTED]".to_string()
+        } else if RedactingVisitor::looks_like_url(value_str) {
+            tf_config::redact_url_sensitive_params(value_str)
+        } else {
+            value_str.to_string()
+        };
+        result.insert(key.to_string(), Value::String(redacted));
+
+        remaining = rest;
+    }
+
+    result
+}
+
+/// Parse a Debug-formatted quoted string value, returning `(value_content, remaining)`.
+/// Input starts AFTER the opening quote.
+fn parse_quoted_value(input: &str) -> (&str, &str) {
+    let mut chars = input.char_indices();
+    while let Some((i, ch)) = chars.next() {
+        match ch {
+            '\\' => {
+                // Skip escaped character
+                chars.next();
+            }
+            '"' => {
+                // Found closing quote
+                let value = &input[..i];
+                let rest = &input[i + 1..];
+                return (value, rest.trim_start());
+            }
+            _ => {}
+        }
+    }
+    // No closing quote found — treat rest as value
+    (input, "")
 }
 
 /// Format a Unix timestamp as RFC 3339 (e.g., "2026-02-06T10:30:45.123Z").
@@ -634,5 +722,94 @@ mod tests {
         // 11017 days since epoch = 2000-03-01 (day after Feb 29, 2000)
         let (y, m, d) = days_to_ymd(11017);
         assert_eq!((y, m, d), (2000, 3, 1));
+    }
+
+    // --- parse_and_redact_span_fields() tests ---
+
+    #[test]
+    fn test_parse_and_redact_span_fields_sensitive_redacted() {
+        let rendered = "command=\"triage\" token=\"secret123\"";
+        let result = parse_and_redact_span_fields(rendered);
+        assert_eq!(result.get("command").unwrap(), "triage");
+        assert_eq!(result.get("token").unwrap(), "[REDACTED]");
+    }
+
+    #[test]
+    fn test_parse_and_redact_span_fields_bare_values() {
+        let rendered = "count=42 enabled=true";
+        let result = parse_and_redact_span_fields(rendered);
+        assert_eq!(result.get("count").unwrap(), "42");
+        assert_eq!(result.get("enabled").unwrap(), "true");
+    }
+
+    #[test]
+    fn test_parse_and_redact_span_fields_url_redacted() {
+        let rendered = "endpoint=\"https://api.example.com?token=abc123\"";
+        let result = parse_and_redact_span_fields(rendered);
+        let endpoint = result.get("endpoint").unwrap().as_str().unwrap();
+        assert!(!endpoint.contains("abc123"), "URL token should be redacted");
+        assert!(endpoint.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn test_parse_and_redact_span_fields_compound_sensitive() {
+        let rendered = "access_token=\"mysecret\" scope=\"lot-42\"";
+        let result = parse_and_redact_span_fields(rendered);
+        assert_eq!(result.get("access_token").unwrap(), "[REDACTED]");
+        assert_eq!(result.get("scope").unwrap(), "lot-42");
+    }
+
+    // Test [AI-Review-R6 H2]: span fields with sensitive data are redacted in log output
+    #[test]
+    fn test_span_sensitive_fields_redacted_in_log_output() {
+        let temp = tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+        let config = LoggingConfig {
+            log_level: "info".to_string(),
+            log_dir: log_dir.to_string_lossy().to_string(),
+            log_to_stdout: false,
+        };
+        let guard = init_logging(&config).unwrap();
+        let span = tracing::info_span!("auth", token = "super_secret_value");
+        let _entered = span.enter();
+        tracing::info!("inside span with sensitive field");
+        drop(_entered);
+        drop(guard);
+        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
+        assert!(!content.contains("super_secret_value"),
+                "Span sensitive field 'token' value should be redacted in log output");
+        assert!(content.contains("[REDACTED]"),
+                "Span field should show [REDACTED]");
+    }
+
+    // Test [AI-Review-R6 L3]: span fields rendered as structured JSON, not opaque string
+    #[test]
+    fn test_span_fields_rendered_as_structured_json() {
+        let temp = tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+        let config = LoggingConfig {
+            log_level: "info".to_string(),
+            log_dir: log_dir.to_string_lossy().to_string(),
+            log_to_stdout: false,
+        };
+        let guard = init_logging(&config).unwrap();
+        let span = tracing::info_span!("cli_cmd", command = "triage", scope = "lot-42");
+        let _entered = span.enter();
+        tracing::info!("test structured spans");
+        drop(_entered);
+        drop(guard);
+        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
+        let line = content.lines().last().unwrap();
+        let json: serde_json::Value = serde_json::from_str(line).unwrap();
+        let spans = json.get("spans").and_then(|v| v.as_array())
+            .expect("Expected 'spans' array");
+        let span_obj = &spans[0];
+        let fields = span_obj.get("fields").expect("Expected 'fields' in span");
+        // Fields should be a JSON object, not a string
+        assert!(fields.is_object(),
+            "Span fields should be a JSON object, got: {fields}");
+        let fields_map = fields.as_object().unwrap();
+        assert_eq!(fields_map.get("command").unwrap(), "triage");
+        assert_eq!(fields_map.get("scope").unwrap(), "lot-42");
     }
 }

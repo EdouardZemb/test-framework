@@ -476,7 +476,7 @@ mod tests {
         });
     }
 
-    // Test [AI-Review]: log_to_stdout=true creates stdout layer
+    // Test [AI-Review]: log_to_stdout=true creates stdout layer and emits to file
     #[test]
     fn test_log_to_stdout_creates_guard() {
         let temp = tempdir().unwrap();
@@ -491,7 +491,6 @@ mod tests {
         let guard = init_logging(&config);
         assert!(guard.is_ok(), "init_logging with log_to_stdout=true should succeed");
 
-        // Emit a log and verify it reaches the file (stdout is harder to test)
         tracing::info!("stdout test message");
         drop(guard.unwrap());
 
@@ -499,5 +498,58 @@ mod tests {
         let content = fs::read_to_string(&log_file).unwrap();
         assert!(content.contains("stdout test message"),
                 "Log should still reach file when log_to_stdout=true");
+    }
+
+    // Test [AI-Review-R6 M3]: log_to_stdout actually produces output on stdout
+    // Uses subprocess to capture stdout reliably.
+    #[test]
+    fn test_log_to_stdout_produces_stdout_output() {
+        use std::process::Command;
+
+        let temp = tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+
+        let exe = std::env::current_exe().expect("Failed to resolve current test binary");
+        let output = Command::new(exe)
+            .arg("--ignored")
+            .arg("--exact")
+            .arg("init::tests::stdout_subprocess_entrypoint")
+            .env("TF_LOGGING_STDOUT_TEST", "1")
+            .env("TF_LOGGING_STDOUT_LOG_DIR", log_dir.to_string_lossy().to_string())
+            .output()
+            .expect("Failed to execute stdout subprocess");
+
+        assert!(output.status.success(),
+            "Subprocess stdout test failed:\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stderr));
+
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout_str.contains("stdout_capture_verification_message"),
+            "Expected log message on stdout, got:\n{stdout_str}");
+        // Verify it's JSON-structured
+        let line = stdout_str.lines()
+            .find(|l| l.contains("stdout_capture_verification_message"))
+            .expect("Expected matching stdout line");
+        let json: serde_json::Value = serde_json::from_str(line)
+            .expect("stdout log line should be valid JSON");
+        assert!(json.get("timestamp").is_some(), "stdout JSON missing timestamp");
+    }
+
+    #[test]
+    #[ignore]
+    fn stdout_subprocess_entrypoint() {
+        if std::env::var("TF_LOGGING_STDOUT_TEST").as_deref() != Ok("1") {
+            return;
+        }
+        let log_dir = std::env::var("TF_LOGGING_STDOUT_LOG_DIR")
+            .expect("TF_LOGGING_STDOUT_LOG_DIR must be set");
+        let config = LoggingConfig {
+            log_level: "info".to_string(),
+            log_dir,
+            log_to_stdout: true,
+        };
+        let guard = init_logging(&config).expect("Failed to init logging in subprocess");
+        tracing::info!("stdout_capture_verification_message");
+        drop(guard);
     }
 }
