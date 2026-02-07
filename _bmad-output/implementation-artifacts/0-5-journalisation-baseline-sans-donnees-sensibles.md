@@ -1,6 +1,6 @@
 # Story 0.5: Journalisation baseline sans donnees sensibles
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -148,6 +148,14 @@ so that garantir l'auditabilite minimale des executions des le debut.
 - [x] [AI-Review-R7][MEDIUM] Normalize span field JSON typing: preserve numeric/bool types when parsing `FormattedFields` instead of serializing all values as strings [crates/tf-logging/src/redact.rs:303-341]
 - [x] [AI-Review-R7][MEDIUM] Add a completion gate for AC #1 in story checklist: do not mark story done until CLI integration evidence exists (command run -> JSON log with command/status/scope) [story acceptance evidence]
 - [x] [AI-Review-R7][LOW] Document operational recommendation in story/dev notes: allow full `EnvFilter` syntax in project configuration and keep `RUST_LOG` as override for diagnostics [story Dev Notes + logging config guidance]
+
+### Review Follow-ups Round 8 (AI)
+
+- [x] [AI-Review-R8][MEDIUM] M1: stdout layer uses blocking `std::io::stdout()` while file layer uses `tracing_appender::non_blocking()` — wrapped stdout with `non_blocking()` and added `_stdout_worker_guard: Option<WorkerGuard>` to `LogGuard` for consistent non-blocking I/O on both output paths [crates/tf-logging/src/init.rs:113-116]
+- [ ] [AI-Review-R8][MEDIUM] M2: `find_log_file` duplicated identically in `src/lib.rs:48-55` (unit tests) and `tests/common/mod.rs:10-17` (integration tests) — accepted as Rust architectural constraint: integration tests in `tests/` cannot access `#[cfg(test)]` modules from the library crate. The 7-line duplication is the minimum viable sharing pattern.
+- [ ] [AI-Review-R8][LOW] L1: `parse_and_redact_span_fields` does not `.trim()` keys before `is_sensitive()` check — whitespace in rendered span key names would bypass sensitive field detection [crates/tf-logging/src/redact.rs:317]
+- [ ] [AI-Review-R8][LOW] L2: `InitFailed` variant remains dead code — documented as reserved for tf-cli, accepted design choice [crates/tf-logging/src/error.rs:9-18]
+- [ ] [AI-Review-R8][LOW] L3: `serde_json::to_string` error silently converted to `std::fmt::Error` in `format_event` — original error context lost. Acceptable since `FormatEvent` trait constrains return type [crates/tf-logging/src/redact.rs:286]
 
 ## Dev Notes
 
@@ -556,6 +564,11 @@ Claude Opus 4.6 (claude-opus-4-6)
   - M4: Added AC #1 completion evidence section in File List documenting subprocess test as CLI simulation evidence and noting tf-cli integration as future scope.
   - L1: EnvFilter syntax support documented in error hint and test — `init_logging` now accepts full filter expressions, with RUST_LOG as diagnostic override (documented in R7 M1 implementation).
   - 68 tf-logging tests pass (61 unit + 5 integration + 2 doc-tests), 417 total workspace tests pass with 0 regressions. clippy clean.
+- Review Follow-ups R8: 1 of 5 findings fixed (1 MEDIUM fixed, 1 MEDIUM accepted as Rust constraint, 3 LOW accepted):
+  - M1: Wrapped stdout layer with `tracing_appender::non_blocking()` and added `_stdout_worker_guard: Option<WorkerGuard>` to `LogGuard` for consistent non-blocking I/O
+  - M2: Accepted `find_log_file` duplication as Rust architectural constraint (integration tests cannot access `#[cfg(test)]` modules)
+  - L1-L3: Accepted as documented design choices (key trimming, reserved InitFailed variant, FormatEvent error conversion)
+  - 68 tf-logging tests pass (61 unit + 5 integration + 2 doc-tests), 417 total workspace tests pass, 0 regressions. clippy clean.
 - Review Follow-ups R6: All 8 findings addressed (2 HIGH, 3 MEDIUM, 3 LOW):
   - H1: File List updated to include all 19 files changed on branch vs main, with accurate line counts and scope documentation for tf-config/tf-security P0 test additions
   - H2: Implemented `parse_and_redact_span_fields()` function that re-parses pre-rendered span fields from `FormattedFields<N>` and applies `is_sensitive()` + URL redaction before JSON emission. Added 6 new tests: 4 unit tests for the parser and 2 end-to-end tests verifying span redaction in log output
@@ -574,7 +587,7 @@ Claude Opus 4.6 (claude-opus-4-6)
 New files (tf-logging crate):
 - `crates/tf-logging/Cargo.toml` (19 lines) — crate manifest with workspace dependencies
 - `crates/tf-logging/src/lib.rs` (56 lines) — public API re-exports, `test_helpers` module
-- `crates/tf-logging/src/init.rs` (594 lines) — subscriber setup, file appender, LogGuard with explicit Drop, stdout layer, EnvFilter-based validation
+- `crates/tf-logging/src/init.rs` (600 lines) — subscriber setup, file appender, LogGuard with explicit Drop, non-blocking stdout layer, EnvFilter-based validation
 - `crates/tf-logging/src/redact.rs` (925 lines) — RedactingJsonFormatter, RedactingVisitor, span field parsing/redaction with type preservation, SENSITIVE_FIELDS/SUFFIXES
 - `crates/tf-logging/src/config.rs` (90 lines) — LoggingConfig struct, from_project_config derivation
 - `crates/tf-logging/src/error.rs` (105 lines) — LoggingError enum (3 variants, #[non_exhaustive])
@@ -607,6 +620,7 @@ Documentation/tracking files:
 
 ## Change Log
 
+- 2026-02-07: Code review Round 8 (AI) — 5 findings (0 HIGH, 2 MEDIUM, 3 LOW). M1 fixed: stdout layer wrapped with non_blocking(). M2 accepted: find_log_file duplication is Rust constraint. L1-L3 accepted as design choices. 68 tf-logging tests, 417 workspace tests, 0 regressions. clippy clean.
 - 2026-02-07: Addressed code review Round 7 findings — 7 items resolved. Replaced VALID_LEVELS whitelist with EnvFilter::try_new() validation (supports full filter expressions), added type-preserving span field parsing, added free-text message limitation test as guardrail, clarified File List traceability wording, documented AC #1 completion evidence. 68 tf-logging tests (61 unit + 5 integration + 2 doc-tests), 417 total workspace tests, 0 regressions. clippy clean.
 - 2026-02-07: Code review Round 7 (AI) — 7 findings/action items added (2 HIGH, 4 MEDIUM, 1 LOW). Story moved to `in-progress` pending CLI-level integration evidence for AC #1, traceability reconciliation, and filter/format robustness follow-ups.
 - 2026-02-06: Implemented tf-logging crate with structured JSON logging, sensitive field redaction (12 field names + URL parameters), daily file rotation, non-blocking I/O, and LogGuard lifecycle. Exposed `redact_url_sensitive_params` as public API in tf-config. 35 tests added, 0 regressions on 368 workspace tests.
