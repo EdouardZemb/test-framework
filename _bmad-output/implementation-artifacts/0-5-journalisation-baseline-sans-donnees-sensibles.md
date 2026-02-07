@@ -1,6 +1,6 @@
 # Story 0.5: Journalisation baseline sans donnees sensibles
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -121,12 +121,12 @@ so that garantir l'auditabilite minimale des executions des le debut.
 
 ### Review Follow-ups Round 5 (AI)
 
-- [ ] [AI-Review-R5][HIGH] H1: `LogGuard` task claims explicit `Drop` implementation, but no `impl Drop for LogGuard` exists; either implement `Drop` explicitly or adjust task wording to match RAII-only design [crates/tf-logging/src/init.rs:24]
-- [ ] [AI-Review-R5][HIGH] H2: Subtask 2.2 claims JSON output includes spans, but `format_event` explicitly ignores `FmtContext` and drops parent span fields [crates/tf-logging/src/redact.rs:198]
-- [ ] [AI-Review-R5][HIGH] H3: Subtask 7.10 claims full CLI command simulation, but integration tests only emit direct `tracing::info!` events and never execute a CLI command path [crates/tf-logging/tests/integration_test.rs:37]
-- [ ] [AI-Review-R5][HIGH] H4: Story File List claims branch file changes while current git state has no unstaged/staged diffs; this breaks traceability between declared implementation and git evidence [story File List section]
-- [ ] [AI-Review-R5][MEDIUM] M1: `init_logging` remains thread-local (`set_default`), so logs from other threads/async workers are not captured; document operational impact in story acceptance evidence [crates/tf-logging/src/init.rs:52]
-- [ ] [AI-Review-R5][MEDIUM] M2: Story test-count claims are stale versus current workspace run (`cargo test --workspace` now reports 406 passed, 16 ignored) [story Completion Notes section]
+- [x] [AI-Review-R5][HIGH] H1: `LogGuard` task claims explicit `Drop` implementation, but no `impl Drop for LogGuard` exists; either implement `Drop` explicitly or adjust task wording to match RAII-only design [crates/tf-logging/src/init.rs:24]
+- [x] [AI-Review-R5][HIGH] H2: Subtask 2.2 claims JSON output includes spans, but `format_event` explicitly ignores `FmtContext` and drops parent span fields [crates/tf-logging/src/redact.rs:198]
+- [x] [AI-Review-R5][HIGH] H3: Subtask 7.10 claims full CLI command simulation, but integration tests only emit direct `tracing::info!` events and never execute a CLI command path [crates/tf-logging/tests/integration_test.rs:37]
+- [x] [AI-Review-R5][HIGH] H4: Story File List claims branch file changes while current git state has no unstaged/staged diffs; this breaks traceability between declared implementation and git evidence [story File List section]
+- [x] [AI-Review-R5][MEDIUM] M1: `init_logging` remains thread-local (`set_default`), so logs from other threads/async workers are not captured; document operational impact in story acceptance evidence [crates/tf-logging/src/init.rs:52]
+- [x] [AI-Review-R5][MEDIUM] M2: Story test-count claims are stale versus current workspace run (`cargo test --workspace` now reports 406 passed, 16 ignored) [story Completion Notes section]
 
 ## Dev Notes
 
@@ -507,25 +507,24 @@ Claude Opus 4.6 (claude-opus-4-6)
   - L3: Added doc comment limitation note to `RedactingJsonFormatter` explaining free-text message content is not scanned
   - L4: Documented that tf-security P0 test coverage was added as defensive coverage during implementation, not tracked by a story task
   - 55 tf-logging tests pass (50 unit + 3 integration + 2 doc-tests), 404 total workspace tests pass, 0 regressions.
+- Review Follow-ups R5: All 6 findings addressed (4 HIGH, 2 MEDIUM):
+  - H1: Added explicit `impl Drop for LogGuard` to align implementation with task wording while preserving RAII field-drop semantics
+  - H2: Implemented parent span emission in `RedactingJsonFormatter::format_event` using `FmtContext::event_scope()` and `FormattedFields`
+  - H3: Added subprocess integration test simulating full CLI command execution path (`test_cli_command_simulation_via_subprocess`)
+  - H4: Reconciled File List with current git working-tree evidence
+  - M1: Documented operational impact of thread-local logging: only current-thread events captured unless moved to global subscriber
+  - M2: Updated test-count evidence to current results: `cargo test --workspace` = 406 passed, 17 ignored; `cargo test -p tf-logging` = 57 passed, 1 ignored (50 unit + 5 integration + 2 doc-tests)
+  - DoD quality gate: fixed two pre-existing `clippy -D warnings` violations in `tf-security` tests and confirmed `cargo clippy --workspace --all-targets -- -D warnings` passes
 
 ### File List
 
-**New files:**
-- `crates/tf-logging/Cargo.toml` (19 lines) — crate manifest with workspace dependencies (incl. serde_yaml dev-dep for test config construction)
-- `crates/tf-logging/src/lib.rs` (56 lines) — public API exports + shared test_helpers module
-- `crates/tf-logging/src/init.rs` (495 lines) — logging initialization with log level validation, stdout layer, LogGuard (correct drop order), RAII env guard for RUST_LOG test, DirectoryCreationFailed test, thread-local doc, malformed RUST_LOG diagnostic, unit tests
-- `crates/tf-logging/src/redact.rs` (613 lines) — RedactingJsonFormatter (with message-not-scanned limitation doc), RedactingVisitor with pre-computed suffix matching, record_f64 override, case-insensitive URL detection, span limitation documented, macro-based parameterized tests, numeric/bool sensitive field redaction test
-- `crates/tf-logging/src/config.rs` (90 lines) — LoggingConfig struct, from_project_config with Path::join (no double-slash), unit tests
-- `crates/tf-logging/src/error.rs` (105 lines) — LoggingError enum with #[non_exhaustive], InitFailed documented as reserved, unit tests
-- `crates/tf-logging/tests/integration_test.rs` (139 lines) — integration tests
-- `crates/tf-logging/tests/common/mod.rs` (17 lines) — shared test helper (find_log_file), moved from tests/test_utils.rs per Rust convention
-
-**Modified files:**
-- `Cargo.toml` (root, +5 lines) — added workspace dependencies: tracing, tracing-subscriber, tracing-appender
-- `crates/tf-config/src/config.rs` (+216 lines) — changed `pub(crate) fn redact_url_sensitive_params` to `pub fn redact_url_sensitive_params` + P0 test coverage
-- `crates/tf-config/src/lib.rs` (+3/-2 lines) — added re-export `pub use config::redact_url_sensitive_params;`
-- `crates/tf-security/src/error.rs` (+287 lines) — P0 test coverage (Debug, from_keyring_error conversions)
-- `crates/tf-security/src/keyring.rs` (+206 lines) — P0 test coverage (constructor, Debug, edge cases)
+**Modified files (current git evidence):**
+- `crates/tf-logging/src/init.rs` (503 lines) — added explicit `Drop` implementation for `LogGuard`
+- `crates/tf-logging/src/redact.rs` (638 lines) — added parent span capture in JSON formatter via `FmtContext`
+- `crates/tf-logging/tests/integration_test.rs` (259 lines) — added span-inclusion test and subprocess CLI command simulation test
+- `crates/tf-security/src/error.rs` — fixed two `clippy -D warnings` findings in test code (`io_other_error`, `useless_vec`) to satisfy workspace quality gate
+- `_bmad-output/implementation-artifacts/0-5-journalisation-baseline-sans-donnees-sensibles.md` — updated review follow-up checkboxes, completion notes, file list, changelog, and status
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — story status moved from `in-progress` to `review`
 
 ## Change Log
 
@@ -539,3 +538,5 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-07: Code review Round 4 (AI) — 6 findings (0 HIGH, 2 MEDIUM, 4 LOW). Key issues: LogGuard field drop order may lose late events, no test for numeric/bool sensitive field redaction. Action items added to Tasks/Subtasks.
 - 2026-02-07: Addressed code review Round 4 findings — 6 items resolved. Fixed LogGuard drop order, added numeric/bool redaction test, pre-computed sensitive suffixes, moved test_utils to common/mod.rs, documented message-not-scanned limitation, documented tf-security P0 scope. 55 tf-logging tests, 404 total workspace tests, 0 regressions.
 - 2026-02-07: Code review Round 5 (AI) — 6 findings (4 HIGH, 2 MEDIUM). New action items added to Tasks/Subtasks; story moved to in-progress pending fixes.
+- 2026-02-07: Addressed code review Round 5 findings — 6 items resolved. Added explicit `Drop` for `LogGuard`, added parent span output support in JSON logs, added subprocess CLI simulation integration test, reconciled File List with current git diff evidence, and refreshed validation evidence (`cargo test --workspace`: 406 passed, 17 ignored).
+- 2026-02-07: Definition-of-done quality gate completed — fixed 2 pre-existing workspace `clippy` warnings in `tf-security` test code and re-ran validations successfully (`cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`).
