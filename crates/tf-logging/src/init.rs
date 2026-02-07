@@ -43,6 +43,14 @@ impl std::fmt::Debug for LogGuard {
 /// - Optional stdout output (if `config.log_to_stdout` is true)
 ///
 /// Returns a [`LogGuard`] that MUST be kept alive for the application lifetime.
+///
+/// # Thread-local limitation
+///
+/// This function uses `tracing::dispatcher::set_default` which installs the
+/// subscriber on the **current thread only**. Events emitted from other threads
+/// or async workers will **not** be captured unless they are running on the same
+/// thread. Before tf-cli integration, consider switching to `set_global_default`
+/// for process-wide logging (at the cost of single-init-only semantics).
 pub fn init_logging(config: &LoggingConfig) -> Result<LogGuard, LoggingError> {
     // Create log directory
     fs::create_dir_all(&config.log_dir).map_err(|e| LoggingError::DirectoryCreationFailed {
@@ -61,9 +69,19 @@ pub fn init_logging(config: &LoggingConfig) -> Result<LogGuard, LoggingError> {
     }
 
     // Build EnvFilter: RUST_LOG takes priority, otherwise use config.log_level
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        EnvFilter::new(&config.log_level)
-    });
+    let filter = match EnvFilter::try_from_default_env() {
+        Ok(f) => f,
+        Err(e) => {
+            // If RUST_LOG is set but malformed, emit a diagnostic to stderr
+            if std::env::var("RUST_LOG").is_ok() {
+                eprintln!(
+                    "tf-logging: ignoring malformed RUST_LOG value ({}), falling back to '{}'",
+                    e, config.log_level
+                );
+            }
+            EnvFilter::new(&config.log_level)
+        }
+    };
 
     // Set up daily rolling file appender
     let file_appender = tracing_appender::rolling::daily(&config.log_dir, "app.log");
@@ -403,6 +421,26 @@ mod tests {
                 "Log should contain message emitted before guard move");
         assert!(content.contains("after move message"),
                 "Log should contain message emitted after guard move");
+    }
+
+    // Test [AI-Review-R3 M2]: init_logging returns DirectoryCreationFailed on unwritable path
+    #[test]
+    fn test_init_logging_directory_creation_failed() {
+        // Use a path under /proc which cannot have directories created inside it
+        let config = LoggingConfig {
+            log_level: "info".to_string(),
+            log_dir: "/proc/nonexistent/impossible/logs".to_string(),
+            log_to_stdout: false,
+        };
+
+        let result = init_logging(&config);
+        assert!(result.is_err(), "Should fail on unwritable directory");
+
+        let err = result.unwrap_err();
+        assert_matches!(err, LoggingError::DirectoryCreationFailed { ref path, ref hint, .. } => {
+            assert_eq!(path, "/proc/nonexistent/impossible/logs");
+            assert!(hint.contains("Verify permissions"), "Hint should be actionable");
+        });
     }
 
     // Test [AI-Review]: invalid log level returns InvalidLogLevel error

@@ -55,11 +55,25 @@ impl RedactingVisitor {
 
     fn is_sensitive(name: &str) -> bool {
         let lower = name.to_lowercase();
-        SENSITIVE_FIELDS.iter().any(|&f| f == lower)
+        // Exact match first
+        if SENSITIVE_FIELDS.contains(&lower.as_str()) {
+            return true;
+        }
+        // Suffix/substring match for compound field names like access_token,
+        // auth_token, session_key, api_secret, etc.
+        for &field in SENSITIVE_FIELDS {
+            if lower.ends_with(&format!("_{}", field))
+                || lower.ends_with(&format!("-{}", field))
+            {
+                return true;
+            }
+        }
+        false
     }
 
     fn looks_like_url(value: &str) -> bool {
-        value.starts_with("http://") || value.starts_with("https://")
+        let lower = value.to_ascii_lowercase();
+        lower.starts_with("http://") || lower.starts_with("https://")
     }
 
     fn redact_value(&self, name: &str, value: &str) -> String {
@@ -127,6 +141,21 @@ impl tracing::field::Visit for RedactingVisitor {
         } else {
             self.fields
                 .insert(name.to_string(), Value::Number(value.into()));
+        }
+    }
+
+    fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
+        let name = field.name();
+        if Self::is_sensitive(name) {
+            self.fields
+                .insert(name.to_string(), Value::String("[REDACTED]".to_string()));
+        } else if let Some(n) = serde_json::Number::from_f64(value) {
+            self.fields
+                .insert(name.to_string(), Value::Number(n));
+        } else {
+            // NaN/Infinity cannot be represented as JSON numbers
+            self.fields
+                .insert(name.to_string(), Value::Null);
         }
     }
 
@@ -392,12 +421,81 @@ mod tests {
         assert!(!RedactingVisitor::is_sensitive("status"));
     }
 
+    // Test [AI-Review-R3 M1]: compound field names detected via suffix matching
+    #[test]
+    fn test_redacting_visitor_sensitive_compound_fields() {
+        // Underscore-separated compound names
+        assert!(RedactingVisitor::is_sensitive("access_token"));
+        assert!(RedactingVisitor::is_sensitive("auth_token"));
+        assert!(RedactingVisitor::is_sensitive("session_key"));
+        assert!(RedactingVisitor::is_sensitive("api_secret"));
+        assert!(RedactingVisitor::is_sensitive("user_password"));
+        assert!(RedactingVisitor::is_sensitive("db_credential"));
+        // Hyphen-separated compound names
+        assert!(RedactingVisitor::is_sensitive("access-token"));
+        assert!(RedactingVisitor::is_sensitive("api-key"));
+        assert!(RedactingVisitor::is_sensitive("session-secret"));
+        // Non-sensitive compound fields must NOT match
+        assert!(!RedactingVisitor::is_sensitive("token_count"));
+        assert!(!RedactingVisitor::is_sensitive("password_length"));
+        assert!(!RedactingVisitor::is_sensitive("secret_level"));
+    }
+
+    // Test [AI-Review-R3 M1]: compound sensitive fields redacted in log output
+    #[test]
+    fn test_compound_sensitive_field_redacted_in_output() {
+        let temp = tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+        let config = LoggingConfig {
+            log_level: "info".to_string(),
+            log_dir: log_dir.to_string_lossy().to_string(),
+            log_to_stdout: false,
+        };
+        let guard = init_logging(&config).unwrap();
+        tracing::info!(access_token = "my_secret_tok_123", "compound field test");
+        drop(guard);
+        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
+        assert!(!content.contains("my_secret_tok_123"),
+                "Compound field 'access_token' value should be redacted");
+        assert!(content.contains("[REDACTED]"));
+    }
+
     #[test]
     fn test_redacting_visitor_url_detection() {
         assert!(RedactingVisitor::looks_like_url("https://example.com"));
         assert!(RedactingVisitor::looks_like_url("http://example.com"));
         assert!(!RedactingVisitor::looks_like_url("not a url"));
         assert!(!RedactingVisitor::looks_like_url("ftp://example.com"));
+    }
+
+    // Test [AI-Review-R3 L3]: case-insensitive URL detection
+    #[test]
+    fn test_redacting_visitor_url_detection_case_insensitive() {
+        assert!(RedactingVisitor::looks_like_url("HTTP://example.com"));
+        assert!(RedactingVisitor::looks_like_url("HTTPS://example.com"));
+        assert!(RedactingVisitor::looks_like_url("Http://example.com"));
+        assert!(RedactingVisitor::looks_like_url("hTtPs://example.com"));
+    }
+
+    // Test [AI-Review-R3 L1]: float values stored as JSON numbers, not strings
+    #[test]
+    fn test_float_values_stored_as_json_numbers() {
+        let temp = tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+        let config = LoggingConfig {
+            log_level: "info".to_string(),
+            log_dir: log_dir.to_string_lossy().to_string(),
+            log_to_stdout: false,
+        };
+        let guard = init_logging(&config).unwrap();
+        tracing::info!(duration = 42.5, "float test");
+        drop(guard);
+        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
+        let line = content.lines().last().unwrap();
+        let json: serde_json::Value = serde_json::from_str(line).unwrap();
+        let fields = json.get("fields").expect("Missing fields");
+        let duration = fields.get("duration").expect("Missing duration field");
+        assert!(duration.is_number(), "Float should be stored as JSON number, got: {duration}");
     }
 
     // --- P0: format_rfc3339() tests ---
