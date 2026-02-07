@@ -1,6 +1,6 @@
 # Story 0.5: Journalisation baseline sans donnees sensibles
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -112,12 +112,12 @@ so that garantir l'auditabilite minimale des executions des le debut.
 
 ### Review Follow-ups Round 4 (AI)
 
-- [ ] [AI-Review-R4][MEDIUM] M1: LogGuard field drop order may lose late log events — `_worker_guard` dropped before `_dispatch_guard` means worker thread stops before subscriber is removed; events emitted between these drops are silently lost. Reverse field order: `_dispatch_guard` first (remove subscriber), then `_worker_guard` (flush pending) [crates/tf-logging/src/init.rs:24-27]
-- [ ] [AI-Review-R4][MEDIUM] M2: No test for numeric/bool sensitive field redaction — `record_i64`, `record_u64`, `record_bool` check `is_sensitive()` and redact but no test exercises these paths (e.g., `tracing::info!(token = 42_i64, "test")`) [crates/tf-logging/src/redact.rs:125-171]
-- [ ] [AI-Review-R4][LOW] L1: `is_sensitive()` allocates ~25 strings per non-sensitive field via suffix matching — `to_lowercase()` + 24 `format!` calls per invocation; pre-compute suffixes as static `&[&str]` [crates/tf-logging/src/redact.rs:56-71]
-- [ ] [AI-Review-R4][LOW] L2: `tests/test_utils.rs` compiled as standalone test binary (0 tests) — move shared test code to `tests/common/mod.rs` per Rust convention [crates/tf-logging/tests/test_utils.rs]
-- [ ] [AI-Review-R4][LOW] L3: Free-text message content not scanned for sensitive data — only named fields are redacted; document this limitation in `RedactingJsonFormatter` doc comment [crates/tf-logging/src/redact.rs:91-99]
-- [ ] [AI-Review-R4][LOW] L4: ~500 lines of P0 test coverage in tf-security not covered by any story task — documented in File List but no task tracks this scope addition [story scope]
+- [x] [AI-Review-R4][MEDIUM] M1: LogGuard field drop order may lose late log events — `_worker_guard` dropped before `_dispatch_guard` means worker thread stops before subscriber is removed; events emitted between these drops are silently lost. Reverse field order: `_dispatch_guard` first (remove subscriber), then `_worker_guard` (flush pending) [crates/tf-logging/src/init.rs:24-27]
+- [x] [AI-Review-R4][MEDIUM] M2: No test for numeric/bool sensitive field redaction — `record_i64`, `record_u64`, `record_bool` check `is_sensitive()` and redact but no test exercises these paths (e.g., `tracing::info!(token = 42_i64, "test")`) [crates/tf-logging/src/redact.rs:125-171]
+- [x] [AI-Review-R4][LOW] L1: `is_sensitive()` allocates ~25 strings per non-sensitive field via suffix matching — `to_lowercase()` + 24 `format!` calls per invocation; pre-compute suffixes as static `&[&str]` [crates/tf-logging/src/redact.rs:56-71]
+- [x] [AI-Review-R4][LOW] L2: `tests/test_utils.rs` compiled as standalone test binary (0 tests) — move shared test code to `tests/common/mod.rs` per Rust convention [crates/tf-logging/tests/test_utils.rs]
+- [x] [AI-Review-R4][LOW] L3: Free-text message content not scanned for sensitive data — only named fields are redacted; document this limitation in `RedactingJsonFormatter` doc comment [crates/tf-logging/src/redact.rs:91-99]
+- [x] [AI-Review-R4][LOW] L4: ~500 lines of P0 test coverage in tf-security not covered by any story task — documented in File List but no task tracks this scope addition [story scope]
 
 ## Dev Notes
 
@@ -490,18 +490,26 @@ Claude Opus 4.6 (claude-opus-4-6)
   - L1: Implemented `record_f64` override in `RedactingVisitor` — floats now stored as `Value::Number`, NaN/Infinity as `Value::Null`; added test verifying JSON number output
   - L2: Added diagnostic `eprintln!` when `RUST_LOG` is set but malformed, showing parse error and fallback level
   - L3: Made `looks_like_url` case-insensitive via `to_ascii_lowercase()`; added test for `HTTP://`, `HTTPS://`, mixed-case schemes
+- Review Follow-ups R4: All 6 findings addressed (0 HIGH, 2 MEDIUM, 4 LOW):
+  - M1: Reversed LogGuard field order — `_dispatch_guard` now dropped before `_worker_guard` so subscriber is removed before worker flushes pending events
+  - M2: Added `test_numeric_sensitive_fields_redacted` testing i64/u64/bool sensitive field redaction via `tracing::info!(token = 42_i64, api_key = 99_u64, secret = true, ...)`
+  - L1: Replaced per-call `format!` allocations in `is_sensitive()` with pre-computed `SENSITIVE_SUFFIXES` static array — zero allocations for suffix matching
+  - L2: Moved `tests/test_utils.rs` to `tests/common/mod.rs` per Rust convention (no longer compiled as standalone test binary)
+  - L3: Added doc comment limitation note to `RedactingJsonFormatter` explaining free-text message content is not scanned
+  - L4: Documented that tf-security P0 test coverage was added as defensive coverage during implementation, not tracked by a story task
+  - 55 tf-logging tests pass (50 unit + 3 integration + 2 doc-tests), 404 total workspace tests pass, 0 regressions.
 
 ### File List
 
 **New files:**
 - `crates/tf-logging/Cargo.toml` (19 lines) — crate manifest with workspace dependencies (incl. serde_yaml dev-dep for test config construction)
 - `crates/tf-logging/src/lib.rs` (56 lines) — public API exports + shared test_helpers module
-- `crates/tf-logging/src/init.rs` (492 lines) — logging initialization with log level validation, stdout layer, LogGuard, RAII env guard for RUST_LOG test, DirectoryCreationFailed test, thread-local doc, malformed RUST_LOG diagnostic, unit tests
-- `crates/tf-logging/src/redact.rs` (567 lines) — RedactingJsonFormatter, RedactingVisitor with suffix-based compound field detection, record_f64 override, case-insensitive URL detection, span limitation documented, macro-based parameterized tests
+- `crates/tf-logging/src/init.rs` (495 lines) — logging initialization with log level validation, stdout layer, LogGuard (correct drop order), RAII env guard for RUST_LOG test, DirectoryCreationFailed test, thread-local doc, malformed RUST_LOG diagnostic, unit tests
+- `crates/tf-logging/src/redact.rs` (613 lines) — RedactingJsonFormatter (with message-not-scanned limitation doc), RedactingVisitor with pre-computed suffix matching, record_f64 override, case-insensitive URL detection, span limitation documented, macro-based parameterized tests, numeric/bool sensitive field redaction test
 - `crates/tf-logging/src/config.rs` (90 lines) — LoggingConfig struct, from_project_config with Path::join (no double-slash), unit tests
 - `crates/tf-logging/src/error.rs` (105 lines) — LoggingError enum with #[non_exhaustive], InitFailed documented as reserved, unit tests
 - `crates/tf-logging/tests/integration_test.rs` (139 lines) — integration tests
-- `crates/tf-logging/tests/test_utils.rs` (17 lines) — shared test helper (find_log_file)
+- `crates/tf-logging/tests/common/mod.rs` (17 lines) — shared test helper (find_log_file), moved from tests/test_utils.rs per Rust convention
 
 **Modified files:**
 - `Cargo.toml` (root, +5 lines) — added workspace dependencies: tracing, tracing-subscriber, tracing-appender
@@ -520,3 +528,4 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Code review Round 3 (AI) — 6 findings (0 HIGH, 3 MEDIUM, 3 LOW). Key issues: exact-match field detection misses compound names, no test for DirectoryCreationFailed path, init_logging doc omits thread-local limitation. Action items added.
 - 2026-02-07: Addressed code review Round 3 findings — 6 items resolved. Added suffix-based compound field detection (access_token, auth_token, etc.), DirectoryCreationFailed test, thread-local limitation doc, record_f64 override for proper JSON numbers, malformed RUST_LOG diagnostic warning, case-insensitive URL detection. 54 tf-logging tests pass (49 unit + 3 integration + 2 doc-tests), 403 total workspace tests pass, 0 regressions.
 - 2026-02-07: Code review Round 4 (AI) — 6 findings (0 HIGH, 2 MEDIUM, 4 LOW). Key issues: LogGuard field drop order may lose late events, no test for numeric/bool sensitive field redaction. Action items added to Tasks/Subtasks.
+- 2026-02-07: Addressed code review Round 4 findings — 6 items resolved. Fixed LogGuard drop order, added numeric/bool redaction test, pre-computed sensitive suffixes, moved test_utils to common/mod.rs, documented message-not-scanned limitation, documented tf-security P0 scope. 55 tf-logging tests, 404 total workspace tests, 0 regressions.
