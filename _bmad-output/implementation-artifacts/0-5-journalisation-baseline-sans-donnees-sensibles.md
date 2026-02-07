@@ -1,6 +1,6 @@
 # Story 0.5: Journalisation baseline sans donnees sensibles
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -127,6 +127,17 @@ so that garantir l'auditabilite minimale des executions des le debut.
 - [x] [AI-Review-R5][HIGH] H4: Story File List claims branch file changes while current git state has no unstaged/staged diffs; this breaks traceability between declared implementation and git evidence [story File List section]
 - [x] [AI-Review-R5][MEDIUM] M1: `init_logging` remains thread-local (`set_default`), so logs from other threads/async workers are not captured; document operational impact in story acceptance evidence [crates/tf-logging/src/init.rs:52]
 - [x] [AI-Review-R5][MEDIUM] M2: Story test-count claims are stale versus current workspace run (`cargo test --workspace` now reports 406 passed, 16 ignored) [story Completion Notes section]
+
+### Review Follow-ups Round 6 (AI)
+
+- [ ] [AI-Review-R6][HIGH] H1: File List severely incomplete — only 6 of 19 branch-changed files documented. Missing: root `Cargo.toml` (+5), `crates/tf-config/src/config.rs` (+216 tests), `crates/tf-config/src/lib.rs` (+3/-1), `crates/tf-logging/Cargo.toml` (19), `crates/tf-logging/src/config.rs` (90), `crates/tf-logging/src/error.rs` (105), `crates/tf-logging/src/lib.rs` (56), `crates/tf-logging/tests/common/mod.rs` (17), `crates/tf-security/src/keyring.rs` (+206). File List must reflect ALL files changed on branch vs main [story File List section]
+- [ ] [AI-Review-R6][HIGH] H2: Span fields bypass redaction pipeline — R5 H2 added parent span emission via `FormattedFields<N>` (pre-rendered by `DefaultFields`), but these fields are NOT passed through `RedactingVisitor`. A span like `tracing::info_span!("auth", token = "secret")` would emit `"fields":"token=secret"` unredacted in JSON output. This contradicts AC #2 and invalidates the R2 M1 mitigation (which documented span omission as a known limitation — spans are now included but without protection) [crates/tf-logging/src/redact.rs:248-274]
+- [ ] [AI-Review-R6][MEDIUM] M1: tf-config test additions (+216 lines) not documented in any task, subtask, or File List — tests `test_check_output_folder_*`, `test_active_profile_summary_*`, `test_redact_url_*` were added during this story but story Dev Notes say "NE PAS modifier tf-config sauf pour exposer redact_url_sensitive_params". R4 L4 documented tf-security scope addition but omitted tf-config [crates/tf-config/src/config.rs]
+- [ ] [AI-Review-R6][MEDIUM] M2: All 4 modules declared `pub mod` instead of `pub(crate) mod` — since all public items are re-exported via `pub use` in lib.rs, modules should be `pub(crate)` to avoid double access paths (`tf_logging::init_logging` AND `tf_logging::init::init_logging`) and hide internal structure [crates/tf-logging/src/lib.rs:30-33]
+- [ ] [AI-Review-R6][MEDIUM] M3: `test_log_to_stdout_creates_guard` does not verify stdout actually receives output — only checks init succeeds and file gets logs. Comment acknowledges "stdout is harder to test" but no capture/redirect workaround attempted [crates/tf-logging/src/init.rs:480-502]
+- [ ] [AI-Review-R6][LOW] L1: `record_debug` strips outer quotes but does not unescape inner Debug-formatted content — escaped sequences like `\"` remain as raw backslashes in logged values [crates/tf-logging/src/redact.rs:121-125]
+- [ ] [AI-Review-R6][LOW] L2: Subtask 1.0 marked [x] ("Ajouter crates/tf-logging dans la liste members") but workspace uses `members = ["crates/*"]` glob pattern — no change was needed; task should note auto-discovery [story Tasks section]
+- [ ] [AI-Review-R6][LOW] L3: Span fields rendered as opaque flat string (`"fields":"command=triage scope=lot-42"`) instead of structured JSON object — downstream log parsers cannot extract individual span field values programmatically [crates/tf-logging/src/redact.rs:259-264]
 
 ## Dev Notes
 
@@ -540,3 +551,4 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-07: Code review Round 5 (AI) — 6 findings (4 HIGH, 2 MEDIUM). New action items added to Tasks/Subtasks; story moved to in-progress pending fixes.
 - 2026-02-07: Addressed code review Round 5 findings — 6 items resolved. Added explicit `Drop` for `LogGuard`, added parent span output support in JSON logs, added subprocess CLI simulation integration test, reconciled File List with current git diff evidence, and refreshed validation evidence (`cargo test --workspace`: 406 passed, 17 ignored).
 - 2026-02-07: Definition-of-done quality gate completed — fixed 2 pre-existing workspace `clippy` warnings in `tf-security` test code and re-ran validations successfully (`cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`).
+- 2026-02-07: Code review Round 6 (AI) — 8 findings (2 HIGH, 3 MEDIUM, 3 LOW). Key issues: File List incomplete (6/19 files), span fields bypass redaction pipeline (security gap contradicting AC #2), tf-config test scope undocumented, modules unnecessarily public. Action items added to Tasks/Subtasks.
