@@ -24,16 +24,18 @@ use tracing_subscriber::EnvFilter;
 pub struct LogGuard {
     // Drop order matters: Rust drops fields in declaration order.
     // 1. Remove the thread-local subscriber first (no new events accepted)
-    // 2. Then flush pending events via the worker guard
+    // 2. Then flush pending file events via the worker guard
+    // 3. Then flush pending stdout events (if stdout logging enabled)
     _dispatch_guard: tracing::dispatcher::DefaultGuard,
     _worker_guard: WorkerGuard,
+    _stdout_worker_guard: Option<WorkerGuard>,
 }
 
 impl Drop for LogGuard {
     fn drop(&mut self) {
         // Explicit Drop keeps the contract visible in API/docs.
         // Actual flushing and subscriber teardown happen via field drop order:
-        // _dispatch_guard first, then _worker_guard.
+        // _dispatch_guard first, then _worker_guard, then _stdout_worker_guard.
     }
 }
 
@@ -109,9 +111,11 @@ pub fn init_logging(config: &LoggingConfig) -> Result<LogGuard, LoggingError> {
 
     // Build subscriber with optional stdout layer
     if config.log_to_stdout {
+        let (non_blocking_stdout, stdout_worker_guard) =
+            tracing_appender::non_blocking(std::io::stdout());
         let stdout_layer = fmt::layer()
             .event_format(RedactingJsonFormatter)
-            .with_writer(std::io::stdout)
+            .with_writer(non_blocking_stdout)
             .with_ansi(false);
 
         let subscriber = tracing_subscriber::registry()
@@ -125,6 +129,7 @@ pub fn init_logging(config: &LoggingConfig) -> Result<LogGuard, LoggingError> {
         return Ok(LogGuard {
             _dispatch_guard: dispatch_guard,
             _worker_guard: worker_guard,
+            _stdout_worker_guard: Some(stdout_worker_guard),
         });
     }
 
@@ -139,6 +144,7 @@ pub fn init_logging(config: &LoggingConfig) -> Result<LogGuard, LoggingError> {
     Ok(LogGuard {
         _dispatch_guard: dispatch_guard,
         _worker_guard: worker_guard,
+        _stdout_worker_guard: None,
     })
 }
 
