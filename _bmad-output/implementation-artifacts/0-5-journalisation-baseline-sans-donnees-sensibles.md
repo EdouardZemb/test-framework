@@ -1,6 +1,6 @@
 # Story 0.5: Journalisation baseline sans donnees sensibles
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -103,12 +103,12 @@ so that garantir l'auditabilite minimale des executions des le debut.
 
 ### Review Follow-ups Round 3 (AI)
 
-- [ ] [AI-Review-R3][MEDIUM] M1: Exact-match sensitive field detection misses compound field names — `is_sensitive()` only catches exact names (`token`, `key`, etc.) but NOT `access_token`, `auth_token`, `session_key`, `api_secret`. Consider substring/suffix matching for defense-in-depth [crates/tf-logging/src/redact.rs:56-59]
-- [ ] [AI-Review-R3][MEDIUM] M2: No test for `DirectoryCreationFailed` error path — `init_logging` handles `create_dir_all` failure but no test exercises this code path with an invalid/unwritable directory [crates/tf-logging/src/init.rs:48-52]
-- [ ] [AI-Review-R3][MEDIUM] M3: Public doc of `init_logging` omits thread-local limitation — uses `set_default` (thread-local) so events from other threads/async workers won't be captured. Internal comment exists (line 103) but public doc comment doesn't mention this. Will need addressing before tf-cli integration [crates/tf-logging/src/init.rs:36-45]
-- [ ] [AI-Review-R3][LOW] L1: Float values stored as JSON strings — `record_f64` not overridden in `RedactingVisitor`, floats fall through to `record_debug` and serialize as `Value::String` instead of `Value::Number` [crates/tf-logging/src/redact.rs:76-98]
-- [ ] [AI-Review-R3][LOW] L2: Silent fallback on malformed RUST_LOG — invalid `RUST_LOG` expression silently falls back to config level with no diagnostic warning [crates/tf-logging/src/init.rs:64-66]
-- [ ] [AI-Review-R3][LOW] L3: `looks_like_url` is case-sensitive — won't detect `HTTP://` or `HTTPS://` (valid per RFC 3986) for URL param redaction [crates/tf-logging/src/redact.rs:61-63]
+- [x] [AI-Review-R3][MEDIUM] M1: Exact-match sensitive field detection misses compound field names — `is_sensitive()` only catches exact names (`token`, `key`, etc.) but NOT `access_token`, `auth_token`, `session_key`, `api_secret`. Consider substring/suffix matching for defense-in-depth [crates/tf-logging/src/redact.rs:56-59]
+- [x] [AI-Review-R3][MEDIUM] M2: No test for `DirectoryCreationFailed` error path — `init_logging` handles `create_dir_all` failure but no test exercises this code path with an invalid/unwritable directory [crates/tf-logging/src/init.rs:48-52]
+- [x] [AI-Review-R3][MEDIUM] M3: Public doc of `init_logging` omits thread-local limitation — uses `set_default` (thread-local) so events from other threads/async workers won't be captured. Internal comment exists (line 103) but public doc comment doesn't mention this. Will need addressing before tf-cli integration [crates/tf-logging/src/init.rs:36-45]
+- [x] [AI-Review-R3][LOW] L1: Float values stored as JSON strings — `record_f64` not overridden in `RedactingVisitor`, floats fall through to `record_debug` and serialize as `Value::String` instead of `Value::Number` [crates/tf-logging/src/redact.rs:76-98]
+- [x] [AI-Review-R3][LOW] L2: Silent fallback on malformed RUST_LOG — invalid `RUST_LOG` expression silently falls back to config level with no diagnostic warning [crates/tf-logging/src/init.rs:64-66]
+- [x] [AI-Review-R3][LOW] L3: `looks_like_url` is case-sensitive — won't detect `HTTP://` or `HTTPS://` (valid per RFC 3986) for URL param redaction [crates/tf-logging/src/redact.rs:61-63]
 
 ## Dev Notes
 
@@ -456,7 +456,7 @@ Claude Opus 4.6 (claude-opus-4-6)
 - Task 4: `LoggingConfig::from_project_config` derives log_dir from output_folder with "./logs" fallback; log_to_stdout defaults to false
 - Task 5: `LoggingError` enum with 3 variants and actionable hints; `InvalidLogLevel` returned by `init_logging()` on bad input
 - Task 6: `LogGuard` wraps `WorkerGuard` + `DefaultGuard`; flush-on-drop via WorkerGuard; safe Debug impl
-- Task 7: 44 unit tests + 3 integration tests + 2 doc-tests = 49 tf-logging tests pass; 398 total workspace tests pass with 0 regressions
+- Task 7: 49 unit tests + 3 integration tests + 2 doc-tests = 54 tf-logging tests pass; 403 total workspace tests pass with 0 regressions
 - Review Follow-ups R1: All 11 findings addressed (3 HIGH, 5 MEDIUM, 3 LOW):
   - Implemented `log_to_stdout` stdout layer
   - Added log level validation returning `InvalidLogLevel`
@@ -474,14 +474,21 @@ Claude Opus 4.6 (claude-opus-4-6)
   - M3: Replaced `format!("{}/logs", ...)` with `Path::new(...).join("logs")` to prevent double-slash + added test
   - L1: Simplified `write!` + `writeln!` to single `writeln!`
   - L2: Added `#[non_exhaustive]` to `LoggingError` enum
+- Review Follow-ups R3: All 6 findings addressed (0 HIGH, 3 MEDIUM, 3 LOW):
+  - M1: Added suffix/substring matching to `is_sensitive()` — compound fields like `access_token`, `auth_token`, `session_key`, `api_secret` now detected via `_` and `-` separator suffixes
+  - M2: Added test `test_init_logging_directory_creation_failed` exercising `DirectoryCreationFailed` error path with `/proc/nonexistent/impossible/logs`
+  - M3: Added `# Thread-local limitation` section to `init_logging` public doc comment explaining `set_default` scope and migration path for tf-cli
+  - L1: Implemented `record_f64` override in `RedactingVisitor` — floats now stored as `Value::Number`, NaN/Infinity as `Value::Null`; added test verifying JSON number output
+  - L2: Added diagnostic `eprintln!` when `RUST_LOG` is set but malformed, showing parse error and fallback level
+  - L3: Made `looks_like_url` case-insensitive via `to_ascii_lowercase()`; added test for `HTTP://`, `HTTPS://`, mixed-case schemes
 
 ### File List
 
 **New files:**
 - `crates/tf-logging/Cargo.toml` (19 lines) — crate manifest with workspace dependencies (incl. serde_yaml dev-dep for test config construction)
 - `crates/tf-logging/src/lib.rs` (56 lines) — public API exports + shared test_helpers module
-- `crates/tf-logging/src/init.rs` (454 lines) — logging initialization with log level validation, stdout layer, LogGuard, RAII env guard for RUST_LOG test, unit tests
-- `crates/tf-logging/src/redact.rs` (469 lines) — RedactingJsonFormatter, RedactingVisitor, case-insensitive SENSITIVE_FIELDS matching, span limitation documented, macro-based parameterized tests
+- `crates/tf-logging/src/init.rs` (492 lines) — logging initialization with log level validation, stdout layer, LogGuard, RAII env guard for RUST_LOG test, DirectoryCreationFailed test, thread-local doc, malformed RUST_LOG diagnostic, unit tests
+- `crates/tf-logging/src/redact.rs` (567 lines) — RedactingJsonFormatter, RedactingVisitor with suffix-based compound field detection, record_f64 override, case-insensitive URL detection, span limitation documented, macro-based parameterized tests
 - `crates/tf-logging/src/config.rs` (90 lines) — LoggingConfig struct, from_project_config with Path::join (no double-slash), unit tests
 - `crates/tf-logging/src/error.rs` (105 lines) — LoggingError enum with #[non_exhaustive], InitFailed documented as reserved, unit tests
 - `crates/tf-logging/tests/integration_test.rs` (139 lines) — integration tests
@@ -502,3 +509,4 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Code review Round 2 (AI) — 6 findings (1 HIGH, 3 MEDIUM, 2 LOW). Key issues: `InitFailed` still dead code (R1 incomplete fix), span fields dropped, env var test leakage, path double-slash. Action items added.
 - 2026-02-06: Addressed code review Round 2 findings — 6 items resolved. Documented InitFailed as reserved, documented span field limitation, added RAII EnvGuard for RUST_LOG cleanup, fixed double-slash with Path::join, simplified write calls, added #[non_exhaustive] to LoggingError. 398 total workspace tests pass, 0 regressions.
 - 2026-02-06: Code review Round 3 (AI) — 6 findings (0 HIGH, 3 MEDIUM, 3 LOW). Key issues: exact-match field detection misses compound names, no test for DirectoryCreationFailed path, init_logging doc omits thread-local limitation. Action items added.
+- 2026-02-07: Addressed code review Round 3 findings — 6 items resolved. Added suffix-based compound field detection (access_token, auth_token, etc.), DirectoryCreationFailed test, thread-local limitation doc, record_f64 override for proper JSON numbers, malformed RUST_LOG diagnostic warning, case-insensitive URL detection. 54 tf-logging tests pass (49 unit + 3 integration + 2 doc-tests), 403 total workspace tests pass, 0 regressions.
