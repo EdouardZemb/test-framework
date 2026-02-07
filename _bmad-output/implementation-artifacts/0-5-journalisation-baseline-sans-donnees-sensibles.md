@@ -1,6 +1,6 @@
 # Story 0.5: Journalisation baseline sans donnees sensibles
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -100,6 +100,15 @@ so that garantir l'auditabilite minimale des executions des le debut.
 - [x] [AI-Review-R2][MEDIUM] M3: Double slash possible in `log_dir` — `format!("{}/logs", output_folder)` produces `"/path//logs"` if output_folder has trailing slash. Use `Path::new(output_folder).join("logs")` instead [crates/tf-logging/src/config.rs:26]
 - [x] [AI-Review-R2][LOW] L1: Redundant `write!` + `writeln!` — simplify to single `writeln!(writer, "{}", json_str)?;` [crates/tf-logging/src/redact.rs:201-202]
 - [x] [AI-Review-R2][LOW] L2: No `#[non_exhaustive]` on public `LoggingError` enum — future variant additions would be breaking changes for downstream match expressions [crates/tf-logging/src/error.rs:7]
+
+### Review Follow-ups Round 3 (AI)
+
+- [ ] [AI-Review-R3][MEDIUM] M1: Exact-match sensitive field detection misses compound field names — `is_sensitive()` only catches exact names (`token`, `key`, etc.) but NOT `access_token`, `auth_token`, `session_key`, `api_secret`. Consider substring/suffix matching for defense-in-depth [crates/tf-logging/src/redact.rs:56-59]
+- [ ] [AI-Review-R3][MEDIUM] M2: No test for `DirectoryCreationFailed` error path — `init_logging` handles `create_dir_all` failure but no test exercises this code path with an invalid/unwritable directory [crates/tf-logging/src/init.rs:48-52]
+- [ ] [AI-Review-R3][MEDIUM] M3: Public doc of `init_logging` omits thread-local limitation — uses `set_default` (thread-local) so events from other threads/async workers won't be captured. Internal comment exists (line 103) but public doc comment doesn't mention this. Will need addressing before tf-cli integration [crates/tf-logging/src/init.rs:36-45]
+- [ ] [AI-Review-R3][LOW] L1: Float values stored as JSON strings — `record_f64` not overridden in `RedactingVisitor`, floats fall through to `record_debug` and serialize as `Value::String` instead of `Value::Number` [crates/tf-logging/src/redact.rs:76-98]
+- [ ] [AI-Review-R3][LOW] L2: Silent fallback on malformed RUST_LOG — invalid `RUST_LOG` expression silently falls back to config level with no diagnostic warning [crates/tf-logging/src/init.rs:64-66]
+- [ ] [AI-Review-R3][LOW] L3: `looks_like_url` is case-sensitive — won't detect `HTTP://` or `HTTPS://` (valid per RFC 3986) for URL param redaction [crates/tf-logging/src/redact.rs:61-63]
 
 ## Dev Notes
 
@@ -492,3 +501,4 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-06: Addressed code review findings — 11 items resolved. Implemented stdout layer, log level validation, extracted test helpers, macro-based parameterized tests, case-insensitive field matching, fixed env var race condition, corrected File List and test counts.
 - 2026-02-06: Code review Round 2 (AI) — 6 findings (1 HIGH, 3 MEDIUM, 2 LOW). Key issues: `InitFailed` still dead code (R1 incomplete fix), span fields dropped, env var test leakage, path double-slash. Action items added.
 - 2026-02-06: Addressed code review Round 2 findings — 6 items resolved. Documented InitFailed as reserved, documented span field limitation, added RAII EnvGuard for RUST_LOG cleanup, fixed double-slash with Path::join, simplified write calls, added #[non_exhaustive] to LoggingError. 398 total workspace tests pass, 0 regressions.
+- 2026-02-06: Code review Round 3 (AI) — 6 findings (0 HIGH, 3 MEDIUM, 3 LOW). Key issues: exact-match field detection misses compound names, no test for DirectoryCreationFailed path, init_logging doc omits thread-local limitation. Action items added.
