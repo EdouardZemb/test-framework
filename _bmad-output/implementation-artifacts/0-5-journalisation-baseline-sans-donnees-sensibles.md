@@ -1,6 +1,6 @@
 # Story 0.5: Journalisation baseline sans donnees sensibles
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -118,6 +118,15 @@ so that garantir l'auditabilite minimale des executions des le debut.
 - [x] [AI-Review-R4][LOW] L2: `tests/test_utils.rs` compiled as standalone test binary (0 tests) — move shared test code to `tests/common/mod.rs` per Rust convention [crates/tf-logging/tests/test_utils.rs]
 - [x] [AI-Review-R4][LOW] L3: Free-text message content not scanned for sensitive data — only named fields are redacted; document this limitation in `RedactingJsonFormatter` doc comment [crates/tf-logging/src/redact.rs:91-99]
 - [x] [AI-Review-R4][LOW] L4: ~500 lines of P0 test coverage in tf-security not covered by any story task — documented in File List but no task tracks this scope addition [story scope]
+
+### Review Follow-ups Round 5 (AI)
+
+- [ ] [AI-Review-R5][HIGH] H1: `LogGuard` task claims explicit `Drop` implementation, but no `impl Drop for LogGuard` exists; either implement `Drop` explicitly or adjust task wording to match RAII-only design [crates/tf-logging/src/init.rs:24]
+- [ ] [AI-Review-R5][HIGH] H2: Subtask 2.2 claims JSON output includes spans, but `format_event` explicitly ignores `FmtContext` and drops parent span fields [crates/tf-logging/src/redact.rs:198]
+- [ ] [AI-Review-R5][HIGH] H3: Subtask 7.10 claims full CLI command simulation, but integration tests only emit direct `tracing::info!` events and never execute a CLI command path [crates/tf-logging/tests/integration_test.rs:37]
+- [ ] [AI-Review-R5][HIGH] H4: Story File List claims branch file changes while current git state has no unstaged/staged diffs; this breaks traceability between declared implementation and git evidence [story File List section]
+- [ ] [AI-Review-R5][MEDIUM] M1: `init_logging` remains thread-local (`set_default`), so logs from other threads/async workers are not captured; document operational impact in story acceptance evidence [crates/tf-logging/src/init.rs:52]
+- [ ] [AI-Review-R5][MEDIUM] M2: Story test-count claims are stale versus current workspace run (`cargo test --workspace` now reports 406 passed, 16 ignored) [story Completion Notes section]
 
 ## Dev Notes
 
@@ -529,3 +538,4 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-07: Addressed code review Round 3 findings — 6 items resolved. Added suffix-based compound field detection (access_token, auth_token, etc.), DirectoryCreationFailed test, thread-local limitation doc, record_f64 override for proper JSON numbers, malformed RUST_LOG diagnostic warning, case-insensitive URL detection. 54 tf-logging tests pass (49 unit + 3 integration + 2 doc-tests), 403 total workspace tests pass, 0 regressions.
 - 2026-02-07: Code review Round 4 (AI) — 6 findings (0 HIGH, 2 MEDIUM, 4 LOW). Key issues: LogGuard field drop order may lose late events, no test for numeric/bool sensitive field redaction. Action items added to Tasks/Subtasks.
 - 2026-02-07: Addressed code review Round 4 findings — 6 items resolved. Fixed LogGuard drop order, added numeric/bool redaction test, pre-computed sensitive suffixes, moved test_utils to common/mod.rs, documented message-not-scanned limitation, documented tf-security P0 scope. 55 tf-logging tests, 404 total workspace tests, 0 regressions.
+- 2026-02-07: Code review Round 5 (AI) — 6 findings (4 HIGH, 2 MEDIUM). New action items added to Tasks/Subtasks; story moved to in-progress pending fixes.
