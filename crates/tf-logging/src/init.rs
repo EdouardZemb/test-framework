@@ -29,6 +29,14 @@ pub struct LogGuard {
     _worker_guard: WorkerGuard,
 }
 
+impl Drop for LogGuard {
+    fn drop(&mut self) {
+        // Explicit Drop keeps the contract visible in API/docs.
+        // Actual flushing and subscriber teardown happen via field drop order:
+        // _dispatch_guard first, then _worker_guard.
+    }
+}
+
 impl std::fmt::Debug for LogGuard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Safe Debug impl: never expose internal state or sensitive data

@@ -5,6 +5,7 @@
 
 use serde_json::Value;
 use tracing::{Event, Subscriber};
+use tracing_subscriber::fmt::FormattedFields;
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields};
 use tracing_subscriber::registry::LookupSpan;
@@ -195,15 +196,10 @@ where
 {
     fn format_event(
         &self,
-        _ctx: &FmtContext<'_, S, N>,
+        ctx: &FmtContext<'_, S, N>,
         mut writer: Writer<'_>,
         event: &Event<'_>,
     ) -> std::fmt::Result {
-        // Note: _ctx (FmtContext) is intentionally unused. Span fields from
-        // parent spans (e.g., via #[instrument]) are not included in the JSON
-        // output. This is a known baseline limitation — span field collection
-        // may be added in a future story if needed.
-
         // Collect fields via our redacting visitor
         let mut visitor = RedactingVisitor::new();
         event.record(&mut visitor);
@@ -246,6 +242,35 @@ where
         // Fields
         if !visitor.fields.is_empty() {
             obj.insert("fields".to_string(), Value::Object(visitor.fields));
+        }
+
+        // Parent spans (from root to leaf), when available.
+        if let Some(scope) = ctx.event_scope() {
+            let mut spans = Vec::new();
+            for span in scope.from_root() {
+                let mut span_obj = serde_json::Map::new();
+                span_obj.insert(
+                    "name".to_string(),
+                    Value::String(span.metadata().name().to_string()),
+                );
+
+                let ext = span.extensions();
+                if let Some(fields) = ext.get::<FormattedFields<N>>() {
+                    let rendered = fields.fields.as_str().trim();
+                    if !rendered.is_empty() {
+                        span_obj.insert(
+                            "fields".to_string(),
+                            Value::String(rendered.to_string()),
+                        );
+                    }
+                }
+
+                spans.push(Value::Object(span_obj));
+            }
+
+            if !spans.is_empty() {
+                obj.insert("spans".to_string(), Value::Array(spans));
+            }
         }
 
         let json_str = serde_json::to_string(&obj).map_err(|_| std::fmt::Error)?;
