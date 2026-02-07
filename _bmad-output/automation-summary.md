@@ -1,9 +1,9 @@
 # Automation Summary
 
-**Date:** 2026-02-06
-**Workflow:** testarch-automate (round 4)
+**Date:** 2026-02-07
+**Workflow:** testarch-automate (round 5)
 **Mode:** Standalone / Auto-discover
-**Decision:** COMPLETED - 78 total tests (34 TypeScript + 44 Rust), 44 new Rust tests generated and passing
+**Decision:** COMPLETED - 92 total tests (48 TypeScript + 44 Rust), 14 new TypeScript tests generated and passing
 
 ---
 
@@ -16,10 +16,20 @@ Project `test-framework` is a dual-stack project:
 Round 2 established baseline coverage for factories, recurse fixture, and api-helpers (17 TS tests).
 Round 3 expanded coverage to auth provider pure functions and log fixture (17 new TS tests).
 Round 4 expands Rust workspace coverage: 44 new unit tests across all 3 crates targeting P0/P1 gaps.
+Round 5 expands TypeScript fixture coverage: 14 new unit tests for merged-fixtures composition, apiRequest, authToken, and testUser field validation.
 
 ## Execution Summary
 
-### Round 4 (Rust — Current)
+### Round 5 (TypeScript — Current)
+
+| Step | Status | Details |
+|------|--------|---------|
+| 1. Preflight & Context | Done | Standalone mode, Playwright framework verified, 17 knowledge fragments loaded |
+| 2. Identify Targets | Done | 4 untested components: apiRequest, authToken, merged-fixtures composition, testUser fields |
+| 3. Generate Tests | Done | 14 new tests across 3 files, parallel subprocess execution |
+| 4. Validate & Summarize | Done | 48/48 TypeScript tests passing, zero regressions |
+
+### Round 4 (Rust — Previous)
 
 | Step | Status | Details |
 |------|--------|---------|
@@ -39,7 +49,20 @@ Round 4 expands Rust workspace coverage: 44 new unit tests across all 3 crates t
 
 ## Coverage Plan
 
-### Round 4 — Rust (New)
+### Round 5 — TypeScript (New)
+
+| Priority | Target | Test Level | Tests | Status |
+|----------|--------|------------|-------|--------|
+| P1 | apiRequest fixture — callable function contract | Unit | 1 | PASS |
+| P1 | authToken fixture — string type, stub value | Unit | 2 | PASS |
+| P1 | Merged fixtures exports — test, expect, all 5 fixtures | Unit | 3 | PASS |
+| P1 | testUser via merged-fixtures — required fields, role default, isActive default | Unit | 3 | PASS |
+| P1 | testUser field validation — UUID v4, email format, non-empty name | Unit | 3 | PASS |
+| P2 | testUser uniqueness — factory generates unique IDs | Unit | 1 | PASS |
+| P2 | testUser createdAt — recent Date instance | Unit | 1 | PASS |
+| **Round 5 Total** | | | **14** | **ALL PASS** |
+
+### Round 4 — Rust
 
 | Priority | Crate | Target | Test Level | Tests | Status |
 |----------|-------|--------|------------|-------|--------|
@@ -86,10 +109,18 @@ Round 4 expands Rust workspace coverage: 44 new unit tests across all 3 crates t
 | Priority | TypeScript | Rust | Total |
 |----------|-----------|------|-------|
 | P0 | 8 | 14 | 22 |
-| P1 | 21 | 29 | 50 |
-| P2 | 5 | 1 | 6 |
+| P1 | 33 | 29 | 62 |
+| P2 | 7 | 1 | 8 |
 | P3 | 0 | 0 | 0 |
-| **Total** | **34** | **44** | **78** |
+| **Total** | **48** | **44** | **92** |
+
+## Files Created (Round 5 — TypeScript)
+
+| File | Tests | Description |
+|------|-------|-------------|
+| `tests/unit/fixtures/api-request-fixture.spec.ts` | 3 | apiRequest is a function, authToken string type + stub value |
+| `tests/unit/fixtures/merged-fixtures-composition.spec.ts` | 7 | Module exports, all 5 fixtures accessible, testUser defaults, uniqueness |
+| `tests/unit/fixtures/test-user-fixture.spec.ts` | 4 | UUID v4 format, email format, non-empty name, recent createdAt |
 
 ## Files Modified (Round 4 — Rust)
 
@@ -140,11 +171,11 @@ cargo test --workspace
 
 Command: `cargo test --workspace`
 
-### TypeScript (Rounds 2-3)
+### TypeScript (Rounds 2-5)
 
 ```
-Running 34 tests using 2 workers
-  34 passed (4.5s)
+Running 48 tests using 2 workers
+  48 passed (5.7s)
 ```
 
 Command: `npx playwright test tests/unit/`
@@ -200,6 +231,17 @@ Command: `npx playwright test tests/unit/`
 5. **When API available**: Re-run `testarch-automate` for TypeScript API/integration tests
 
 ## Definition of Done
+
+### Round 5 (TypeScript)
+- [x] Coverage plan created with priorities (P1, P2) for Playwright infrastructure
+- [x] 4 untested components identified (apiRequest, authToken, merged composition, testUser fields)
+- [x] 14 new unit tests generated across 3 files
+- [x] Tests follow existing patterns (merged-fixtures import, Given/When/Then, priority tags)
+- [x] Tests are isolated (no shared state, no network dependency)
+- [x] Tests are deterministic (no timing, no external services)
+- [x] All 48 TypeScript tests passing
+- [x] Zero regressions on full unit test suite
+- [x] Automation summary updated and saved
 
 ### Round 4 (Rust)
 - [x] Coverage plan created with priorities (P0, P1, P2) for 3 Rust crates
