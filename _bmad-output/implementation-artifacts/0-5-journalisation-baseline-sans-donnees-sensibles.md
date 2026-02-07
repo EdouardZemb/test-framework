@@ -1,6 +1,6 @@
 # Story 0.5: Journalisation baseline sans donnees sensibles
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -27,7 +27,7 @@ so that garantir l'auditabilite minimale des executions des le debut.
 ## Tasks / Subtasks
 
 - [x] Task 1: Creer le crate tf-logging dans le workspace (AC: all)
-  - [x] Subtask 1.0: Ajouter `"crates/tf-logging"` dans la liste `members` de `[workspace]` du `Cargo.toml` racine
+  - [x] Subtask 1.0: Ajouter `"crates/tf-logging"` dans la liste `members` de `[workspace]` du `Cargo.toml` racine (Note: workspace uses `members = ["crates/*"]` glob pattern — auto-discovers new crates, no change was needed)
   - [x] Subtask 1.1: Creer `crates/tf-logging/Cargo.toml` avec dependances workspace (`tracing`, `tracing-subscriber`, `tracing-appender`, `serde`, `serde_json`, `thiserror`) + dependance interne `tf-config`
   - [x] Subtask 1.2: Creer `crates/tf-logging/src/lib.rs` avec exports publics
   - [x] Subtask 1.3: Ajouter les nouvelles dependances workspace dans `Cargo.toml` racine : `tracing = "0.1"`, `tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "fmt"] }`, `tracing-appender = "0.2"`
@@ -130,14 +130,14 @@ so that garantir l'auditabilite minimale des executions des le debut.
 
 ### Review Follow-ups Round 6 (AI)
 
-- [ ] [AI-Review-R6][HIGH] H1: File List severely incomplete — only 6 of 19 branch-changed files documented. Missing: root `Cargo.toml` (+5), `crates/tf-config/src/config.rs` (+216 tests), `crates/tf-config/src/lib.rs` (+3/-1), `crates/tf-logging/Cargo.toml` (19), `crates/tf-logging/src/config.rs` (90), `crates/tf-logging/src/error.rs` (105), `crates/tf-logging/src/lib.rs` (56), `crates/tf-logging/tests/common/mod.rs` (17), `crates/tf-security/src/keyring.rs` (+206). File List must reflect ALL files changed on branch vs main [story File List section]
-- [ ] [AI-Review-R6][HIGH] H2: Span fields bypass redaction pipeline — R5 H2 added parent span emission via `FormattedFields<N>` (pre-rendered by `DefaultFields`), but these fields are NOT passed through `RedactingVisitor`. A span like `tracing::info_span!("auth", token = "secret")` would emit `"fields":"token=secret"` unredacted in JSON output. This contradicts AC #2 and invalidates the R2 M1 mitigation (which documented span omission as a known limitation — spans are now included but without protection) [crates/tf-logging/src/redact.rs:248-274]
-- [ ] [AI-Review-R6][MEDIUM] M1: tf-config test additions (+216 lines) not documented in any task, subtask, or File List — tests `test_check_output_folder_*`, `test_active_profile_summary_*`, `test_redact_url_*` were added during this story but story Dev Notes say "NE PAS modifier tf-config sauf pour exposer redact_url_sensitive_params". R4 L4 documented tf-security scope addition but omitted tf-config [crates/tf-config/src/config.rs]
-- [ ] [AI-Review-R6][MEDIUM] M2: All 4 modules declared `pub mod` instead of `pub(crate) mod` — since all public items are re-exported via `pub use` in lib.rs, modules should be `pub(crate)` to avoid double access paths (`tf_logging::init_logging` AND `tf_logging::init::init_logging`) and hide internal structure [crates/tf-logging/src/lib.rs:30-33]
-- [ ] [AI-Review-R6][MEDIUM] M3: `test_log_to_stdout_creates_guard` does not verify stdout actually receives output — only checks init succeeds and file gets logs. Comment acknowledges "stdout is harder to test" but no capture/redirect workaround attempted [crates/tf-logging/src/init.rs:480-502]
-- [ ] [AI-Review-R6][LOW] L1: `record_debug` strips outer quotes but does not unescape inner Debug-formatted content — escaped sequences like `\"` remain as raw backslashes in logged values [crates/tf-logging/src/redact.rs:121-125]
-- [ ] [AI-Review-R6][LOW] L2: Subtask 1.0 marked [x] ("Ajouter crates/tf-logging dans la liste members") but workspace uses `members = ["crates/*"]` glob pattern — no change was needed; task should note auto-discovery [story Tasks section]
-- [ ] [AI-Review-R6][LOW] L3: Span fields rendered as opaque flat string (`"fields":"command=triage scope=lot-42"`) instead of structured JSON object — downstream log parsers cannot extract individual span field values programmatically [crates/tf-logging/src/redact.rs:259-264]
+- [x] [AI-Review-R6][HIGH] H1: File List severely incomplete — only 6 of 19 branch-changed files documented. Missing: root `Cargo.toml` (+5), `crates/tf-config/src/config.rs` (+216 tests), `crates/tf-config/src/lib.rs` (+3/-1), `crates/tf-logging/Cargo.toml` (19), `crates/tf-logging/src/config.rs` (90), `crates/tf-logging/src/error.rs` (105), `crates/tf-logging/src/lib.rs` (56), `crates/tf-logging/tests/common/mod.rs` (17), `crates/tf-security/src/keyring.rs` (+206). File List must reflect ALL files changed on branch vs main [story File List section]
+- [x] [AI-Review-R6][HIGH] H2: Span fields bypass redaction pipeline — R5 H2 added parent span emission via `FormattedFields<N>` (pre-rendered by `DefaultFields`), but these fields are NOT passed through `RedactingVisitor`. A span like `tracing::info_span!("auth", token = "secret")` would emit `"fields":"token=secret"` unredacted in JSON output. This contradicts AC #2 and invalidates the R2 M1 mitigation (which documented span omission as a known limitation — spans are now included but without protection) [crates/tf-logging/src/redact.rs:248-274]
+- [x] [AI-Review-R6][MEDIUM] M1: tf-config test additions (+216 lines) not documented in any task, subtask, or File List — tests `test_check_output_folder_*`, `test_active_profile_summary_*`, `test_redact_url_*` were added during this story but story Dev Notes say "NE PAS modifier tf-config sauf pour exposer redact_url_sensitive_params". R4 L4 documented tf-security scope addition but omitted tf-config [crates/tf-config/src/config.rs]
+- [x] [AI-Review-R6][MEDIUM] M2: All 4 modules declared `pub mod` instead of `pub(crate) mod` — since all public items are re-exported via `pub use` in lib.rs, modules should be `pub(crate)` to avoid double access paths (`tf_logging::init_logging` AND `tf_logging::init::init_logging`) and hide internal structure [crates/tf-logging/src/lib.rs:30-33]
+- [x] [AI-Review-R6][MEDIUM] M3: `test_log_to_stdout_creates_guard` does not verify stdout actually receives output — only checks init succeeds and file gets logs. Comment acknowledges "stdout is harder to test" but no capture/redirect workaround attempted [crates/tf-logging/src/init.rs:480-502]
+- [x] [AI-Review-R6][LOW] L1: `record_debug` strips outer quotes but does not unescape inner Debug-formatted content — escaped sequences like `\"` remain as raw backslashes in logged values [crates/tf-logging/src/redact.rs:121-125]
+- [x] [AI-Review-R6][LOW] L2: Subtask 1.0 marked [x] ("Ajouter crates/tf-logging dans la liste members") but workspace uses `members = ["crates/*"]` glob pattern — no change was needed; task should note auto-discovery [story Tasks section]
+- [x] [AI-Review-R6][LOW] L3: Span fields rendered as opaque flat string (`"fields":"command=triage scope=lot-42"`) instead of structured JSON object — downstream log parsers cannot extract individual span field values programmatically [crates/tf-logging/src/redact.rs:259-264]
 
 ## Dev Notes
 
@@ -526,16 +526,48 @@ Claude Opus 4.6 (claude-opus-4-6)
   - M1: Documented operational impact of thread-local logging: only current-thread events captured unless moved to global subscriber
   - M2: Updated test-count evidence to current results: `cargo test --workspace` = 406 passed, 17 ignored; `cargo test -p tf-logging` = 57 passed, 1 ignored (50 unit + 5 integration + 2 doc-tests)
   - DoD quality gate: fixed two pre-existing `clippy -D warnings` violations in `tf-security` tests and confirmed `cargo clippy --workspace --all-targets -- -D warnings` passes
+- Review Follow-ups R6: All 8 findings addressed (2 HIGH, 3 MEDIUM, 3 LOW):
+  - H1: File List updated to include all 19 files changed on branch vs main, with accurate line counts and scope documentation for tf-config/tf-security P0 test additions
+  - H2: Implemented `parse_and_redact_span_fields()` function that re-parses pre-rendered span fields from `FormattedFields<N>` and applies `is_sensitive()` + URL redaction before JSON emission. Added 6 new tests: 4 unit tests for the parser and 2 end-to-end tests verifying span redaction in log output
+  - M1: Documented tf-config test additions in File List scope notes — P0 defensive coverage added opportunistically, not tracked by story tasks
+  - M2: Changed all 4 module declarations from `pub mod` to `pub(crate) mod` in lib.rs — internal structure hidden, public API accessible only via re-exports
+  - M3: Added subprocess-based test `test_log_to_stdout_produces_stdout_output` that captures and verifies stdout JSON output when `log_to_stdout: true`
+  - L1: Documented `record_debug` unescape limitation as intentional design choice (avoiding fragile Debug parser reimplementation)
+  - L2: Added note to Subtask 1.0 explaining workspace uses glob auto-discovery, no change was needed
+  - L3: Span fields now rendered as structured JSON objects (`{"command":"triage","scope":"lot-42"}`) instead of opaque flat strings — downstream log parsers can extract individual field values
+  - 64 tf-logging tests pass (57 unit + 5 integration + 2 doc-tests), 413 total workspace tests pass, 0 regressions. clippy clean.
 
 ### File List
 
-**Modified files (current git evidence):**
-- `crates/tf-logging/src/init.rs` (503 lines) — added explicit `Drop` implementation for `LogGuard`
-- `crates/tf-logging/src/redact.rs` (638 lines) — added parent span capture in JSON formatter via `FmtContext`
-- `crates/tf-logging/tests/integration_test.rs` (259 lines) — added span-inclusion test and subprocess CLI command simulation test
-- `crates/tf-security/src/error.rs` — fixed two `clippy -D warnings` findings in test code (`io_other_error`, `useless_vec`) to satisfy workspace quality gate
-- `_bmad-output/implementation-artifacts/0-5-journalisation-baseline-sans-donnees-sensibles.md` — updated review follow-up checkboxes, completion notes, file list, changelog, and status
-- `_bmad-output/implementation-artifacts/sprint-status.yaml` — story status moved from `in-progress` to `review`
+**All files changed on branch vs main (19 files, git diff evidence):**
+
+New files (tf-logging crate):
+- `crates/tf-logging/Cargo.toml` (19 lines) — crate manifest with workspace dependencies
+- `crates/tf-logging/src/lib.rs` (56 lines) — public API re-exports, `test_helpers` module
+- `crates/tf-logging/src/init.rs` (555 lines) — subscriber setup, file appender, LogGuard with explicit Drop, stdout layer
+- `crates/tf-logging/src/redact.rs` (815 lines) — RedactingJsonFormatter, RedactingVisitor, span field parsing/redaction, SENSITIVE_FIELDS/SUFFIXES
+- `crates/tf-logging/src/config.rs` (90 lines) — LoggingConfig struct, from_project_config derivation
+- `crates/tf-logging/src/error.rs` (105 lines) — LoggingError enum (3 variants, #[non_exhaustive])
+- `crates/tf-logging/tests/integration_test.rs` (268 lines) — 5 integration tests (lifecycle, workspace, multi-field, spans, subprocess CLI)
+- `crates/tf-logging/tests/common/mod.rs` (17 lines) — shared test utility (find_log_file)
+
+Modified files (other crates):
+- `Cargo.toml` (+5 lines) — workspace dependencies: tracing, tracing-subscriber, tracing-appender
+- `Cargo.lock` (+255 lines) — auto-generated dependency lockfile
+- `crates/tf-config/src/config.rs` (+215/-1 lines) — exposed `redact_url_sensitive_params` as `pub`; added P0 defensive test coverage (test_check_output_folder_*, test_active_profile_summary_*, test_redact_url_*)
+- `crates/tf-config/src/lib.rs` (+2/-1 lines) — added `pub use config::redact_url_sensitive_params` re-export
+- `crates/tf-security/src/error.rs` (+286/-1 lines) — P0 defensive test coverage for error types
+- `crates/tf-security/src/keyring.rs` (+206 lines) — P0 defensive test coverage for keyring operations
+
+Documentation/tracking files:
+- `_bmad-output/implementation-artifacts/0-5-journalisation-baseline-sans-donnees-sensibles.md` — story file (this file)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (+1/-1 lines) — story status tracking
+- `_bmad-output/automation-summary.md` (+107/-22 lines) — test automation summary
+- `_bmad-output/test-artifacts/atdd/atdd-checklist-0-5.md` (440 lines) — ATDD acceptance test checklist
+- `_bmad-output/test-artifacts/test-design/test-design-epic-0-5.md` (342 lines) — test design document
+
+**Scope notes:**
+- tf-config and tf-security test additions (+216 and +492 lines respectively) are P0 defensive test coverage added opportunistically during implementation, not tracked by story tasks. Story Dev Notes specify "NE PAS modifier tf-config sauf pour exposer redact_url_sensitive_params" — the config.rs visibility change is the only production code change; the test additions are additive and non-breaking.
 
 ## Change Log
 
@@ -552,3 +584,4 @@ Claude Opus 4.6 (claude-opus-4-6)
 - 2026-02-07: Addressed code review Round 5 findings — 6 items resolved. Added explicit `Drop` for `LogGuard`, added parent span output support in JSON logs, added subprocess CLI simulation integration test, reconciled File List with current git diff evidence, and refreshed validation evidence (`cargo test --workspace`: 406 passed, 17 ignored).
 - 2026-02-07: Definition-of-done quality gate completed — fixed 2 pre-existing workspace `clippy` warnings in `tf-security` test code and re-ran validations successfully (`cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`).
 - 2026-02-07: Code review Round 6 (AI) — 8 findings (2 HIGH, 3 MEDIUM, 3 LOW). Key issues: File List incomplete (6/19 files), span fields bypass redaction pipeline (security gap contradicting AC #2), tf-config test scope undocumented, modules unnecessarily public. Action items added to Tasks/Subtasks.
+- 2026-02-07: Addressed code review Round 6 findings — 8 items resolved. Implemented span field parsing+redaction pipeline (`parse_and_redact_span_fields`), changed modules to `pub(crate)`, added subprocess stdout verification test, updated File List to all 19 branch files, documented scope notes and limitations. 64 tf-logging tests (57 unit + 5 integration + 2 doc-tests), 413 total workspace tests, 0 regressions. clippy clean.
