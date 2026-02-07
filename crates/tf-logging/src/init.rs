@@ -70,14 +70,17 @@ pub fn init_logging(config: &LoggingConfig) -> Result<LogGuard, LoggingError> {
         hint: "Verify permissions on the parent directory or set a different output_folder in config.yaml".to_string(),
     })?;
 
-    // Validate log level before building filter
-    const VALID_LEVELS: &[&str] = &["trace", "debug", "info", "warn", "error"];
-    if !VALID_LEVELS.contains(&config.log_level.to_lowercase().as_str()) {
-        return Err(LoggingError::InvalidLogLevel {
-            level: config.log_level.clone(),
-            hint: "Valid levels are: trace, debug, info, warn, error. Set via RUST_LOG env var (or future dedicated logging config when available).".to_string(),
-        });
-    }
+    // Validate log level / filter expression before building subscriber.
+    // Supports both simple levels ("info", "debug") and full EnvFilter expressions
+    // ("info,tf_logging=debug") for fine-grained per-module control.
+    EnvFilter::try_new(&config.log_level).map_err(|e| LoggingError::InvalidLogLevel {
+        level: config.log_level.clone(),
+        hint: format!(
+            "Valid values: a level (trace, debug, info, warn, error) or a filter expression \
+             (e.g. \"info,tf_logging=debug\"). Parse error: {e}. \
+             Set via config or RUST_LOG env var for diagnostics."
+        ),
+    })?;
 
     // Build EnvFilter: RUST_LOG takes priority, otherwise use config.log_level
     let filter = match EnvFilter::try_from_default_env() {
@@ -454,26 +457,62 @@ mod tests {
         });
     }
 
-    // Test [AI-Review]: invalid log level returns InvalidLogLevel error
+    // Test [AI-Review]: invalid filter expression returns InvalidLogLevel error.
+    // Note: EnvFilter is very permissive — bare words like "invalid_level" are
+    // accepted as target name filters. Only syntactically malformed expressions
+    // (e.g. unclosed brackets, bare `=`) are rejected.
     #[test]
-    fn test_invalid_log_level_returns_error() {
+    fn test_invalid_filter_expression_returns_error() {
         let temp = tempdir().unwrap();
         let log_dir = temp.path().join("logs");
 
         let config = LoggingConfig {
-            log_level: "invalid_level".to_string(),
+            log_level: "[{invalid".to_string(),
             log_dir: log_dir.to_string_lossy().to_string(),
             log_to_stdout: false,
         };
 
         let result = init_logging(&config);
-        assert!(result.is_err(), "Invalid log level should return an error");
+        assert!(result.is_err(), "Malformed filter expression should return an error");
 
         let err = result.unwrap_err();
         assert_matches!(err, LoggingError::InvalidLogLevel { ref level, ref hint } => {
-            assert_eq!(level, "invalid_level");
-            assert!(hint.contains("Valid levels are"), "Hint should list valid levels");
+            assert_eq!(level, "[{invalid");
+            assert!(hint.contains("Valid values"), "Hint should explain valid formats");
         });
+    }
+
+    // Test [AI-Review-R7 M1]: full EnvFilter expressions are accepted
+    #[test]
+    fn test_complex_filter_expression_accepted() {
+        let temp = tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+
+        let config = LoggingConfig {
+            log_level: "info,tf_logging=debug".to_string(),
+            log_dir: log_dir.to_string_lossy().to_string(),
+            log_to_stdout: false,
+        };
+
+        let guard = init_logging(&config);
+        assert!(guard.is_ok(), "Complex filter expression should be accepted");
+
+        // Verify debug events from tf_logging target pass the filter
+        tracing::debug!(target: "tf_logging", "debug from tf_logging target");
+        // Verify debug events from other targets are filtered out
+        tracing::debug!(target: "other_crate", "debug from other target");
+        tracing::info!(target: "other_crate", "info from other target");
+
+        drop(guard.unwrap());
+
+        let log_file = find_log_file(&log_dir);
+        let content = fs::read_to_string(&log_file).unwrap();
+        assert!(content.contains("debug from tf_logging target"),
+                "tf_logging debug should pass with 'info,tf_logging=debug' filter");
+        assert!(!content.contains("debug from other target"),
+                "other_crate debug should be filtered out");
+        assert!(content.contains("info from other target"),
+                "other_crate info should pass the base info filter");
     }
 
     // Test [AI-Review]: log_to_stdout=true creates stdout layer and emits to file

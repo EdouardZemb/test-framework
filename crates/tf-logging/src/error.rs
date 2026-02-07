@@ -87,14 +87,14 @@ mod tests {
     fn test_logging_error_invalid_log_level_has_actionable_hint() {
         let error = LoggingError::InvalidLogLevel {
             level: "invalid_level".to_string(),
-            hint: "Valid levels are: trace, debug, info, warn, error. Set via RUST_LOG env var (or future dedicated logging config when available).".to_string(),
+            hint: "Valid values: a level (trace, debug, info, warn, error) or a filter expression (e.g. \"info,tf_logging=debug\"). Set via config or RUST_LOG env var for diagnostics.".to_string(),
         };
 
         let display = error.to_string();
 
         assert!(display.contains("invalid_level"), "Display missing level");
         assert!(
-            display.contains("Valid levels are: trace, debug, info, warn, error"),
+            display.contains("Valid values"),
             "Display missing actionable hint"
         );
 

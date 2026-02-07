@@ -329,15 +329,16 @@ fn parse_and_redact_span_fields(rendered: &str) -> serde_json::Map<String, Value
             }
         };
 
-        // Apply redaction
-        let redacted = if RedactingVisitor::is_sensitive(key) {
-            "[REDACTED]".to_string()
+        // Apply redaction and preserve JSON types where possible
+        let value = if RedactingVisitor::is_sensitive(key) {
+            Value::String("[REDACTED]".to_string())
         } else if RedactingVisitor::looks_like_url(value_str) {
-            tf_config::redact_url_sensitive_params(value_str)
+            Value::String(tf_config::redact_url_sensitive_params(value_str))
         } else {
-            value_str.to_string()
+            // Try to preserve numeric/bool types from bare (unquoted) values
+            parse_typed_value(value_str)
         };
-        result.insert(key.to_string(), Value::String(redacted));
+        result.insert(key.to_string(), value);
 
         remaining = rest;
     }
@@ -403,6 +404,36 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
     let y = if m <= 2 { y + 1 } else { y };
 
     (y, m, d)
+}
+
+/// Attempt to parse a bare (unquoted) span field value into its JSON type.
+/// - Integers → `Value::Number`
+/// - `true`/`false` → `Value::Bool`
+/// - Everything else → `Value::String`
+///
+/// Quoted values (already stripped of quotes by the caller) are always treated
+/// as strings since `DefaultFields` quotes string-typed span fields.
+fn parse_typed_value(s: &str) -> Value {
+    if s == "true" {
+        return Value::Bool(true);
+    }
+    if s == "false" {
+        return Value::Bool(false);
+    }
+    // Try integer first (most common numeric span field type)
+    if let Ok(n) = s.parse::<i64>() {
+        return Value::Number(n.into());
+    }
+    if let Ok(n) = s.parse::<u64>() {
+        return Value::Number(n.into());
+    }
+    // Try float
+    if let Ok(f) = s.parse::<f64>() {
+        if let Some(n) = serde_json::Number::from_f64(f) {
+            return Value::Number(n);
+        }
+    }
+    Value::String(s.to_string())
 }
 
 #[cfg(test)]
@@ -738,8 +769,8 @@ mod tests {
     fn test_parse_and_redact_span_fields_bare_values() {
         let rendered = "count=42 enabled=true";
         let result = parse_and_redact_span_fields(rendered);
-        assert_eq!(result.get("count").unwrap(), "42");
-        assert_eq!(result.get("enabled").unwrap(), "true");
+        assert_eq!(result.get("count").unwrap(), 42);
+        assert_eq!(result.get("enabled").unwrap(), true);
     }
 
     #[test]
@@ -757,6 +788,55 @@ mod tests {
         let result = parse_and_redact_span_fields(rendered);
         assert_eq!(result.get("access_token").unwrap(), "[REDACTED]");
         assert_eq!(result.get("scope").unwrap(), "lot-42");
+    }
+
+    // Test [AI-Review-R7 M3]: span fields preserve numeric and boolean types
+    #[test]
+    fn test_parse_and_redact_span_fields_preserves_types() {
+        let rendered = "count=42 enabled=true ratio=3.14 name=\"alice\"";
+        let result = parse_and_redact_span_fields(rendered);
+        assert!(result.get("count").unwrap().is_number(),
+            "Integer span field should be parsed as JSON number");
+        assert_eq!(result.get("count").unwrap(), 42);
+        assert!(result.get("enabled").unwrap().is_boolean(),
+            "Boolean span field should be parsed as JSON boolean");
+        assert_eq!(result.get("enabled").unwrap(), true);
+        assert!(result.get("ratio").unwrap().is_number(),
+            "Float span field should be parsed as JSON number");
+        assert!(result.get("name").unwrap().is_string(),
+            "Quoted span field should remain a JSON string");
+        assert_eq!(result.get("name").unwrap(), "alice");
+    }
+
+    // Test [AI-Review-R7 M3]: span typed fields in full log output
+    #[test]
+    fn test_span_typed_fields_in_log_output() {
+        let temp = tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+        let config = LoggingConfig {
+            log_level: "info".to_string(),
+            log_dir: log_dir.to_string_lossy().to_string(),
+            log_to_stdout: false,
+        };
+        let guard = init_logging(&config).unwrap();
+        let span = tracing::info_span!("batch", count = 42_i64, active = true);
+        let _entered = span.enter();
+        tracing::info!("typed span fields test");
+        drop(_entered);
+        drop(guard);
+        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
+        let line = content.lines().last().unwrap();
+        let json: serde_json::Value = serde_json::from_str(line).unwrap();
+        let spans = json.get("spans").and_then(|v| v.as_array())
+            .expect("Expected 'spans' array");
+        let span_obj = &spans[0];
+        let fields = span_obj.get("fields").expect("Expected 'fields' in span");
+        let count = fields.get("count").expect("Missing count field");
+        let active = fields.get("active").expect("Missing active field");
+        assert!(count.is_number(), "count should be a JSON number, got: {count}");
+        assert_eq!(count, 42);
+        assert!(active.is_boolean(), "active should be a JSON boolean, got: {active}");
+        assert_eq!(active, true);
     }
 
     // Test [AI-Review-R6 H2]: span fields with sensitive data are redacted in log output
@@ -780,6 +860,36 @@ mod tests {
                 "Span sensitive field 'token' value should be redacted in log output");
         assert!(content.contains("[REDACTED]"),
                 "Span field should show [REDACTED]");
+    }
+
+    // Test [AI-Review-R7 M2]: free-text message is NOT scanned for secrets
+    // This test documents the known limitation and serves as a guardrail reminder:
+    // callers MUST use named fields (e.g., `token = "x"`) for sensitive data,
+    // never embed secrets in the message format string.
+    #[test]
+    fn test_free_text_message_not_scanned_for_secrets() {
+        let temp = tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+        let config = LoggingConfig {
+            log_level: "info".to_string(),
+            log_dir: log_dir.to_string_lossy().to_string(),
+            log_to_stdout: false,
+        };
+        let guard = init_logging(&config).unwrap();
+        // WRONG pattern (do not do this!): secret embedded in message text
+        // This test proves the limitation exists and is documented.
+        tracing::info!("Connecting to service with token=secret_in_message_abc");
+        // CORRECT pattern: secret in a named field (gets redacted)
+        tracing::info!(token = "secret_in_field_xyz", "Connecting to service");
+        drop(guard);
+        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
+        // Named field IS redacted (correct behavior)
+        assert!(!content.contains("secret_in_field_xyz"),
+                "Named field secret should be redacted");
+        // Free-text message is NOT scanned (known limitation, documented)
+        assert!(content.contains("secret_in_message_abc"),
+                "Free-text message is NOT scanned — this is a documented limitation. \
+                 Callers must use named fields for sensitive data.");
     }
 
     // Test [AI-Review-R6 L3]: span fields rendered as structured JSON, not opaque string
