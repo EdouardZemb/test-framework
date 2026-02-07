@@ -1,9 +1,9 @@
-# Test Quality Review: Full Test Suite
+# Test Quality Review: Rust Test Suite (tf-config, tf-logging, tf-security)
 
-**Quality Score**: 80/100 (B - Good)
-**Review Date**: 2026-02-06
-**Review Scope**: suite (7 files, 756 lines, 42 tests)
-**Reviewer**: TEA Agent
+**Quality Score**: 81/100 (B - Good)
+**Review Date**: 2026-02-07
+**Review Scope**: suite (all Rust tests across 3 crates, 14 files, 410 tests)
+**Reviewer**: TEA Agent (Test Architect)
 
 ---
 
@@ -17,396 +17,350 @@ Note: This review audits existing tests; it does not generate tests.
 
 ### Key Strengths
 
-- Excellent test isolation (100/100) - proper env var restoration, console spy cleanup, factory-based unique data
-- No hard waits detected - zero instances of `waitForTimeout()` or `sleep()`
-- Good fixture architecture - `mergeTests` composition with `@seontechnologies/playwright-utils`
-- Proper Given/When/Then BDD format in comments across most tests
-- Well-organized test structure with proper `test.describe` grouping
+- Excellent test isolation using thread-local `set_default` for tracing subscribers and `tempfile::tempdir()` for filesystem operations
+- Comprehensive sensitive field redaction coverage (12/12 fields individually tested with macro-generated tests)
+- Zero `thread::sleep` or hard waits across the entire test suite
+- Smart subprocess pattern for stdout capture tests with `#[ignore]` + env-var guard
+- All acceptance criteria from Story 0-5 thoroughly covered with depth (14/14 test-design scenarios implemented)
 
 ### Key Weaknesses
 
-- Determinism concerns (65/100) - `Date.now()` used without mocking in 7 locations
-- Missing standardized test IDs across all 7 files
-- Coverage gaps - `seedUser`, `deleteUser`, and `manageAuthToken` functions untested
-- 3 files exceed 100-line recommendation (up to 184 lines)
-- 9 out of 42 tests are skipped (`test.skip`)
+- tf-config/src/config.rs has a 3231-line monolithic test module organized by review rounds rather than by functionality
+- Massive copy-paste duplication of the YAML-load-assert-error pattern (~80+ nearly identical tests without parameterization)
+- Several test modules exceed the 300-line threshold (config.rs: 3231, keyring.rs: 641, redact.rs: 486)
+- Inconsistent temp file management: 6 tests use manual `std::fs::write` + cleanup instead of the `create_temp_config()` helper
 
 ### Summary
 
-The test suite demonstrates solid engineering fundamentals with excellent isolation patterns and no hard waits. The framework scaffold uses `@seontechnologies/playwright-utils` correctly with proper fixture composition. The main concerns are: (1) timing-dependent assertions using `Date.now()` that could cause CI flakiness, (2) missing test IDs and incomplete priority markers, and (3) several utility functions without test coverage. The skipped E2E tests are acceptable for a framework scaffold awaiting a real application, but the unit tests for infrastructure code should be more comprehensive. Overall, the codebase is production-ready for a framework scaffold with the recommended improvements.
+The Rust test suite demonstrates excellent quality in correctness-oriented dimensions (determinism, isolation, coverage) with scores of 89, 91, and 90 respectively. Performance is also strong at 88. The weak point is maintainability at 45/100, driven almost entirely by the monolithic tf-config test module. This single module (3231 lines, 211 tests organized by AI review round numbers) accounts for over half of all test code and suffers from extreme duplication that would be eliminated by a parameterized test macro -- a pattern already successfully used in redact.rs. The test suite is production-ready and all tests pass, but the maintainability debt in tf-config will become increasingly costly as the codebase grows.
 
 ---
 
 ## Quality Criteria Assessment
 
-| Criterion                            | Status    | Violations | Notes                                           |
-| ------------------------------------ | --------- | ---------- | ----------------------------------------------- |
-| BDD Format (Given-When-Then)         | PASS      | 0          | Most tests use G/W/T comments                   |
-| Test IDs                             | FAIL      | 7          | No files use standardized IDs                   |
-| Priority Markers (P0/P1/P2/P3)       | WARN      | 5          | Only 2 files have consistent markers            |
-| Hard Waits (sleep, waitForTimeout)   | PASS      | 0          | No hard waits detected anywhere                 |
-| Determinism (no conditionals)        | WARN      | 7          | Date.now() without mocking in 3 files           |
-| Isolation (cleanup, no shared state) | PASS      | 0          | Excellent isolation patterns                    |
-| Fixture Patterns                     | PASS      | 0          | Proper mergeTests composition                   |
-| Data Factories                       | PASS      | 0          | createUser/createAdminUser/createInactiveUser   |
-| Network-First Pattern                | PASS      | 0          | E2E examples show correct interception pattern  |
-| Explicit Assertions                  | PASS      | 0          | All assertions in test bodies, not helpers      |
-| Test Length (<=300 lines)            | PASS      | 0          | All files under 300 lines (max: 184)            |
-| Test Duration (<=1.5 min)            | PASS      | 0          | Unit tests execute in milliseconds              |
-| Flakiness Patterns                   | WARN      | 5          | Timing assertions with tight tolerance ranges   |
+| Criterion | Status | Violations | Notes |
+|-----------|--------|------------|-------|
+| Test Naming (Descriptive) | ⚠️ WARN | 4 | Some generic names (test_valid_url_helper) mixed with descriptive behavioral names |
+| Test IDs | ✅ PASS | 0 | tf-logging uses 0.5-UNIT-xxx / 0.5-INT-xxx IDs per test-design |
+| Priority Markers (P0/P1/P2) | ✅ PASS | 0 | All 14 scenarios from test-design have priority markers |
+| Hard Waits (thread::sleep) | ✅ PASS | 0 | Zero instances across entire codebase |
+| Determinism | ✅ PASS | 6 | Timestamp-based unique IDs (4), env var mutation (1), OS-specific path (1) |
+| Isolation | ✅ PASS | 5 | Env var mutation mitigated with Mutex+RAII (1), keyring cleanup on panic (4) |
+| Fixture Patterns (tempdir/helpers) | ⚠️ WARN | 8 | 6 tests use inconsistent manual temp file management |
+| Data Factories (helpers/macros) | ⚠️ WARN | 4 | Missing helpers for repeated ProjectConfig and LoggingConfig construction |
+| Network-First Pattern | N/A | 0 | Not applicable to Rust unit/integration tests |
+| Explicit Assertions | ✅ PASS | 0 | All tests use explicit assert!, assert_eq!, assert_matches! |
+| Test Length (<=300 lines/module) | ❌ FAIL | 4 | config.rs: 3231, keyring.rs: 641, redact.rs: 486, init.rs: 450 |
+| Test Duration (<=1.5 min) | ✅ PASS | 0 | Full suite runs in ~1.5s for 407 tests |
+| Flakiness Patterns | ✅ PASS | 0 | No timing-dependent assertions, no random data without seeds |
 
-**Total Violations**: 6 Critical, 14 High, 16 Medium
+**Total Violations**: 8 HIGH, 20 MEDIUM, 20 LOW
 
 ---
 
 ## Quality Score Breakdown
 
+### Weighted Dimension Scores
+
 ```
-Weighted Dimension Scores:
-  Determinism (25%):      65/100 = 16.25 pts
-  Isolation (25%):       100/100 = 25.00 pts
-  Maintainability (20%):  74/100 = 14.80 pts
-  Coverage (15%):         72/100 = 10.80 pts
-  Performance (15%):      85/100 = 12.75 pts
-                         --------
-Weighted Total:           79.60 -> 80/100
-
-Bonus Points:
-  Excellent BDD:         +0 (partial - not all tests)
-  Comprehensive Fixtures: +0 (good but not all tested)
-  Data Factories:        +0 (good but no P0 marker)
-  Network-First:         +0 (only in skipped tests)
-  Perfect Isolation:     +5
-  All Test IDs:          +0 (none present)
-                         --------
-Total Bonus:             +5
-
-Final Score:             80/100
-Grade:                   B (Good)
+Dimension        Score   Weight   Contribution
+--------------------------------------------
+Determinism:     89/100  x 25%  = 22.25
+Isolation:       91/100  x 25%  = 22.75
+Maintainability: 45/100  x 20%  =  9.00
+Coverage:        90/100  x 15%  = 13.50
+Performance:     88/100  x 15%  = 13.20
+                                  ------
+Overall Score:                    80.70 -> 81/100
+Grade:                            B (Good)
 ```
 
 ---
 
 ## Critical Issues (Must Fix)
 
-### 1. Untested seedUser/deleteUser Helper Functions
+### 1. Monolithic Test Module in tf-config (3231 lines)
 
 **Severity**: P0 (Critical)
-**Location**: `tests/support/helpers/api-helpers.ts:16-55`
-**Criterion**: Coverage
-**Knowledge Base**: [data-factories.md](../_bmad/tea/testarch/knowledge/data-factories.md)
+**Location**: `crates/tf-config/src/config.rs:2003-5233`
+**Criterion**: Test Length / Maintainability
+**Knowledge Base**: [test-quality.md](_bmad/tea/testarch/knowledge/test-quality.md)
 
 **Issue Description**:
-The `seedUser` and `deleteUser` functions are critical test infrastructure used by E2E tests to seed and cleanup data. They have zero test coverage. If these functions break silently, all E2E tests that depend on them will produce false passes or mysterious failures.
-
-**Recommended Fix**:
-
-```typescript
-// tests/unit/helpers/seed-delete-user.spec.ts
-import { test, expect } from '@playwright/test';
-import { seedUser, deleteUser } from '../../support/helpers/api-helpers';
-import { createUser } from '../../support/factories';
-
-// Mock APIRequestContext
-const mockRequest = {
-  post: async (url: string, options: any) => ({
-    ok: () => true,
-    status: () => 201,
-    json: async () => ({ ...options.data, id: 'created-id' }),
-  }),
-  delete: async (url: string) => ({
-    ok: () => true,
-    status: () => 204,
-  }),
-} as any;
-
-test.describe('seedUser', () => {
-  test('[P0] should create user via API and return user object', async () => {
-    const user = await seedUser(mockRequest);
-    expect(user.id).toBeDefined();
-    expect(user.email).toBeDefined();
-  });
-
-  test('[P0] should throw on API failure', async () => {
-    const failingRequest = {
-      post: async () => ({ ok: () => false, status: () => 500, text: async () => 'Server Error' }),
-    } as any;
-    await expect(seedUser(failingRequest)).rejects.toThrow();
-  });
-});
-```
-
-**Why This Matters**:
-These are foundational infrastructure functions. A regression here cascades to every E2E test.
-
----
-
-### 2. Timing-Dependent Assertions Risk CI Flakiness
-
-**Severity**: P0 (Critical)
-**Location**: `tests/unit/fixtures/recurse.spec.ts:54-66`, `tests/unit/helpers/api-helpers.spec.ts:46-64`
-**Criterion**: Determinism
-**Knowledge Base**: [timing-debugging.md](../_bmad/tea/testarch/knowledge/timing-debugging.md)
-
-**Issue Description**:
-Tests measure elapsed time with `Date.now()` and assert tight tolerances (`expect(elapsed).toBeGreaterThanOrEqual(250)` and `expect(elapsed).toBeLessThan(600)`). On slow CI runners, garbage collection pauses, or under load, these timing assertions will produce intermittent failures.
+The test module in config.rs spans 3231 lines with 211 tests -- over 10x the recommended 300-line threshold. Navigation, comprehension, and targeted maintenance are severely impaired. Tests are organized by AI review round numbers (Reviews 5-23) rather than by functional area.
 
 **Current Code**:
 
-```typescript
-// recurse.spec.ts:54-66
-test('respects custom timeout option', async ({ recurse }) => {
-  const start = Date.now();
-  await expect(
-    recurse(async () => 'pending', (v) => v === 'done', { timeout: 300, interval: 50 }),
-  ).rejects.toThrow(/300ms/);
-  const elapsed = Date.now() - start;
-  expect(elapsed).toBeGreaterThanOrEqual(250);  // Flaky on slow CI
-  expect(elapsed).toBeLessThan(600);             // Flaky under load
-});
+```rust
+// === REVIEW 5 TESTS ===
+#[test]
+fn test_path_traversal_rejected() { ... }
+
+// === REVIEW 6 TESTS: IPv6 URL validation ===
+#[test]
+fn test_ipv6_url_valid() { ... }
+
+// === REVIEW 12 TESTS: Boolean type errors, URL sensitive params ===
+#[test]
+fn test_redact_url_sensitive_params_token() { ... }
 ```
 
 **Recommended Fix**:
 
-```typescript
-test('respects custom timeout option', async ({ recurse }) => {
-  const start = Date.now();
-  await expect(
-    recurse(async () => 'pending', (v) => v === 'done', { timeout: 300, interval: 50 }),
-  ).rejects.toThrow(/300ms/);
-  const elapsed = Date.now() - start;
-  // Wider tolerance for CI environments
-  expect(elapsed).toBeGreaterThanOrEqual(200);
-  expect(elapsed).toBeLessThan(2000);
-});
+Split into sub-modules organized by functionality:
+
+```rust
+#[cfg(test)]
+mod tests {
+    mod url_validation;        // ~50 tests: URL scheme, IPv6, whitespace
+    mod path_validation;       // ~30 tests: traversal, null bytes, formats
+    mod serde_errors;          // ~40 tests: type errors, missing fields
+    mod llm_config;            // ~25 tests: cloud mode, local mode, defaults
+    mod redact_url;            // ~30 tests: URL parameter redaction
+    mod config_loading;        // ~15 tests: load_config, fixtures
+    mod profile_summary;       // ~10 tests: active_profile_summary, check_output_folder
+    mod helpers;               // create_temp_config, common assertions
+}
 ```
 
 **Why This Matters**:
-Timing-based assertions are the #1 cause of flaky tests in CI pipelines. Wider tolerances maintain the intent (verify timeout works) without false failures.
+Finding all URL validation tests requires searching through 18+ review-round sections scattered across 3231 lines. A developer adding a new URL validation rule cannot determine if a similar test already exists without reading the entire file.
 
-**Related Violations**:
-Same pattern in `api-helpers.spec.ts:46-64` (lines 46, 58)
+---
+
+### 2. Extreme Copy-Paste Duplication Without Parameterization
+
+**Severity**: P0 (Critical)
+**Location**: `crates/tf-config/src/config.rs:2283-5007`
+**Criterion**: Maintainability / DRY
+**Knowledge Base**: [test-quality.md](_bmad/tea/testarch/knowledge/test-quality.md)
+
+**Issue Description**:
+At least 80+ tests follow the identical pattern: construct YAML string, call `create_temp_config()`, call `load_config()`, assert error contains specific strings. No parameterized test macro is used, unlike `redact.rs` which correctly uses `macro_rules!`.
+
+**Current Code**:
+
+```rust
+// Repeated 80+ times with only YAML content and assertion strings changing:
+#[test]
+fn test_url_scheme_only_rejected() {
+    let yaml = "project_name: \"test\"\noutput_folder: \"./out\"\njira:\n  endpoint: \"http://\"";
+    let result = load_config(&create_temp_config(yaml));
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("URL"), "Expected URL error: {}", err);
+}
+```
+
+**Recommended Fix**:
+
+```rust
+macro_rules! test_config_rejects {
+    ($name:ident, $yaml:expr, $($expected:expr),+) => {
+        #[test]
+        fn $name() {
+            let result = load_config(&create_temp_config($yaml));
+            assert!(result.is_err(), "Expected config rejection for {}", stringify!($name));
+            let err = result.unwrap_err().to_string();
+            $(
+                assert!(err.contains($expected),
+                    "Error should contain '{}': got '{}'", $expected, err);
+            )+
+        }
+    };
+}
+
+test_config_rejects!(test_url_scheme_only_rejected,
+    "project_name: \"test\"\noutput_folder: \"./out\"\njira:\n  endpoint: \"http://\"",
+    "URL"
+);
+```
+
+**Why This Matters**:
+This would eliminate ~2000 lines of boilerplate, making the test module 40% smaller and much easier to navigate.
+
+---
+
+### 3. Review-Round Organization Instead of Functional Grouping
+
+**Severity**: P1 (High)
+**Location**: `crates/tf-config/src/config.rs` (18+ section headers), `crates/tf-config/tests/profile_tests.rs`
+**Criterion**: Maintainability
+**Knowledge Base**: [test-quality.md](_bmad/tea/testarch/knowledge/test-quality.md)
+
+**Issue Description**:
+Tests are organized by when they were written ("Review 5", "Review 12", "Review 23") rather than by what they test. URL validation tests are scattered across Reviews 5, 6, 9, 12, 13, 14, 18, 22, and 23. This makes it impossible to understand the full test coverage for any single feature without reading the entire file.
+
+**Recommended Fix**:
+Replace `=== REVIEW N TESTS ===` headers with functional groupings:
+- `=== URL Validation ===`
+- `=== Path Traversal Protection ===`
+- `=== Cloud Mode Requirements ===`
+- `=== Serde Error Messages ===`
 
 ---
 
 ## Recommendations (Should Fix)
 
-### 1. Add Standardized Test IDs to All Files
-
-**Severity**: P1 (High)
-**Location**: All 7 test files
-**Criterion**: Maintainability / Traceability
-**Knowledge Base**: [test-levels-framework.md](../_bmad/tea/testarch/knowledge/test-levels-framework.md)
-
-**Issue Description**:
-No test file uses the standardized test ID format `{EPIC}.{STORY}-{LEVEL}-{SEQ}`. Test IDs enable traceability from requirements to tests and support selective test execution.
-
-**Current Code**:
-
-```typescript
-// api-auth-provider.spec.ts
-test('[P1] returns options.environment when provided', () => { ... });
-```
-
-**Recommended Improvement**:
-
-```typescript
-// api-auth-provider.spec.ts
-test('0.4-UNIT-001 [P1] returns options.environment when provided', () => { ... });
-```
-
-**Benefits**:
-Enables requirement traceability, selective test execution by ID, and test-design mapping.
-
-**Priority**: P1 - should be added before creating traceability matrix.
-
----
-
-### 2. Add Priority Markers to Remaining Tests
+### 1. Extract Helper Functions for Repeated Setup
 
 **Severity**: P2 (Medium)
-**Location**: `user-factory.spec.ts`, `recurse.spec.ts`, `api-helpers.spec.ts`, `example.spec.ts`, `api.spec.ts`
+**Location**: `crates/tf-logging/src/init.rs:167-595`, `crates/tf-logging/src/redact.rs:844-906`
 **Criterion**: Maintainability
-**Knowledge Base**: [test-priorities-matrix.md](../_bmad/tea/testarch/knowledge/test-priorities-matrix.md)
+**Knowledge Base**: [test-quality.md](_bmad/tea/testarch/knowledge/test-quality.md)
 
 **Issue Description**:
-5 out of 7 files have tests without `[P0]/[P1]/[P2]/[P3]` priority markers. Only `api-auth-provider.spec.ts` and `log-fixture.spec.ts` are fully annotated.
-
-**Current Code**:
-
-```typescript
-// user-factory.spec.ts (comment says P0, but tests lack markers)
-test('returns an object with all required User fields', () => { ... });
-```
+`LoggingConfig` construction is repeated verbatim 15+ times in init.rs. The pattern `tempdir + LoggingConfig + init_logging + find_log_file` is repeated ~20 times across redact.rs.
 
 **Recommended Improvement**:
 
-```typescript
-test('[P0] returns an object with all required User fields', () => { ... });
+```rust
+fn test_logging_config(log_dir: &Path) -> LoggingConfig {
+    LoggingConfig {
+        log_level: "info".to_string(),
+        log_dir: log_dir.to_string_lossy().to_string(),
+        log_to_stdout: false,
+    }
+}
 ```
 
-**Priority**: P2 - improves selective testing and risk-based execution.
+**Benefits**: Reduces boilerplate, ensures consistency, makes tests easier to read.
 
 ---
 
-### 3. Mock Date.now() in Token Expiry Tests
+### 2. Replace Timestamp-Based Unique IDs with AtomicU64
 
 **Severity**: P2 (Medium)
-**Location**: `tests/unit/auth/api-auth-provider.spec.ts:134,153`
+**Location**: `crates/tf-security/src/keyring.rs:251`, `crates/tf-config/src/config.rs:4559`
 **Criterion**: Determinism
-**Knowledge Base**: [test-quality.md](../_bmad/tea/testarch/knowledge/test-quality.md)
+**Knowledge Base**: [test-healing-patterns.md](_bmad/tea/testarch/knowledge/test-healing-patterns.md)
 
 **Issue Description**:
-Token expiry tests use `Date.now()` to create relative timestamps. While this works in most cases, it creates a dependency on system time that could theoretically cause issues at midnight boundaries or on systems with clock skew.
-
-**Current Code**:
-
-```typescript
-const futureExpiry = String(Date.now() + 3600 * 1000);
-const pastExpiry = String(Date.now() - 3600 * 1000);
-```
+`unique_key()` uses `SystemTime::now().as_nanos()` for test key generation. While collisions are unlikely, atomic counters are guaranteed collision-free.
 
 **Recommended Improvement**:
 
-```typescript
-// Use fixed timestamps for complete determinism
-const futureExpiry = String(9999999999999); // Far future
-const pastExpiry = String(1000000000000);   // Far past (2001)
-```
+```rust
+use std::sync::atomic::{AtomicU64, Ordering};
+static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-**Priority**: P2 - low risk but improves determinism guarantees.
+fn unique_key(base: &str) -> String {
+    let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{}-{}", base, id)
+}
+```
 
 ---
 
-### 4. Increase CI Workers from 1 to 4
+### 3. Add Test for record_f64 NaN/Infinity Edge Case
 
 **Severity**: P2 (Medium)
-**Location**: `playwright.config.ts:22`
-**Criterion**: Performance
-**Knowledge Base**: [ci-burn-in.md](../_bmad/tea/testarch/knowledge/ci-burn-in.md)
-
-**Issue Description**:
-CI environment is configured with only 1 worker, preventing parallel test execution.
-
-**Current Code**:
-
-```typescript
-workers: process.env.CI ? 1 : undefined,
-```
-
-**Recommended Improvement**:
-
-```typescript
-workers: process.env.CI ? 4 : undefined,
-```
-
-**Priority**: P2 - becomes important as test suite grows.
-
----
-
-### 5. Test manageAuthToken Error Scenarios
-
-**Severity**: P2 (Medium)
-**Location**: `tests/support/auth/api-auth-provider.ts:76-114`
+**Location**: `crates/tf-logging/src/redact.rs:177-180`
 **Criterion**: Coverage
-**Knowledge Base**: [data-factories.md](../_bmad/tea/testarch/knowledge/data-factories.md)
 
 **Issue Description**:
-The `manageAuthToken` function contains error handling for missing credentials and failed auth responses, but these paths have no test coverage.
+The `record_f64` method converts NaN/Infinity to `Value::Null`, but no test exercises this branch. This is the only untested branch in the security-adjacent redaction code.
+
+---
+
+### 4. Normalize Whitespace Endpoint Tests to Use create_temp_config
+
+**Severity**: P2 (Medium)
+**Location**: `crates/tf-config/src/config.rs:4778-4905`
+**Criterion**: Maintainability / Isolation
+
+**Issue Description**:
+Six tests use `std::fs::write` to `std::env::temp_dir()` with manual `remove_file` cleanup instead of the `create_temp_config()` helper used everywhere else. Manual cleanup is not guaranteed on panic.
+
+---
+
+### 5. Add RAII Cleanup Guard for Keyring Tests
+
+**Severity**: P3 (Low)
+**Location**: `crates/tf-security/src/keyring.rs:271-536`
+**Criterion**: Isolation
+**Knowledge Base**: [test-quality.md](_bmad/tea/testarch/knowledge/test-quality.md)
+
+**Issue Description**:
+Keyring tests perform manual cleanup via `let _ = store.delete_secret(&key)` at test end. If an assertion panics, the secret persists in the OS keyring.
 
 **Recommended Improvement**:
 
-```typescript
-test.describe('manageAuthToken', () => {
-  test('[P1] should throw when TEST_USER_EMAIL is missing', async () => {
-    delete process.env.TEST_USER_EMAIL;
-    const mockRequest = {} as any;
-    await expect(
-      apiAuthProvider.manageAuthToken(mockRequest, {})
-    ).rejects.toThrow(/TEST_USER_EMAIL/);
-  });
+```rust
+struct KeyGuard<'a> {
+    store: &'a SecretStore,
+    key: String,
+}
 
-  test('[P1] should throw on failed auth response', async () => {
-    process.env.TEST_USER_EMAIL = 'test@example.com';
-    process.env.TEST_USER_PASSWORD = 'password';
-    const mockRequest = {
-      post: async () => ({ ok: () => false, status: () => 401 }),
-    } as any;
-    await expect(
-      apiAuthProvider.manageAuthToken(mockRequest, {})
-    ).rejects.toThrow();
-  });
-});
+impl<'a> Drop for KeyGuard<'a> {
+    fn drop(&mut self) {
+        let _ = self.store.delete_secret(&self.key);
+    }
+}
 ```
-
-**Priority**: P2 - add mocked unit tests for error scenarios.
 
 ---
 
 ## Best Practices Found
 
-### 1. Exemplary Environment Variable Isolation
+### 1. Macro-Generated Sensitive Field Tests
 
-**Location**: `tests/unit/auth/api-auth-provider.spec.ts:14-26`
-**Pattern**: Env var backup/restore
-**Knowledge Base**: [test-quality.md](../_bmad/tea/testarch/knowledge/test-quality.md)
+**Location**: `crates/tf-logging/src/redact.rs:454-488`
+**Pattern**: Parameterized test generation via `macro_rules!`
+**Knowledge Base**: [test-quality.md](_bmad/tea/testarch/knowledge/test-quality.md)
 
 **Why This Is Good**:
-The test properly backs up `process.env.TEST_ENV` in `beforeEach`, and restores it (including handling `undefined`) in `afterEach`. This prevents state leakage between tests.
+The `test_sensitive_field_redacted!` macro generates 12 identical test functions, one per sensitive field name. This eliminates copy-paste while maintaining individual test granularity for failure reporting.
 
-**Code Example**:
+```rust
+macro_rules! test_sensitive_field_redacted {
+    ($name:ident, $field:expr) => {
+        #[test]
+        fn $name() {
+            // creates tempdir, inits logging, emits event with $field, asserts [REDACTED]
+        }
+    };
+}
 
-```typescript
-test.beforeEach(() => {
-  originalTestEnv = process.env.TEST_ENV;
-});
-
-test.afterEach(() => {
-  if (originalTestEnv === undefined) {
-    delete process.env.TEST_ENV;
-  } else {
-    process.env.TEST_ENV = originalTestEnv;
-  }
-});
+test_sensitive_field_redacted!(test_sensitive_field_token_redacted, "token");
+test_sensitive_field_redacted!(test_sensitive_field_password_redacted, "password");
+// ... 10 more
 ```
 
-**Use as Reference**: Apply this pattern whenever tests modify environment variables.
+**Use as Reference**: This pattern should be applied to the 80+ duplicated config validation tests in tf-config.
 
 ---
 
-### 2. Factory Uniqueness Validation
+### 2. Thread-Local Subscriber Dispatch for Test Isolation
 
-**Location**: `tests/unit/factories/user-factory.spec.ts:31-43`
-**Pattern**: Parallel-safety verification
-**Knowledge Base**: [data-factories.md](../_bmad/tea/testarch/knowledge/data-factories.md)
+**Location**: `crates/tf-logging/src/init.rs:61-65`
+**Pattern**: `set_default` (thread-local) over `set_global_default`
+**Knowledge Base**: [test-quality.md](_bmad/tea/testarch/knowledge/test-quality.md)
 
 **Why This Is Good**:
-Tests explicitly verify that factories generate unique IDs and emails across 20 calls, ensuring parallel test safety.
-
-**Code Example**:
-
-```typescript
-test('generates unique IDs across successive calls', () => {
-  const ids = Array.from({ length: 20 }, () => createUser().id);
-  const unique = new Set(ids);
-  expect(unique.size).toBe(ids.length);
-});
-```
-
-**Use as Reference**: Add similar uniqueness tests for every new factory.
+Using `tracing::subscriber::set_default` ensures each test gets its own subscriber on its thread, preventing cross-test interference when tests run in parallel. The design decision is well-documented with a comment explaining the trade-off and future migration path.
 
 ---
 
-### 3. Console Spy Pattern with Proper Cleanup
+### 3. Subprocess Pattern for Stdout Tests
 
-**Location**: `tests/unit/fixtures/log-fixture.spec.ts:11-38`
-**Pattern**: Global override with restoration
-**Knowledge Base**: [test-quality.md](../_bmad/tea/testarch/knowledge/test-quality.md)
+**Location**: `crates/tf-logging/src/init.rs:548-581`, `crates/tf-logging/tests/integration_test.rs:198-237`
+**Pattern**: `#[ignore]` entrypoint + env-var guard + `Command::new()`
+**Knowledge Base**: [test-healing-patterns.md](_bmad/tea/testarch/knowledge/test-healing-patterns.md)
 
 **Why This Is Good**:
-The test properly overrides `console.log`, `console.warn`, and `console.error` in `beforeEach` and restores all three originals in `afterEach`. Spy arrays are reset before each test.
+Stdout output cannot be captured in-process when a tracing subscriber writes to it. The subprocess pattern spawns a new process to isolate stdout, with the `#[ignore]` attribute preventing the entrypoint from running as a normal test. The env-var guard (`RUN_STDOUT_SUBPROCESS=1`) ensures the entrypoint only executes when invoked by the parent test.
 
-**Use as Reference**: Apply this pattern whenever testing logging or console output.
+---
+
+### 4. RAII EnvGuard for Environment Variable Cleanup
+
+**Location**: `crates/tf-logging/src/init.rs:305-320`
+**Pattern**: RAII struct implementing `Drop` for guaranteed env var restoration
+**Knowledge Base**: [test-quality.md](_bmad/tea/testarch/knowledge/test-quality.md)
+
+**Why This Is Good**:
+The `EnvGuard` struct ensures `RUST_LOG` is removed on drop, even if the test panics. Combined with a static `Mutex` for serialization, this is the most robust approach to testing env-var-dependent behavior in Rust.
 
 ---
 
@@ -414,32 +368,36 @@ The test properly overrides `console.log`, `console.warn`, and `console.error` i
 
 ### File Metadata
 
-| File | Lines | Tests | Active | Skipped | Framework | Priority |
-|------|-------|-------|--------|---------|-----------|----------|
-| `tests/e2e/example.spec.ts` | 135 | 6 | 2 | 4 | Playwright | None |
-| `tests/e2e/api.spec.ts` | 116 | 5 | 0 | 5 | Playwright | None |
-| `tests/unit/auth/api-auth-provider.spec.ts` | 184 | 10 | 10 | 0 | Playwright | P1 |
-| `tests/unit/factories/user-factory.spec.ts` | 80 | 7 | 7 | 0 | Playwright | P0 (doc) |
-| `tests/unit/fixtures/log-fixture.spec.ts` | 87 | 5 | 5 | 0 | Playwright | P2 |
-| `tests/unit/fixtures/recurse.spec.ts` | 88 | 5 | 5 | 0 | Playwright | P1 (doc) |
-| `tests/unit/helpers/api-helpers.spec.ts` | 66 | 4 | 4 | 0 | Playwright | P1 (doc) |
-| **TOTAL** | **756** | **42** | **33** | **9** | | |
+- **Crates Reviewed**: tf-config, tf-logging, tf-security
+- **Test Framework**: Rust built-in (`#[test]`, `#[cfg(test)]`)
+- **Language**: Rust
 
 ### Test Structure
 
-- **Describe Blocks**: 19
-- **Test Cases (it/test)**: 42 (33 active, 9 skipped)
-- **Average Test Length**: ~18 lines per test
-- **Fixtures Used**: `apiRequest`, `authToken`, `recurse`, `log`, `page`
-- **Data Factories Used**: `createUser`, `createAdminUser`, `createInactiveUser`
+| File | Lines | Tests | Ignored | Avg Lines/Test |
+|------|-------|-------|---------|----------------|
+| tf-config/src/config.rs (tests) | 3231 | 211 | 0 | 15 |
+| tf-config/src/template.rs (tests) | 855 | 52 | 0 | 16 |
+| tf-config/tests/integration_tests.rs | 172 | 8 | 0 | 22 |
+| tf-config/tests/profile_tests.rs | 554 | 19 | 0 | 29 |
+| tf-config/tests/profile_unit_tests.rs | 688 | 14 | 0 | 49 |
+| tf-logging/src/init.rs (tests) | 450 | 14 | 1 | 32 |
+| tf-logging/src/redact.rs (tests) | 486 | 33 | 0 | 15 |
+| tf-logging/src/config.rs (tests) | 50 | 3 | 0 | 17 |
+| tf-logging/src/error.rs (tests) | 70 | 3 | 0 | 23 |
+| tf-logging/tests/integration_test.rs | 268 | 7 | 2 | 38 |
+| tf-security/src/error.rs (tests) | 460 | 18 | 0 | 26 |
+| tf-security/src/keyring.rs (tests) | 641 | 28 | 17 | 23 |
+| **TOTAL** | **7925** | **410** | **20** | **19** |
 
-### Priority Distribution
+### Test Coverage Scope (tf-logging / Story 0-5)
 
-- P0 (Critical): 7 tests (factory tests - doc comment only)
-- P1 (High): 14 tests (auth + recurse + helpers - mix of inline/doc)
-- P2 (Medium): 5 tests (log fixture)
-- P3 (Low): 0 tests
-- Unknown: 16 tests (no priority marker)
+- **Test IDs**: 0.5-UNIT-001 through 0.5-UNIT-011, 0.5-INT-001, 0.5-INT-002
+- **Priority Distribution**:
+  - P0 (Critical): 4 scenarios (UNIT-002, UNIT-003, UNIT-004, UNIT-005)
+  - P1 (High): 7 scenarios (UNIT-001, UNIT-006, UNIT-007, UNIT-008, UNIT-009, INT-001, INT-002)
+  - P2 (Medium): 2 scenarios (UNIT-010, UNIT-011)
+  - P3 (Low): 0
 
 ---
 
@@ -447,36 +405,37 @@ The test properly overrides `console.log`, `console.warn`, and `console.error` i
 
 ### Related Artifacts
 
-- **Story File**: Not found
-- **Test Design**: Not found
-- **Framework Config**: `playwright.config.ts` (Playwright v1.50+, chromium, fullyParallel)
+- **Story File**: [0-5-journalisation-baseline-sans-donnees-sensibles.md](_bmad-output/implementation-artifacts/0-5-journalisation-baseline-sans-donnees-sensibles.md)
+- **Acceptance Criteria Mapped**: 3/3 (100%)
 
-### Acceptance Criteria Validation
+- **Test Design**: [test-design-epic-0-5.md](_bmad-output/test-artifacts/test-design/test-design-epic-0-5.md)
+- **Risk Assessment**: R-05-01 (SEC), R-05-02 (TECH)
+- **Priority Framework**: P0-P2 applied
 
-No story file available - unable to map tests to acceptance criteria.
+### Acceptance Criteria Validation (Story 0-5)
+
+| Acceptance Criterion | Test IDs | Status | Notes |
+|----------------------|----------|--------|-------|
+| AC #1: JSON structured logs (timestamp, level, message, target, fields) | 0.5-UNIT-002, UNIT-006, UNIT-007 + 6 format_rfc3339 tests + span tests | ✅ Covered | 20+ tests validate JSON structure, timestamps, levels, and spans |
+| AC #2: Sensitive fields masked with [REDACTED] | 0.5-UNIT-003, UNIT-004, UNIT-009 + 12 macro tests + URL redaction | ✅ Covered | 25+ tests covering all 12 sensitive fields, URLs, compound names, numeric types |
+| AC #3: Logs written to configured output folder | 0.5-UNIT-005, UNIT-010 + directory creation error path | ✅ Covered | 6+ tests covering configured dir, derivation from project config, error paths |
+
+**Coverage**: 3/3 criteria covered (100%)
 
 ---
 
 ## Knowledge Base References
 
-This review consulted the following knowledge base fragments:
+This review consulted the following knowledge base fragments (adapted for Rust context):
 
-**Core:**
-- **[test-quality.md](../_bmad/tea/testarch/knowledge/test-quality.md)** - Definition of Done for tests (no hard waits, <300 lines, <1.5 min, self-cleaning)
-- **[data-factories.md](../_bmad/tea/testarch/knowledge/data-factories.md)** - Factory functions with overrides, API-first setup
-- **[test-levels-framework.md](../_bmad/tea/testarch/knowledge/test-levels-framework.md)** - E2E vs API vs Component vs Unit appropriateness
-- **[selective-testing.md](../_bmad/tea/testarch/knowledge/selective-testing.md)** - Duplicate coverage detection, tag strategies
-- **[test-healing-patterns.md](../_bmad/tea/testarch/knowledge/test-healing-patterns.md)** - Common failure patterns
-- **[selector-resilience.md](../_bmad/tea/testarch/knowledge/selector-resilience.md)** - Selector hierarchy (data-testid > ARIA > text > CSS)
-- **[timing-debugging.md](../_bmad/tea/testarch/knowledge/timing-debugging.md)** - Race condition prevention
+- **[test-quality.md](_bmad/tea/testarch/knowledge/test-quality.md)** - Definition of Done for tests (no hard waits, <300 lines, self-cleaning)
+- **[test-levels-framework.md](_bmad/tea/testarch/knowledge/test-levels-framework.md)** - Unit vs Integration test appropriateness
+- **[test-priorities-matrix.md](_bmad/tea/testarch/knowledge/test-priorities-matrix.md)** - P0-P3 classification framework
+- **[test-healing-patterns.md](_bmad/tea/testarch/knowledge/test-healing-patterns.md)** - Common failure patterns and fixes
+- **[data-factories.md](_bmad/tea/testarch/knowledge/data-factories.md)** - Factory patterns with overrides (adapted: Rust helper functions)
+- **[error-handling.md](_bmad/tea/testarch/knowledge/error-handling.md)** - Resilience and scoped exception handling
 
-**Playwright Utils:**
-- **[overview.md](../_bmad/tea/testarch/knowledge/overview.md)** - Architecture and fixture patterns
-- **[api-request.md](../_bmad/tea/testarch/knowledge/api-request.md)** - Typed HTTP client
-- **[fixtures-composition.md](../_bmad/tea/testarch/knowledge/fixtures-composition.md)** - mergeTests patterns
-- **[burn-in.md](../_bmad/tea/testarch/knowledge/burn-in.md)** - CI burn-in strategy
-
-See [tea-index.csv](../_bmad/tea/testarch/tea-index.csv) for complete knowledge base.
+See [tea-index.csv](_bmad/tea/testarch/tea-index.csv) for complete knowledge base.
 
 ---
 
@@ -484,37 +443,29 @@ See [tea-index.csv](../_bmad/tea/testarch/tea-index.csv) for complete knowledge 
 
 ### Immediate Actions (Before Merge)
 
-1. **Widen timing tolerances in recurse.spec.ts and api-helpers.spec.ts**
-   - Priority: P0
-   - Owner: Developer
-   - Impact: Prevents CI flakiness
-
-2. **Add unit tests for seedUser/deleteUser**
-   - Priority: P0
-   - Owner: Developer
-   - Impact: Covers critical infrastructure
+No blockers. The branch can be merged as-is. All tests pass, all acceptance criteria are covered, and no HIGH-severity correctness issues were found.
 
 ### Follow-up Actions (Future PRs)
 
-1. **Add standardized test IDs to all test files**
+1. **Refactor tf-config test module** - Split 3231-line monolith into functional sub-modules and extract parameterized test macro
    - Priority: P1
-   - Target: next sprint
+   - Target: Next sprint
 
-2. **Add priority markers to remaining 5 files**
+2. **Normalize temp file management** - Migrate 6 whitespace endpoint tests to use `create_temp_config()` helper
    - Priority: P2
-   - Target: next sprint
+   - Target: Next sprint
 
-3. **Test manageAuthToken error scenarios**
+3. **Add edge case tests** - NaN/Infinity for record_f64, unclosed quotes for parse_quoted_value
    - Priority: P2
-   - Target: backlog
+   - Target: Backlog
 
-4. **Increase CI workers from 1 to 4**
-   - Priority: P2
-   - Target: backlog
+4. **Add RAII cleanup for keyring tests** - Implement `KeyGuard` Drop for guaranteed secret deletion
+   - Priority: P3
+   - Target: Backlog
 
 ### Re-Review Needed?
 
-- Re-review after P0 fixes (timing tolerances + seedUser/deleteUser tests)
+⚠️ Re-review after maintainability refactoring -- the tf-config test module refactoring should be validated to ensure no test coverage regression.
 
 ---
 
@@ -524,57 +475,43 @@ See [tea-index.csv](../_bmad/tea/testarch/tea-index.csv) for complete knowledge 
 
 **Rationale**:
 
-> Test quality is good with 80/100 score. The framework scaffold demonstrates excellent isolation patterns, proper fixture composition, and follows Playwright best practices. Two P0 issues should be addressed promptly: (1) timing-dependent assertions that risk CI flakiness should have wider tolerances, and (2) critical helper functions seedUser/deleteUser need unit test coverage. The remaining issues (missing test IDs, priority markers, Date.now() mocking) are improvements that can be addressed iteratively. The 9 skipped E2E tests are appropriate for a framework scaffold awaiting a real application. Tests are production-ready for a scaffold project with the recommended fixes.
+> Test quality is Good with 81/100 score. The test suite demonstrates excellent correctness properties: zero hard waits, near-perfect isolation through thread-local dispatching, comprehensive sensitive field coverage, and all acceptance criteria verified in depth. Four of five quality dimensions score A or A+. The maintainability dimension (45/100, Grade F) is the sole weakness, driven by the monolithic tf-config test module with its review-round organization and copy-paste duplication. This does not affect test correctness or reliability -- it is a maintenance burden that should be addressed in a dedicated refactoring PR. The branch is mergeable as-is; the maintainability improvements are important but not blocking.
 
 ---
 
 ## Appendix
 
-### Violation Summary by Location
+### Violation Summary by Dimension
 
-| File | Severity | Criterion | Issue | Fix |
-|------|----------|-----------|-------|-----|
-| `api-helpers.ts:16` | P0 | Coverage | seedUser untested | Add mocked unit tests |
-| `api-helpers.ts:39` | P0 | Coverage | deleteUser untested | Add mocked unit tests |
-| `recurse.spec.ts:54` | P0 | Determinism | Date.now() tight tolerance | Widen tolerance range |
-| `recurse.spec.ts:64` | P0 | Determinism | Date.now() tight tolerance | Widen tolerance range |
-| `api-helpers.spec.ts:46` | P0 | Determinism | Date.now() tight tolerance | Widen tolerance range |
-| `api-helpers.spec.ts:58` | P0 | Determinism | Date.now() tight tolerance | Widen tolerance range |
-| All 7 files | P1 | Maintainability | Missing test IDs | Add {EPIC}.{STORY}-{LEVEL}-{SEQ} |
-| `api-auth-provider.spec.ts:134` | P2 | Determinism | Date.now() relative timestamp | Use fixed timestamp |
-| `api-auth-provider.spec.ts:153` | P2 | Determinism | Date.now() relative timestamp | Use fixed timestamp |
-| `api-auth-provider.ts:76` | P2 | Coverage | manageAuthToken untested | Add mocked tests |
-| `api-auth-provider.ts:80` | P2 | Coverage | Missing credentials error untested | Add error test |
-| `merged-fixtures.ts:94` | P2 | Coverage | authToken fixture untested | Add fixture test |
-| `merged-fixtures.ts:141` | P2 | Coverage | testUser fixture untested | Add fixture test |
-| `playwright.config.ts:22` | P2 | Performance | CI workers = 1 | Increase to 4 |
-| `example.spec.ts` | P3 | Coverage | 4 skipped tests | Enable when app exists |
-| `api.spec.ts` | P3 | Coverage | 5 skipped tests | Enable when app exists |
-| 5 files | P3 | Maintainability | Missing priority markers | Add [P0]-[P3] |
+| Dimension | HIGH | MEDIUM | LOW | Score |
+|-----------|------|--------|-----|-------|
+| Determinism | 0 | 4 | 2 | 89 |
+| Isolation | 0 | 1 | 4 | 91 |
+| Maintainability | 5 | 9 | 5 | 45 |
+| Coverage | 0 | 2 | 6 | 90 |
+| Performance | 3 | 4 | 3 | 88 |
+| **TOTAL** | **8** | **20** | **20** | **81** |
 
 ### Related Reviews
 
-| File | Score | Grade | Critical | Status |
-|------|-------|-------|----------|--------|
-| `api-auth-provider.spec.ts` | 88 | B | 0 | Approved |
-| `user-factory.spec.ts` | 92 | A | 0 | Approved |
-| `log-fixture.spec.ts` | 85 | B | 0 | Approved |
-| `recurse.spec.ts` | 72 | C | 2 | Approve with Comments |
-| `api-helpers.spec.ts` | 70 | C | 2 | Approve with Comments |
-| `example.spec.ts` | 75 | C | 0 | Approve with Comments |
-| `api.spec.ts` | 70 | C | 0 | Approve with Comments |
+| Crate | Unit Tests | Integration Tests | Ignored | Key Finding |
+|-------|-----------|-------------------|---------|-------------|
+| tf-config | 277 | 41 | 0 | Monolithic test module needs splitting |
+| tf-logging | 53 | 7 | 3 | Excellent macro usage, solid isolation |
+| tf-security | 46 | 0 | 17 | OS keyring tests properly ignored, cleanup could use RAII |
 
-**Suite Average**: 80/100 (B)
+**Suite Total**: 410 tests, 20 ignored, ~1.5s execution time
 
 ---
 
 ## Review Metadata
 
 **Generated By**: BMad TEA Agent (Test Architect)
-**Workflow**: testarch-test-review v5.0 (Step-File Architecture)
-**Review ID**: test-review-suite-20260206
-**Timestamp**: 2026-02-06
+**Workflow**: testarch-test-review v4.0 (parallel 5-dimension evaluation)
+**Review ID**: test-review-rust-suite-20260207
+**Timestamp**: 2026-02-07
 **Version**: 1.0
+**Execution Mode**: Parallel (5 quality dimension agents)
 
 ---
 
@@ -585,6 +522,6 @@ If you have questions or feedback on this review:
 1. Review patterns in knowledge base: `_bmad/tea/testarch/knowledge/`
 2. Consult tea-index.csv for detailed guidance
 3. Request clarification on specific violations
-4. Pair with QA engineer to apply patterns
+4. Use `/bmad-tea-testarch-automate` to generate missing tests
 
-This review is guidance, not rigid rules. Context matters - if a pattern is justified, document it with a comment.
+This review is guidance, not rigid rules. Context matters -- if a pattern is justified, document it with a comment.
