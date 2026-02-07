@@ -1,6 +1,6 @@
 # Story 0.5: Journalisation baseline sans donnees sensibles
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -138,6 +138,16 @@ so that garantir l'auditabilite minimale des executions des le debut.
 - [x] [AI-Review-R6][LOW] L1: `record_debug` strips outer quotes but does not unescape inner Debug-formatted content — escaped sequences like `\"` remain as raw backslashes in logged values [crates/tf-logging/src/redact.rs:121-125]
 - [x] [AI-Review-R6][LOW] L2: Subtask 1.0 marked [x] ("Ajouter crates/tf-logging dans la liste members") but workspace uses `members = ["crates/*"]` glob pattern — no change was needed; task should note auto-discovery [story Tasks section]
 - [x] [AI-Review-R6][LOW] L3: Span fields rendered as opaque flat string (`"fields":"command=triage scope=lot-42"`) instead of structured JSON object — downstream log parsers cannot extract individual span field values programmatically [crates/tf-logging/src/redact.rs:259-264]
+
+### Review Follow-ups Round 7 (AI)
+
+- [ ] [AI-Review-R7][HIGH] AC #1 not fully satisfied at application level: integrate `tf_logging::init_logging()` in real CLI startup path (not test-only subprocess simulation), then add acceptance evidence from actual command execution [crates/tf-logging/src/init.rs:65, crates/tf-logging/tests/integration_test.rs:199]
+- [ ] [AI-Review-R7][HIGH] Story traceability mismatch: File List claims "branch vs main" coverage while current local git state has no staged/unstaged diff. Reconcile wording/evidence to avoid misleading implementation claims [story File List section]
+- [ ] [AI-Review-R7][MEDIUM] Replace fixed `VALID_LEVELS` whitelist with `EnvFilter::try_new(&config.log_level)` validation so config supports full tracing filter expressions (e.g. `info,tf_logging=debug`) [crates/tf-logging/src/init.rs:74-80]
+- [ ] [AI-Review-R7][MEDIUM] Mitigate secret leakage via free-text `message`: add explicit guardrails in caller guidance/tests (or optional message sanitizer) since formatter only redacts named fields [crates/tf-logging/src/redact.rs:58-63]
+- [ ] [AI-Review-R7][MEDIUM] Normalize span field JSON typing: preserve numeric/bool types when parsing `FormattedFields` instead of serializing all values as strings [crates/tf-logging/src/redact.rs:303-341]
+- [ ] [AI-Review-R7][MEDIUM] Add a completion gate for AC #1 in story checklist: do not mark story done until CLI integration evidence exists (command run -> JSON log with command/status/scope) [story acceptance evidence]
+- [ ] [AI-Review-R7][LOW] Document operational recommendation in story/dev notes: allow full `EnvFilter` syntax in project configuration and keep `RUST_LOG` as override for diagnostics [story Dev Notes + logging config guidance]
 
 ## Dev Notes
 
@@ -571,6 +581,7 @@ Documentation/tracking files:
 
 ## Change Log
 
+- 2026-02-07: Code review Round 7 (AI) — 7 findings/action items added (2 HIGH, 4 MEDIUM, 1 LOW). Story moved to `in-progress` pending CLI-level integration evidence for AC #1, traceability reconciliation, and filter/format robustness follow-ups.
 - 2026-02-06: Implemented tf-logging crate with structured JSON logging, sensitive field redaction (12 field names + URL parameters), daily file rotation, non-blocking I/O, and LogGuard lifecycle. Exposed `redact_url_sensitive_params` as public API in tf-config. 35 tests added, 0 regressions on 368 workspace tests.
 - 2026-02-06: Code review (AI) — 11 findings (3 HIGH, 5 MEDIUM, 3 LOW). Key issues: `log_to_stdout` not implemented, dead error variants, incomplete File List. Action items added to Tasks/Subtasks.
 - 2026-02-06: Addressed code review findings — 11 items resolved. Implemented stdout layer, log level validation, extracted test helpers, macro-based parameterized tests, case-insensitive field matching, fixed env var race condition, corrected File List and test counts.
