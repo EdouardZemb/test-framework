@@ -6,10 +6,10 @@
 //! - Sensitive field redaction in end-to-end scenario
 //! - Workspace integration (crate compiles and is accessible)
 
-mod test_utils;
+mod common;
 
 use std::fs;
-use test_utils::find_log_file;
+use common::find_log_file;
 use tf_logging::{init_logging, LoggingConfig, LoggingError};
 
 // Test 0.5-INT-001: Full logging lifecycle

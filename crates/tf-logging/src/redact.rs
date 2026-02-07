@@ -26,6 +26,23 @@ pub(crate) const SENSITIVE_FIELDS: &[&str] = &[
     "credentials",
 ];
 
+/// Pre-computed suffixes for compound field detection (e.g., `_token`, `-key`).
+/// Avoids per-call `format!` allocations in `is_sensitive()`.
+const SENSITIVE_SUFFIXES: &[&str] = &[
+    "_token", "-token",
+    "_api_key", "-api_key",
+    "_apikey", "-apikey",
+    "_key", "-key",
+    "_secret", "-secret",
+    "_password", "-password",
+    "_passwd", "-passwd",
+    "_pwd", "-pwd",
+    "_auth", "-auth",
+    "_authorization", "-authorization",
+    "_credential", "-credential",
+    "_credentials", "-credentials",
+];
+
 /// A custom JSON event formatter that redacts sensitive fields.
 ///
 /// This formatter produces JSON log lines with the structure:
@@ -36,6 +53,12 @@ pub(crate) const SENSITIVE_FIELDS: &[&str] = &[
 /// Sensitive fields (listed in [`SENSITIVE_FIELDS`]) have their values replaced
 /// with `[REDACTED]`. Fields containing URLs have sensitive URL parameters redacted
 /// via [`tf_config::redact_url_sensitive_params`].
+///
+/// # Limitation
+///
+/// Only **named fields** (e.g., `tracing::info!(token = "x", ...)`) are scanned
+/// for sensitive data. Free-text message content (the format string) is **not**
+/// inspected — callers must avoid embedding secrets directly in log messages.
 pub(crate) struct RedactingJsonFormatter;
 
 /// Visitor that collects event fields into a serde_json map,
@@ -59,16 +82,10 @@ impl RedactingVisitor {
         if SENSITIVE_FIELDS.contains(&lower.as_str()) {
             return true;
         }
-        // Suffix/substring match for compound field names like access_token,
+        // Suffix match for compound field names like access_token,
         // auth_token, session_key, api_secret, etc.
-        for &field in SENSITIVE_FIELDS {
-            if lower.ends_with(&format!("_{}", field))
-                || lower.ends_with(&format!("-{}", field))
-            {
-                return true;
-            }
-        }
-        false
+        // Uses pre-computed SENSITIVE_SUFFIXES to avoid per-call allocations.
+        SENSITIVE_SUFFIXES.iter().any(|suffix| lower.ends_with(suffix))
     }
 
     fn looks_like_url(value: &str) -> bool {
@@ -496,6 +513,35 @@ mod tests {
         let fields = json.get("fields").expect("Missing fields");
         let duration = fields.get("duration").expect("Missing duration field");
         assert!(duration.is_number(), "Float should be stored as JSON number, got: {duration}");
+    }
+
+    // Test [AI-Review-R4 M2]: numeric and bool sensitive fields are redacted
+    #[test]
+    fn test_numeric_sensitive_fields_redacted() {
+        let temp = tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+        let config = LoggingConfig {
+            log_level: "info".to_string(),
+            log_dir: log_dir.to_string_lossy().to_string(),
+            log_to_stdout: false,
+        };
+        let guard = init_logging(&config).unwrap();
+        tracing::info!(token = 42_i64, api_key = 99_u64, secret = true, "numeric sensitive test");
+        drop(guard);
+        let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
+        let line = content.lines().last().unwrap();
+        let json: serde_json::Value = serde_json::from_str(line).unwrap();
+        let fields = json.get("fields").expect("Missing fields");
+        // All three sensitive fields should be "[REDACTED]", not their numeric/bool values
+        assert_eq!(fields.get("token").unwrap(), "[REDACTED]",
+            "i64 sensitive field 'token' should be redacted");
+        assert_eq!(fields.get("api_key").unwrap(), "[REDACTED]",
+            "u64 sensitive field 'api_key' should be redacted");
+        assert_eq!(fields.get("secret").unwrap(), "[REDACTED]",
+            "bool sensitive field 'secret' should be redacted");
+        // Ensure the raw numeric values don't appear
+        assert!(!content.contains("\"42\"") && !content.contains(":42,") && !content.contains(":42}"),
+            "Numeric value 42 should not appear in output");
     }
 
     // --- P0: format_rfc3339() tests ---

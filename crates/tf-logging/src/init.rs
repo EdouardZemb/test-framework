@@ -22,8 +22,11 @@ use tracing_subscriber::EnvFilter;
 /// let _guard = init_logging(&config).unwrap(); // keep _guard alive!
 /// ```
 pub struct LogGuard {
-    _worker_guard: WorkerGuard,
+    // Drop order matters: Rust drops fields in declaration order.
+    // 1. Remove the thread-local subscriber first (no new events accepted)
+    // 2. Then flush pending events via the worker guard
     _dispatch_guard: tracing::dispatcher::DefaultGuard,
+    _worker_guard: WorkerGuard,
 }
 
 impl std::fmt::Debug for LogGuard {
@@ -109,8 +112,8 @@ pub fn init_logging(config: &LoggingConfig) -> Result<LogGuard, LoggingError> {
         let dispatch_guard = tracing::dispatcher::set_default(&dispatch);
 
         return Ok(LogGuard {
-            _worker_guard: worker_guard,
             _dispatch_guard: dispatch_guard,
+            _worker_guard: worker_guard,
         });
     }
 
@@ -123,8 +126,8 @@ pub fn init_logging(config: &LoggingConfig) -> Result<LogGuard, LoggingError> {
     let dispatch_guard = tracing::dispatcher::set_default(&dispatch);
 
     Ok(LogGuard {
-        _worker_guard: worker_guard,
         _dispatch_guard: dispatch_guard,
+        _worker_guard: worker_guard,
     })
 }
 
