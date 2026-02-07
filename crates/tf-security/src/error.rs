@@ -210,7 +210,7 @@ mod tests {
     #[test]
     fn test_all_error_messages_contain_hints() {
         // Given: toutes les variantes d'erreur
-        let errors = vec![
+        let errors = [
             SecretError::KeyringUnavailable {
                 platform: "test".to_string(),
                 hint: "Test hint 1".to_string(),
@@ -407,11 +407,9 @@ mod tests {
     /// Then: c'est une erreur KeyringUnavailable avec platform et hint
     #[test]
     fn test_error_conversion_no_storage_access() {
-        let platform_err =
-            keyring::Error::NoStorageAccess(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "no keyring",
-            )));
+        let platform_err = keyring::Error::NoStorageAccess(Box::new(
+            std::io::Error::other("no keyring"),
+        ));
 
         let err = SecretError::from_keyring_error(platform_err, "some-key");
 
