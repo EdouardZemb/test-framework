@@ -211,7 +211,7 @@ fn default_max_tokens() -> u32 {
 /// - `https://user:secret@jira.example.com` -> `https://[REDACTED]@jira.example.com`
 /// - `https://jira.example.com?token=secret123` -> `https://jira.example.com?token=[REDACTED]`
 /// - `https://api.example.com?api_key=sk-123&foo=bar` -> `https://api.example.com?api_key=[REDACTED]&foo=bar`
-pub(crate) fn redact_url_sensitive_params(url: &str) -> String {
+pub fn redact_url_sensitive_params(url: &str) -> String {
     // List of sensitive parameter names (case-insensitive matching)
     // Includes both snake_case and camelCase variants
     const SENSITIVE_PARAMS: &[&str] = &[
@@ -5015,5 +5015,219 @@ llm:
         assert!(redacted.contains("token=[REDACTED]"), "Should redact token in fragment");
         assert!(redacted.contains("foo=bar"), "Should preserve foo in query");
         assert!(redacted.contains("baz=qux"), "Should preserve baz in fragment");
+    }
+
+    // ===== Coverage Plan Tests: check_output_folder_exists, active_profile_summary, redact edge cases =====
+
+    #[test]
+    fn test_check_output_folder_nonexistent_tempdir() {
+        // P0: output_folder that does not exist returns Some(warning) mentioning "does not exist"
+        let dir = tempfile::tempdir().unwrap();
+        let nonexistent = dir.path().join("this_folder_does_not_exist");
+
+        let config = ProjectConfig {
+            project_name: "test".to_string(),
+            output_folder: nonexistent.to_string_lossy().to_string(),
+            jira: None,
+            squash: None,
+            templates: None,
+            llm: None,
+            profiles: None,
+            active_profile: None,
+        };
+
+        let warning = config.check_output_folder_exists();
+        assert!(warning.is_some(), "Should return warning for nonexistent folder");
+        let msg = warning.unwrap();
+        assert!(msg.contains("does not exist"), "Warning should mention 'does not exist': {}", msg);
+    }
+
+    #[test]
+    fn test_check_output_folder_is_file_tempdir() {
+        // P0: output_folder pointing to a file (not directory) returns Some(warning) mentioning "not a directory"
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("actually_a_file.txt");
+        std::fs::write(&file_path, "content").unwrap();
+
+        let config = ProjectConfig {
+            project_name: "test".to_string(),
+            output_folder: file_path.to_string_lossy().to_string(),
+            jira: None,
+            squash: None,
+            templates: None,
+            llm: None,
+            profiles: None,
+            active_profile: None,
+        };
+
+        let warning = config.check_output_folder_exists();
+        assert!(warning.is_some(), "Should return warning when output_folder is a file");
+        let msg = warning.unwrap();
+        assert!(msg.contains("not a directory"), "Warning should mention 'not a directory': {}", msg);
+    }
+
+    #[test]
+    fn test_check_output_folder_existing_directory_tempdir() {
+        // P0: output_folder pointing to an existing directory returns None
+        let dir = tempfile::tempdir().unwrap();
+
+        let config = ProjectConfig {
+            project_name: "test".to_string(),
+            output_folder: dir.path().to_string_lossy().to_string(),
+            jira: None,
+            squash: None,
+            templates: None,
+            llm: None,
+            profiles: None,
+            active_profile: None,
+        };
+
+        let warning = config.check_output_folder_exists();
+        assert!(warning.is_none(), "Should return None for existing directory");
+    }
+
+    #[test]
+    fn test_active_profile_summary_no_active_profile() {
+        // P1: With no active profile, summary starts with "No profile active"
+        let config = ProjectConfig {
+            project_name: "my-project".to_string(),
+            output_folder: "./output".to_string(),
+            jira: None,
+            squash: None,
+            templates: None,
+            llm: None,
+            profiles: None,
+            active_profile: None,
+        };
+
+        let summary = config.active_profile_summary();
+        assert!(summary.contains("No profile active (using base configuration)"),
+            "Should indicate no profile is active: {}", summary);
+        assert!(summary.contains("Output folder: ./output"),
+            "Should show output_folder: {}", summary);
+        assert!(summary.contains("Jira: not configured"),
+            "Should show Jira not configured: {}", summary);
+        assert!(summary.contains("Squash: not configured"),
+            "Should show Squash not configured: {}", summary);
+        assert!(summary.contains("LLM: not configured"),
+            "Should show LLM not configured: {}", summary);
+        assert!(summary.contains("Templates: not configured"),
+            "Should show Templates not configured: {}", summary);
+    }
+
+    #[test]
+    fn test_active_profile_summary_with_active_profile() {
+        // P1: With an active profile, summary shows profile name and configured services
+        let config = ProjectConfig {
+            project_name: "my-project".to_string(),
+            output_folder: "./dev-output".to_string(),
+            jira: Some(JiraConfig {
+                endpoint: "https://jira.dev.example.com".to_string(),
+                token: Some("secret-token".to_string()),
+            }),
+            squash: Some(SquashConfig {
+                endpoint: "https://squash.dev.example.com".to_string(),
+                username: Some("user".to_string()),
+                password: Some("pass".to_string()),
+            }),
+            templates: None,
+            llm: Some(LlmConfig {
+                mode: LlmMode::Local,
+                local_endpoint: Some("http://localhost:11434".to_string()),
+                local_model: Some("mistral".to_string()),
+                cloud_enabled: false,
+                cloud_endpoint: None,
+                cloud_model: None,
+                api_key: None,
+                timeout_seconds: 120,
+                max_tokens: 4096,
+            }),
+            profiles: None,
+            active_profile: Some("dev".to_string()),
+        };
+
+        let summary = config.active_profile_summary();
+        assert!(summary.contains("Active profile: dev"),
+            "Should show active profile name: {}", summary);
+        assert!(summary.contains("Output folder: ./dev-output"),
+            "Should show output_folder: {}", summary);
+        assert!(summary.contains("Jira: https://jira.dev.example.com"),
+            "Should show Jira endpoint: {}", summary);
+        assert!(summary.contains("Squash: https://squash.dev.example.com"),
+            "Should show Squash endpoint: {}", summary);
+        assert!(summary.contains("LLM: local"),
+            "Should show LLM mode: {}", summary);
+        // Secrets should NOT appear in summary
+        assert!(!summary.contains("secret-token"),
+            "Token should not appear in summary: {}", summary);
+        assert!(!summary.contains("pass"),
+            "Password should not appear in summary");
+    }
+
+    #[test]
+    fn test_redact_url_case_insensitive_param_names() {
+        // P1: Case-insensitive matching - Token, API_KEY, PASSWORD (uppercase variants)
+        let url_token = "https://example.com?Token=secret1";
+        let redacted = redact_url_sensitive_params(url_token);
+        assert!(!redacted.contains("secret1"), "Token (capitalized) should be redacted: {}", redacted);
+        assert!(redacted.contains("[REDACTED]"));
+
+        let url_api_key = "https://example.com?API_KEY=secret2";
+        let redacted = redact_url_sensitive_params(url_api_key);
+        assert!(!redacted.contains("secret2"), "API_KEY (uppercase) should be redacted: {}", redacted);
+        assert!(redacted.contains("[REDACTED]"));
+
+        let url_password = "https://example.com?PASSWORD=secret3";
+        let redacted = redact_url_sensitive_params(url_password);
+        assert!(!redacted.contains("secret3"), "PASSWORD (uppercase) should be redacted: {}", redacted);
+        assert!(redacted.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn test_redact_url_fragment_with_sensitive_param() {
+        // P1: Fragment containing sensitive param (#token=secret) is redacted
+        let url = "https://example.com/page#token=my-secret-value";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(!redacted.contains("my-secret-value"),
+            "Fragment token value should be redacted: {}", redacted);
+        assert!(redacted.contains("token=[REDACTED]"),
+            "Should show redacted token in fragment: {}", redacted);
+    }
+
+    #[test]
+    fn test_redact_url_no_query_params_unchanged() {
+        // P1: URL with no query params returns unchanged
+        let url = "https://example.com/api/v2/resource";
+        let redacted = redact_url_sensitive_params(url);
+        assert_eq!(redacted, url, "URL without query params should be unchanged");
+    }
+
+    #[test]
+    fn test_redact_url_only_non_sensitive_params_unchanged() {
+        // P1: URL with only non-sensitive params returns unchanged
+        let url = "https://example.com?page=1&limit=50&sort=name";
+        let redacted = redact_url_sensitive_params(url);
+        assert_eq!(redacted, url, "URL with only non-sensitive params should be unchanged");
+    }
+
+    #[test]
+    fn test_redact_url_mixed_sensitive_and_non_sensitive() {
+        // P1: URL with mix of sensitive and non-sensitive params - only sensitive redacted
+        let url = "https://example.com?user=john&token=secret123&page=1&api_key=sk-abc&sort=asc";
+        let redacted = redact_url_sensitive_params(url);
+        assert!(redacted.contains("user=john"), "Non-sensitive 'user' should remain: {}", redacted);
+        assert!(redacted.contains("page=1"), "Non-sensitive 'page' should remain: {}", redacted);
+        assert!(redacted.contains("sort=asc"), "Non-sensitive 'sort' should remain: {}", redacted);
+        assert!(redacted.contains("token=[REDACTED]"), "Sensitive 'token' should be redacted: {}", redacted);
+        assert!(redacted.contains("api_key=[REDACTED]"), "Sensitive 'api_key' should be redacted: {}", redacted);
+        assert!(!redacted.contains("secret123"), "token value should not appear: {}", redacted);
+        assert!(!redacted.contains("sk-abc"), "api_key value should not appear: {}", redacted);
+    }
+
+    #[test]
+    fn test_redact_url_empty_string() {
+        // P1: Empty string input returns empty string
+        let redacted = redact_url_sensitive_params("");
+        assert_eq!(redacted, "", "Empty string should return empty string");
     }
 }

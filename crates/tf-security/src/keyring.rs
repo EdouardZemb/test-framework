@@ -669,4 +669,210 @@ mod tests {
         // Cleanup
         let _ = store.delete_secret(&key);
     }
+
+    // ============================================================
+    // CONSTRUCTOR TESTS (no keyring required)
+    // ============================================================
+
+    /// Test: new() creates a SecretStore with the given service name
+    ///
+    /// Given: un nom de service quelconque
+    /// When: on crée un SecretStore
+    /// Then: service_name() retourne la valeur donnée
+    #[test]
+    fn test_new_creates_store_with_correct_service_name() {
+        let store = SecretStore::new("my-test-service");
+        assert_eq!(store.service_name(), "my-test-service");
+    }
+
+    /// Test: new() with different service names produces distinct stores
+    ///
+    /// Given: deux noms de service différents
+    /// When: on crée deux SecretStores
+    /// Then: chacun retourne son propre service_name
+    #[test]
+    fn test_new_distinct_service_names() {
+        let store_a = SecretStore::new("service-a");
+        let store_b = SecretStore::new("service-b");
+
+        assert_eq!(store_a.service_name(), "service-a");
+        assert_eq!(store_b.service_name(), "service-b");
+        assert_ne!(
+            store_a.service_name(),
+            store_b.service_name(),
+            "Different service names should produce distinct stores"
+        );
+    }
+
+    /// Test: new() with long service name
+    ///
+    /// Given: un nom de service très long
+    /// When: on crée un SecretStore
+    /// Then: le nom est préservé intégralement
+    #[test]
+    fn test_new_with_long_service_name() {
+        let long_name = "a".repeat(1000);
+        let store = SecretStore::new(&long_name);
+
+        assert_eq!(
+            store.service_name(),
+            long_name,
+            "Long service name should be preserved exactly"
+        );
+        assert_eq!(store.service_name().len(), 1000);
+    }
+
+    /// Test: new() with unicode service name
+    ///
+    /// Given: un nom de service contenant des caractères Unicode
+    /// When: on crée un SecretStore
+    /// Then: le nom Unicode est préservé
+    #[test]
+    fn test_new_with_unicode_service_name() {
+        let store = SecretStore::new("service-émoji-🔐-日本語");
+        assert_eq!(store.service_name(), "service-émoji-🔐-日本語");
+    }
+
+    /// Test: new() with whitespace service name
+    ///
+    /// Given: un nom de service contenant des espaces
+    /// When: on crée un SecretStore
+    /// Then: les espaces sont préservés
+    #[test]
+    fn test_new_with_whitespace_service_name() {
+        let store = SecretStore::new("  my service  ");
+        assert_eq!(
+            store.service_name(),
+            "  my service  ",
+            "Whitespace should be preserved as-is"
+        );
+    }
+
+    // ============================================================
+    // DEBUG IMPL TESTS (no keyring required)
+    // ============================================================
+
+    /// Test: Debug output uses debug_struct format with field name
+    ///
+    /// Given: un SecretStore
+    /// When: on utilise le format Debug
+    /// Then: le format est structuré avec le nom du champ
+    #[test]
+    fn test_debug_format_contains_field_name() {
+        let store = SecretStore::new("debug-test-svc");
+        let debug_str = format!("{:?}", store);
+
+        assert!(
+            debug_str.contains("service_name"),
+            "Debug output should contain the field name 'service_name': got '{}'",
+            debug_str
+        );
+        assert!(
+            debug_str.contains("debug-test-svc"),
+            "Debug output should contain the service name value: got '{}'",
+            debug_str
+        );
+    }
+
+    /// Test: Debug alternate format (pretty-print)
+    ///
+    /// Given: un SecretStore
+    /// When: on utilise le format Debug alternatif {:#?}
+    /// Then: le format est structuré et lisible
+    #[test]
+    fn test_debug_alternate_format() {
+        let store = SecretStore::new("alt-debug-svc");
+        let debug_str = format!("{:#?}", store);
+
+        assert!(
+            debug_str.contains("SecretStore"),
+            "Alternate Debug should contain struct name: got '{}'",
+            debug_str
+        );
+        assert!(
+            debug_str.contains("service_name"),
+            "Alternate Debug should contain field name: got '{}'",
+            debug_str
+        );
+        assert!(
+            debug_str.contains("alt-debug-svc"),
+            "Alternate Debug should contain service name: got '{}'",
+            debug_str
+        );
+    }
+
+    /// Test: Debug output with empty service name
+    ///
+    /// Given: un SecretStore avec service_name vide
+    /// When: on utilise Debug
+    /// Then: le format est valide avec une chaîne vide
+    #[test]
+    fn test_debug_with_empty_service_name() {
+        let store = SecretStore::new("");
+        let debug_str = format!("{:?}", store);
+
+        assert!(
+            debug_str.contains("SecretStore"),
+            "Debug should contain struct name even with empty service"
+        );
+        // The empty string should appear as \"\" in debug output
+        assert!(
+            debug_str.contains("service_name: \"\""),
+            "Debug should show empty string for service_name: got '{}'",
+            debug_str
+        );
+    }
+
+    // ============================================================
+    // API SIGNATURE / TYPE TESTS (no keyring required)
+    // ============================================================
+
+    /// Test: has_secret returns bool (not Result)
+    ///
+    /// Given: un SecretStore
+    /// When: on appelle has_secret
+    /// Then: le type de retour est bool (compilation check)
+    #[test]
+    #[ignore = "Requires OS keyring - run manually or in CI with keyring available"]
+    fn test_has_secret_returns_bool() {
+        let store = SecretStore::new(TEST_SERVICE);
+        let key = unique_key("api-check-bool");
+
+        // This is a compile-time type check: has_secret returns bool
+        let result: bool = store.has_secret(&key);
+        // Without keyring, has_secret returns false for any error
+        assert!(!result, "Non-existent key should return false");
+    }
+
+    /// Test: try_has_secret returns Result<bool, SecretError>
+    ///
+    /// Given: un SecretStore
+    /// When: on appelle try_has_secret
+    /// Then: le type de retour est Result<bool, SecretError>
+    #[test]
+    #[ignore = "Requires OS keyring - run manually or in CI with keyring available"]
+    fn test_try_has_secret_returns_result_bool() {
+        let store = SecretStore::new(TEST_SERVICE);
+        let key = unique_key("api-check-result");
+
+        // This is a compile-time type check: try_has_secret returns Result<bool, SecretError>
+        let result: Result<bool, SecretError> = store.try_has_secret(&key);
+        // With keyring available, non-existent key returns Ok(false)
+        assert!(result.is_ok(), "try_has_secret should return Ok for non-existent key");
+        assert!(!result.unwrap(), "Non-existent key should return Ok(false)");
+    }
+
+    /// Test: SecretStore is Send + Sync
+    ///
+    /// Given: le trait SecretStore
+    /// When: on vérifie les traits auto-implémentés
+    /// Then: Send et Sync sont implémentés (sécurité thread)
+    #[test]
+    fn test_secret_store_is_send_and_sync() {
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        assert_send::<SecretStore>();
+        assert_sync::<SecretStore>();
+    }
 }

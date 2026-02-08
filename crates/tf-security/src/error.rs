@@ -210,7 +210,7 @@ mod tests {
     #[test]
     fn test_all_error_messages_contain_hints() {
         // Given: toutes les variantes d'erreur
-        let errors = vec![
+        let errors = [
             SecretError::KeyringUnavailable {
                 platform: "test".to_string(),
                 hint: "Test hint 1".to_string(),
@@ -285,5 +285,290 @@ mod tests {
         // Then: le hint est approprié à la plateforme courante
         // (Le contenu exact dépend de la plateforme de test)
         assert!(!hint.is_empty(), "Platform hint should not be empty");
+    }
+
+    // ============================================================
+    // DEBUG IMPL TESTS
+    // ============================================================
+
+    /// Test: Debug output for SecretNotFound variant
+    ///
+    /// Given: une erreur SecretNotFound
+    /// When: on utilise Debug
+    /// Then: la sortie contient le nom du variant et les champs
+    #[test]
+    fn test_secret_not_found_debug_output() {
+        let err = SecretError::SecretNotFound {
+            key: "my-key".to_string(),
+            hint: "Use 'tf secret set my-key'".to_string(),
+        };
+
+        let debug_str = format!("{:?}", err);
+
+        assert!(
+            debug_str.contains("SecretNotFound"),
+            "Debug should contain variant name: got '{}'",
+            debug_str
+        );
+        assert!(
+            debug_str.contains("my-key"),
+            "Debug should contain key name: got '{}'",
+            debug_str
+        );
+    }
+
+    /// Test: Debug output for KeyringUnavailable variant
+    ///
+    /// Given: une erreur KeyringUnavailable
+    /// When: on utilise Debug
+    /// Then: la sortie contient le nom du variant et les champs
+    #[test]
+    fn test_keyring_unavailable_debug_output() {
+        let err = SecretError::KeyringUnavailable {
+            platform: "linux".to_string(),
+            hint: "Start gnome-keyring".to_string(),
+        };
+
+        let debug_str = format!("{:?}", err);
+
+        assert!(
+            debug_str.contains("KeyringUnavailable"),
+            "Debug should contain variant name: got '{}'",
+            debug_str
+        );
+        assert!(
+            debug_str.contains("linux"),
+            "Debug should contain platform: got '{}'",
+            debug_str
+        );
+    }
+
+    /// Test: Debug output for AccessDenied variant
+    ///
+    /// Given: une erreur AccessDenied
+    /// When: on utilise Debug
+    /// Then: la sortie contient le nom du variant et les champs
+    #[test]
+    fn test_access_denied_debug_output() {
+        let err = SecretError::AccessDenied {
+            key: "restricted-key".to_string(),
+            hint: "Check permissions".to_string(),
+        };
+
+        let debug_str = format!("{:?}", err);
+
+        assert!(
+            debug_str.contains("AccessDenied"),
+            "Debug should contain variant name: got '{}'",
+            debug_str
+        );
+        assert!(
+            debug_str.contains("restricted-key"),
+            "Debug should contain key: got '{}'",
+            debug_str
+        );
+    }
+
+    /// Test: Debug output for StoreFailed variant
+    ///
+    /// Given: une erreur StoreFailed
+    /// When: on utilise Debug
+    /// Then: la sortie contient le nom du variant, la cause et le hint
+    #[test]
+    fn test_store_failed_debug_output() {
+        let err = SecretError::StoreFailed {
+            key: "store-key".to_string(),
+            cause: "disk full".to_string(),
+            hint: "Free up space".to_string(),
+        };
+
+        let debug_str = format!("{:?}", err);
+
+        assert!(
+            debug_str.contains("StoreFailed"),
+            "Debug should contain variant name: got '{}'",
+            debug_str
+        );
+        assert!(
+            debug_str.contains("disk full"),
+            "Debug should contain cause: got '{}'",
+            debug_str
+        );
+    }
+
+    // ============================================================
+    // from_keyring_error CONVERSION TESTS
+    // ============================================================
+
+    /// Test: from_keyring_error converts NoStorageAccess to KeyringUnavailable
+    ///
+    /// Given: une erreur keyring::Error::NoStorageAccess
+    /// When: on convertit en SecretError
+    /// Then: c'est une erreur KeyringUnavailable avec platform et hint
+    #[test]
+    fn test_error_conversion_no_storage_access() {
+        let platform_err = keyring::Error::NoStorageAccess(Box::new(
+            std::io::Error::other("no keyring"),
+        ));
+
+        let err = SecretError::from_keyring_error(platform_err, "some-key");
+
+        match err {
+            SecretError::KeyringUnavailable { platform, hint } => {
+                assert_eq!(
+                    platform,
+                    std::env::consts::OS,
+                    "Platform should match current OS"
+                );
+                assert!(
+                    !hint.is_empty(),
+                    "Hint should not be empty for KeyringUnavailable"
+                );
+            }
+            _ => panic!("Expected KeyringUnavailable, got {:?}", err),
+        }
+    }
+
+    /// Test: from_keyring_error converts Ambiguous to AccessDenied
+    ///
+    /// Given: une erreur keyring::Error::Ambiguous
+    /// When: on convertit en SecretError
+    /// Then: c'est une erreur AccessDenied avec hint sur les doublons
+    #[test]
+    fn test_error_conversion_ambiguous() {
+        // Ambiguous takes Vec<Box<dyn CredentialApi>>; use empty vec
+        let ambiguous_err = keyring::Error::Ambiguous(vec![]);
+
+        let err = SecretError::from_keyring_error(ambiguous_err, "dup-key");
+
+        match err {
+            SecretError::AccessDenied { key, hint } => {
+                assert_eq!(key, "dup-key", "Key should be preserved");
+                assert!(
+                    hint.contains("duplicates"),
+                    "Hint should mention duplicates: got '{}'",
+                    hint
+                );
+            }
+            _ => panic!("Expected AccessDenied, got {:?}", err),
+        }
+    }
+
+    /// Test: from_keyring_error converts unknown errors to StoreFailed
+    ///
+    /// Given: une erreur keyring non reconnue (catchall)
+    /// When: on convertit en SecretError
+    /// Then: c'est une erreur StoreFailed avec cause et hint
+    #[test]
+    fn test_error_conversion_catchall_to_store_failed() {
+        // Use a variant that doesn't match the specific arms
+        let other_err = keyring::Error::TooLong("field".to_string(), 100);
+
+        let err = SecretError::from_keyring_error(other_err, "catch-key");
+
+        match err {
+            SecretError::StoreFailed { key, cause, hint } => {
+                assert_eq!(key, "catch-key", "Key should be preserved");
+                assert!(!cause.is_empty(), "Cause should not be empty");
+                assert!(
+                    hint.contains("keyring service"),
+                    "Hint should reference keyring service: got '{}'",
+                    hint
+                );
+            }
+            _ => panic!("Expected StoreFailed, got {:?}", err),
+        }
+    }
+
+    /// Test: from_keyring_error preserves key name in all conversions
+    ///
+    /// Given: différentes erreurs keyring
+    /// When: on convertit chacune en SecretError
+    /// Then: le nom de la clé est préservé dans chaque cas
+    #[test]
+    fn test_error_conversion_preserves_key_name() {
+        let test_key = "preserved-key-name";
+
+        // NoEntry -> SecretNotFound
+        let err1 = SecretError::from_keyring_error(keyring::Error::NoEntry, test_key);
+        match &err1 {
+            SecretError::SecretNotFound { key, .. } => assert_eq!(key, test_key),
+            _ => panic!("Expected SecretNotFound, got {:?}", err1),
+        }
+
+        // Ambiguous -> AccessDenied (empty vec since we can't easily construct CredentialApi)
+        let err2 = SecretError::from_keyring_error(
+            keyring::Error::Ambiguous(vec![]),
+            test_key,
+        );
+        match &err2 {
+            SecretError::AccessDenied { key, .. } => assert_eq!(key, test_key),
+            _ => panic!("Expected AccessDenied, got {:?}", err2),
+        }
+
+        // TooLong (catchall) -> StoreFailed
+        let err3 = SecretError::from_keyring_error(
+            keyring::Error::TooLong("x".to_string(), 1),
+            test_key,
+        );
+        match &err3 {
+            SecretError::StoreFailed { key, .. } => assert_eq!(key, test_key),
+            _ => panic!("Expected StoreFailed, got {:?}", err3),
+        }
+    }
+
+    // ============================================================
+    // SECURITY: Error messages never contain secret values
+    // ============================================================
+
+    /// Test: Debug output for errors never contains secret-like values
+    ///
+    /// Given: des erreurs construites sans valeurs secrètes
+    /// When: on affiche avec Debug
+    /// Then: les valeurs secrètes ne fuient pas dans Debug
+    #[test]
+    fn test_error_debug_never_contains_secret_values() {
+        let secret_value = "super-secret-password-12345";
+
+        let errors: Vec<SecretError> = vec![
+            SecretError::SecretNotFound {
+                key: "safe-key".to_string(),
+                hint: "safe hint".to_string(),
+            },
+            SecretError::KeyringUnavailable {
+                platform: "linux".to_string(),
+                hint: "safe hint".to_string(),
+            },
+            SecretError::AccessDenied {
+                key: "safe-key".to_string(),
+                hint: "safe hint".to_string(),
+            },
+            SecretError::StoreFailed {
+                key: "safe-key".to_string(),
+                cause: "generic error".to_string(),
+                hint: "safe hint".to_string(),
+            },
+        ];
+
+        for err in &errors {
+            let debug_str = format!("{:?}", err);
+            assert!(
+                !debug_str.contains(secret_value),
+                "Debug output must never contain secret values: got '{}'",
+                debug_str
+            );
+        }
+    }
+
+    /// Test: SecretError implements std::error::Error trait
+    ///
+    /// Given: une SecretError
+    /// When: on l'utilise comme dyn Error
+    /// Then: c'est compatible avec le trait Error standard
+    #[test]
+    fn test_secret_error_implements_error_trait() {
+        fn assert_error<T: std::error::Error>() {}
+
+        assert_error::<SecretError>();
     }
 }
