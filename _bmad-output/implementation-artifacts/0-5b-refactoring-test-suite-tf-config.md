@@ -28,9 +28,9 @@ so that les futures stories peuvent ajouter des tests sans aggraver la dette tec
    **When** le refactoring est termine
    **Then** ils utilisent `create_temp_config()` avec cleanup automatique via tempfile
 
-5. **Given** le refactoring complete
-   **When** `cargo test --workspace` est execute
-   **Then** tous les 417+ tests passent avec 0 regressions
+5. **Given** un baseline pre-refactor capture
+   **When** `cargo test --workspace` est execute apres refactoring
+   **Then** 0 regression est observee et aucun test tf-config n'est supprime involontairement
 
 6. **Given** le refactoring complete
    **When** `cargo clippy --workspace --all-targets -- -D warnings` est execute
@@ -39,16 +39,16 @@ so that les futures stories peuvent ajouter des tests sans aggraver la dette tec
 ## Tasks / Subtasks
 
 - [ ] Task 1: Creer la structure de sous-modules de test (AC: #1, #3)
-  - [ ] Subtask 1.1: Creer `crates/tf-config/src/tests/mod.rs` avec declarations de sous-modules et re-export du helper `create_temp_config`
-  - [ ] Subtask 1.2: Creer `crates/tf-config/src/tests/helpers.rs` — extraire `create_temp_config()` et assertions communes
-  - [ ] Subtask 1.3: Creer `crates/tf-config/src/tests/url_validation.rs` — regrouper ~50 tests de validation URL (scheme, IPv4, IPv6, whitespace, hostname)
-  - [ ] Subtask 1.4: Creer `crates/tf-config/src/tests/path_validation.rs` — regrouper ~30 tests traversal, null bytes, formats chemins
-  - [ ] Subtask 1.5: Creer `crates/tf-config/src/tests/serde_errors.rs` — regrouper ~40 tests erreurs de type, champs manquants, parsing YAML
-  - [ ] Subtask 1.6: Creer `crates/tf-config/src/tests/llm_config.rs` — regrouper ~25 tests cloud mode, local mode, defaults, edge cases
-  - [ ] Subtask 1.7: Creer `crates/tf-config/src/tests/redact_url.rs` — regrouper ~30 tests redaction parametres URL sensibles
-  - [ ] Subtask 1.8: Creer `crates/tf-config/src/tests/config_loading.rs` — regrouper ~15 tests load_config, fixtures, config basique
-  - [ ] Subtask 1.9: Creer `crates/tf-config/src/tests/profile_summary.rs` — regrouper ~10 tests active_profile_summary, check_output_folder
-  - [ ] Subtask 1.10: Remplacer le `#[cfg(test)] mod tests { ... }` monolithique dans config.rs par `#[cfg(test)] mod tests;` pointant vers le dossier `tests/`
+  - [ ] Subtask 1.1: Garder un seul bloc `#[cfg(test)] mod tests { ... }` dans `crates/tf-config/src/config.rs` (approche authoritative)
+  - [ ] Subtask 1.2: Creer des sous-modules inline dans ce bloc: `helpers`, `url_validation`, `path_validation`, `serde_errors`, `llm_config`, `redact_url`, `config_loading`, `profile_summary`
+  - [ ] Subtask 1.3: Extraire `create_temp_config()` et assertions communes dans `mod helpers`
+  - [ ] Subtask 1.4: Deplacer les tests URL (scheme, IPv4, IPv6, whitespace, hostname) dans `mod url_validation`
+  - [ ] Subtask 1.5: Deplacer les tests traversal/null bytes/formats chemins dans `mod path_validation`
+  - [ ] Subtask 1.6: Deplacer les tests erreurs serde/type/champs manquants dans `mod serde_errors`
+  - [ ] Subtask 1.7: Deplacer les tests cloud/local/defaults/edge cases dans `mod llm_config`
+  - [ ] Subtask 1.8: Deplacer les tests de redaction URL dans `mod redact_url`
+  - [ ] Subtask 1.9: Deplacer les tests load_config/check_output_folder dans `mod config_loading`, et `active_profile_summary` dans `mod profile_summary`
+  - [ ] Subtask 1.10: Verifier que chaque sous-module logique reste < 500 lignes dans `config.rs` (mesure par bloc `mod <name> { ... }`)
 
 - [ ] Task 2: Extraire le macro `test_config_rejects!` (AC: #2)
   - [ ] Subtask 2.1: Definir le macro dans `helpers.rs` — pattern: `test_config_rejects!($name:ident, $yaml:expr, $($expected:expr),+)` qui cree un `#[test]` executant `load_config(&create_temp_config($yaml))` et verifiant `is_err()` + `err.to_string().contains($expected)`
@@ -59,14 +59,14 @@ so that les futures stories peuvent ajouter des tests sans aggraver la dette tec
   - [ ] Subtask 2.6: Garder en fonctions explicites les tests qui verifient des details specifiques (enum variant, hint texte exact, etc.) qui ne rentrent pas dans le pattern du macro
 
 - [ ] Task 3: Normaliser la gestion des fichiers temporaires (AC: #4)
-  - [ ] Subtask 3.1: Identifier les 6 tests whitespace endpoint utilisant `std::env::temp_dir()` manuellement (lignes ~4778-4905)
+  - [ ] Subtask 3.1: Identifier les 6 tests whitespace endpoint utilisant `std::env::temp_dir()` manuellement (lignes ~5237-5398)
   - [ ] Subtask 3.2: Les convertir pour utiliser `create_temp_config(yaml)` au lieu de `std::env::temp_dir().join(...)` + `std::fs::write(...)` + `std::fs::remove_file(...)`
 
 - [ ] Task 4: Validation finale (AC: #5, #6)
-  - [ ] Subtask 4.1: Executer `cargo test --workspace` — verifier 0 regressions (417+ tests passent)
+  - [ ] Subtask 4.1: Capturer un baseline pre-refactor (`cargo test --workspace`, puis `cargo test -p tf-config -- --list`) et comparer post-refactor pour verifier 0 regressions et aucune suppression involontaire de tests
   - [ ] Subtask 4.2: Executer `cargo clippy --workspace --all-targets -- -D warnings` — verifier 0 warnings
   - [ ] Subtask 4.3: Executer `cargo fmt --check` — verifier formatage correct
-  - [ ] Subtask 4.4: Verifier que chaque sous-module fait < 500 lignes
+  - [ ] Subtask 4.4: Verifier que chaque bloc `mod <name> { ... }` dans `#[cfg(test)] mod tests` fait < 500 lignes
   - [ ] Subtask 4.5: Verifier que >= 80% des tests de validation utilisent le macro `test_config_rejects!`
 
 ## Dev Notes
@@ -81,54 +81,43 @@ Ce refactoring touche EXCLUSIVEMENT les modules `#[cfg(test)]` de `crates/tf-con
 ```
 crates/tf-config/src/
 ├── config.rs       # 5935 lignes dont ~3231 lignes de tests (211 tests dans un seul mod tests)
-├── error.rs        # 98 lignes
-├── lib.rs          # 74 lignes
-├── profiles.rs     # 146 lignes
-└── template.rs     # 1613 lignes
-```
-
-**Structure cible :**
-```
-crates/tf-config/src/
-├── config.rs       # ~2700 lignes (production code seulement + `#[cfg(test)] mod tests;`)
-├── tests/          # Nouveau dossier de sous-modules de test
-│   ├── mod.rs           # Declarations des sous-modules + imports communs
-│   ├── helpers.rs       # create_temp_config(), test_config_rejects! macro, assertions communes
-│   ├── url_validation.rs     # ~50 tests (< 500 lignes)
-│   ├── path_validation.rs    # ~30 tests (< 500 lignes)
-│   ├── serde_errors.rs       # ~40 tests (< 500 lignes)
-│   ├── llm_config.rs         # ~25 tests (< 500 lignes)
-│   ├── redact_url.rs         # ~30 tests (< 500 lignes)
-│   ├── config_loading.rs     # ~15 tests (< 500 lignes)
-│   └── profile_summary.rs    # ~10 tests (< 500 lignes)
 ├── error.rs
 ├── lib.rs
 ├── profiles.rs
 └── template.rs
 ```
 
-**Approche pour les sous-modules inline :** En Rust, un `#[cfg(test)] mod tests;` dans `config.rs` pointe vers `tests/mod.rs` (ou `tests.rs`). Les sous-modules sont declares dans `mod.rs` et peuvent acceder aux items prives de `config.rs` via `use super::super::*;` (puisqu'ils sont des sous-modules du module `tests` qui est lui-meme un sous-module de `config`).
+**Decision implementation (authoritative):**
+- Garder `#[cfg(test)] mod tests { ... }` inline dans `crates/tf-config/src/config.rs`
+- Ne PAS basculer vers `mod tests;` ni creer `crates/tf-config/src/tests/`
+- Organiser le contenu en sous-modules logiques inline (`mod url_validation { ... }`, etc.)
+- Appliquer la contrainte `< 500 lignes` par bloc de sous-module inline
 
-**ALTERNATIVE si la structure `tests/` en dossier pose probleme :** Utiliser un seul fichier `config/tests.rs` contenant des `mod url_validation { ... }` inline. Cela evite de creer un dossier mais le fichier resterait gros. **Preferer l'approche dossier** pour respecter le seuil de 500 lignes par fichier.
-
-**NOTE IMPORTANTE sur la structure des modules Rust :**
-Quand `config.rs` contient `#[cfg(test)] mod tests;`, Rust cherche le fichier `config/tests.rs` OU `config/tests/mod.rs`. Mais `config.rs` existe DEJA comme fichier — il faudrait le renommer en `config/mod.rs` ou utiliser l'edition 2021 path resolution. **L'approche la plus propre** est de garder le module tests inline dans `config.rs` mais avec des sous-modules dans des fichiers separes via `#[path = "..."]` :
-
-```rust
-// Dans config.rs, a la fin:
-#[cfg(test)]
-mod tests {
-    #[path = "tests_helpers.rs"]
-    mod helpers;
-    #[path = "tests_url_validation.rs"]
-    mod url_validation;
-    // ... etc
-}
+**Structure cible (authoritative) :**
+```
+crates/tf-config/src/
+├── config.rs
+│   └── #[cfg(test)] mod tests {
+│       ├── mod helpers { ... }
+│       ├── mod url_validation { ... }
+│       ├── mod path_validation { ... }
+│       ├── mod serde_errors { ... }
+│       ├── mod llm_config { ... }
+│       ├── mod redact_url { ... }
+│       ├── mod config_loading { ... }
+│       └── mod profile_summary { ... }
+│   }
+├── error.rs
+├── lib.rs
+├── profiles.rs
+└── template.rs
 ```
 
-**OU** (plus idiomatique) : garder tous les sous-modules inline dans le `mod tests { }` block existant, mais les organiser en `mod url_validation { ... }`, `mod path_validation { ... }`, etc. directement dans config.rs. Chaque sous-module fait < 500 lignes, le total reste ~3000 lignes mais est ORGANISE par fonctionnalite.
-
-**DECISION RECOMMANDEE : sous-modules inline dans config.rs.** C'est la solution la plus simple et la plus robuste qui evite les complications de chemin de modules. Le fichier reste gros mais chaque sous-module est navigable et < 500 lignes. Les fichiers separes via `#[path]` sont une alternative si l'equipe prefere.
+### Execution Plan (authoritative)
+1. Isoler d'abord `helpers` + macro `test_config_rejects!`.
+2. Migrer les tests par domaine vers les sous-modules inline.
+3. Remplacer les 6 tests endpoint whitespace manuels par `create_temp_config()`.
+4. Valider baseline vs post-refactor (`test`, `clippy`, `fmt`, couverture macro, tailles modules).
 
 ### Macro Pattern Prouve (tf-logging reference)
 
@@ -218,7 +207,7 @@ test_config_rejects!(
 
 ### Normalisation des 6 Tests Whitespace Endpoint
 
-**Pattern actuel (6 tests, lignes ~4778-4905) :**
+**Pattern actuel (6 tests, lignes ~5237-5398) :**
 ```rust
 #[test]
 fn test_whitespace_endpoint_leading_space() {
@@ -286,7 +275,7 @@ test_config_rejects!(
 
 | Criterion | Target | Measurement |
 |-----------|--------|-------------|
-| Test regressions | 0 | `cargo test --workspace` — all 417+ tests pass |
+| Test regressions | 0 | Baseline pre-refactor vs post-refactor: `cargo test --workspace` vert + pas de suppression involontaire dans `cargo test -p tf-config -- --list` |
 | Max sub-module size | < 500 lines | Line count per test sub-module |
 | Maintainability score | >= 70/100 (target 80) | TEA `testarch-test-review` re-run |
 | Macro coverage | >= 80% of validation tests | Count of `test_config_rejects!` invocations vs total validation tests |
@@ -294,20 +283,7 @@ test_config_rejects!(
 
 ### File Structure Requirements
 
-**Fichiers a creer :** AUCUN fichier de production. Uniquement reorganisation du code `#[cfg(test)]` existant.
-
-Si approche sous-modules inline (recommandee) :
-- Aucun nouveau fichier — restructuration interne de `config.rs` `mod tests { ... }`
-
-Si approche fichiers separes via `#[path]` :
-- `crates/tf-config/src/tests_helpers.rs`
-- `crates/tf-config/src/tests_url_validation.rs`
-- `crates/tf-config/src/tests_path_validation.rs`
-- `crates/tf-config/src/tests_serde_errors.rs`
-- `crates/tf-config/src/tests_llm_config.rs`
-- `crates/tf-config/src/tests_redact_url.rs`
-- `crates/tf-config/src/tests_config_loading.rs`
-- `crates/tf-config/src/tests_profile_summary.rs`
+**Fichiers a creer :** Aucun. Reorganisation interne du bloc `#[cfg(test)] mod tests { ... }` dans `config.rs`.
 
 **Fichiers a modifier :**
 - `crates/tf-config/src/config.rs` — restructuration du bloc `#[cfg(test)] mod tests { ... }`
@@ -316,14 +292,18 @@ Si approche fichiers separes via `#[path]` :
 
 Pas de nouveaux tests a ecrire. Le Definition of Done est que TOUS les tests existants passent sans regression apres le refactoring.
 
-**Commande de validation :**
+**Commandes de validation :**
 ```bash
 cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --check
 ```
 
+```bash
+cargo test -p tf-config -- --list
+```
+
 ### References
 
-- [Source: sprint-change-proposal-2026-02-08.md] — 4 propositions detaillees (P0: split module, P0: macro, P1: reorganize, P1: normalize temp)
+- [Source: _bmad-output/planning-artifacts/sprint-change-proposal-2026-02-08.md] — 4 propositions detaillees (P0: split module, P0: macro, P1: reorganize, P1: normalize temp)
 - [Source: 0-5-journalisation-baseline-sans-donnees-sensibles.md] — Previous story learnings, macro pattern in redact.rs
 - [Source: architecture.md#Implementation Patterns] — Naming conventions, test framework: cargo test built-in
 - [Source: _bmad-output/test-review.md] — Maintainability score 45/100, critical issues identified
