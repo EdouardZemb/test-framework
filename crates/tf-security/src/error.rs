@@ -407,9 +407,8 @@ mod tests {
     /// Then: c'est une erreur KeyringUnavailable avec platform et hint
     #[test]
     fn test_error_conversion_no_storage_access() {
-        let platform_err = keyring::Error::NoStorageAccess(Box::new(
-            std::io::Error::other("no keyring"),
-        ));
+        let platform_err =
+            keyring::Error::NoStorageAccess(Box::new(std::io::Error::other("no keyring")));
 
         let err = SecretError::from_keyring_error(platform_err, "some-key");
 
@@ -497,20 +496,15 @@ mod tests {
         }
 
         // Ambiguous -> AccessDenied (empty vec since we can't easily construct CredentialApi)
-        let err2 = SecretError::from_keyring_error(
-            keyring::Error::Ambiguous(vec![]),
-            test_key,
-        );
+        let err2 = SecretError::from_keyring_error(keyring::Error::Ambiguous(vec![]), test_key);
         match &err2 {
             SecretError::AccessDenied { key, .. } => assert_eq!(key, test_key),
             _ => panic!("Expected AccessDenied, got {:?}", err2),
         }
 
         // TooLong (catchall) -> StoreFailed
-        let err3 = SecretError::from_keyring_error(
-            keyring::Error::TooLong("x".to_string(), 1),
-            test_key,
-        );
+        let err3 =
+            SecretError::from_keyring_error(keyring::Error::TooLong("x".to_string(), 1), test_key);
         match &err3 {
             SecretError::StoreFailed { key, .. } => assert_eq!(key, test_key),
             _ => panic!("Expected StoreFailed, got {:?}", err3),

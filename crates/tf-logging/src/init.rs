@@ -133,9 +133,7 @@ pub fn init_logging(config: &LoggingConfig) -> Result<LogGuard, LoggingError> {
         });
     }
 
-    let subscriber = tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt_layer);
+    let subscriber = tracing_subscriber::registry().with(filter).with(fmt_layer);
 
     // Use set_default (thread-local) to allow multiple init calls in tests
     let dispatch = Dispatch::new(subscriber);
@@ -151,8 +149,8 @@ pub fn init_logging(config: &LoggingConfig) -> Result<LogGuard, LoggingError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assert_matches::assert_matches;
     use crate::config::LoggingConfig;
+    use assert_matches::assert_matches;
     use std::fs;
     use tempfile::tempdir;
 
@@ -173,7 +171,10 @@ mod tests {
         let guard = init_logging(&config).unwrap();
 
         // Verify directory was created
-        assert!(log_dir.exists(), "Log directory should be created by init_logging");
+        assert!(
+            log_dir.exists(),
+            "Log directory should be created by init_logging"
+        );
         assert!(log_dir.is_dir());
 
         drop(guard);
@@ -207,9 +208,12 @@ mod tests {
         // Read and parse log file
         let log_file = find_log_file(&log_dir);
         let content = fs::read_to_string(&log_file).unwrap();
-        let last_line = content.lines().last().expect("Log file should have at least one line");
-        let json: serde_json::Value = serde_json::from_str(last_line)
-            .expect("Log line should be valid JSON");
+        let last_line = content
+            .lines()
+            .last()
+            .expect("Log file should have at least one line");
+        let json: serde_json::Value =
+            serde_json::from_str(last_line).expect("Log line should be valid JSON");
 
         // Required fields: timestamp, level, message, target
         assert!(json.get("timestamp").is_some(), "Missing 'timestamp' field");
@@ -221,7 +225,10 @@ mod tests {
 
         // Timestamp must be ISO 8601 (contains 'T')
         let ts = json["timestamp"].as_str().unwrap();
-        assert!(ts.contains('T'), "Timestamp should be ISO 8601 format, got: {ts}");
+        assert!(
+            ts.contains('T'),
+            "Timestamp should be ISO 8601 format, got: {ts}"
+        );
     }
 
     // Test 0.5-UNIT-005: Logs written to configured directory
@@ -245,7 +252,11 @@ mod tests {
         drop(guard);
 
         // Verify log directory was created at configured path
-        assert!(log_dir.exists(), "Log directory not created at: {:?}", log_dir);
+        assert!(
+            log_dir.exists(),
+            "Log directory not created at: {:?}",
+            log_dir
+        );
 
         // Verify at least one log file exists
         let file_count = fs::read_dir(&log_dir)
@@ -258,7 +269,10 @@ mod tests {
         // Verify content
         let log_file = find_log_file(&log_dir);
         let content = fs::read_to_string(&log_file).unwrap();
-        assert!(content.contains("Test log event"), "Log file missing expected event");
+        assert!(
+            content.contains("Test log event"),
+            "Log file missing expected event"
+        );
     }
 
     // Test 0.5-UNIT-006: Default log level is info
@@ -284,10 +298,14 @@ mod tests {
         let log_file = find_log_file(&log_dir);
         let content = fs::read_to_string(&log_file).unwrap();
 
-        assert!(!content.contains("This debug message should not appear"),
-                "Debug message should be filtered at info level");
-        assert!(content.contains("This info message should appear"),
-                "Info message should pass at info level");
+        assert!(
+            !content.contains("This debug message should not appear"),
+            "Debug message should be filtered at info level"
+        );
+        assert!(
+            content.contains("This info message should appear"),
+            "Info message should pass at info level"
+        );
     }
 
     // Test 0.5-UNIT-007: RUST_LOG overrides configured level
@@ -339,8 +357,10 @@ mod tests {
         let log_file = find_log_file(&log_dir);
         let content = fs::read_to_string(&log_file).unwrap();
 
-        assert!(content.contains("Debug visible via RUST_LOG override"),
-                "RUST_LOG=debug should override config level and show debug messages");
+        assert!(
+            content.contains("Debug visible via RUST_LOG override"),
+            "RUST_LOG=debug should override config level and show debug messages"
+        );
         // _env_guard dropped here, cleaning up RUST_LOG
     }
 
@@ -366,8 +386,10 @@ mod tests {
         let content = fs::read_to_string(&log_file).unwrap();
 
         // ANSI escape codes start with \x1b[
-        assert!(!content.contains("\x1b["),
-                "Log file should not contain ANSI escape codes");
+        assert!(
+            !content.contains("\x1b["),
+            "Log file should not contain ANSI escape codes"
+        );
         assert!(content.contains("Message to verify no ANSI escape codes"));
     }
 
@@ -390,18 +412,28 @@ mod tests {
         let debug_output = format!("{:?}", guard);
 
         // Must contain the struct name
-        assert!(debug_output.contains("LogGuard"),
-                "Debug output should contain 'LogGuard', got: {debug_output}");
+        assert!(
+            debug_output.contains("LogGuard"),
+            "Debug output should contain 'LogGuard', got: {debug_output}"
+        );
 
         // Must NOT expose internal field names
-        assert!(!debug_output.contains("_worker_guard"),
-                "Debug output must not expose _worker_guard field");
-        assert!(!debug_output.contains("_dispatch_guard"),
-                "Debug output must not expose _dispatch_guard field");
-        assert!(!debug_output.contains("WorkerGuard"),
-                "Debug output must not expose WorkerGuard type");
-        assert!(!debug_output.contains("DefaultGuard"),
-                "Debug output must not expose DefaultGuard type");
+        assert!(
+            !debug_output.contains("_worker_guard"),
+            "Debug output must not expose _worker_guard field"
+        );
+        assert!(
+            !debug_output.contains("_dispatch_guard"),
+            "Debug output must not expose _dispatch_guard field"
+        );
+        assert!(
+            !debug_output.contains("WorkerGuard"),
+            "Debug output must not expose WorkerGuard type"
+        );
+        assert!(
+            !debug_output.contains("DefaultGuard"),
+            "Debug output must not expose DefaultGuard type"
+        );
 
         drop(guard);
     }
@@ -437,10 +469,14 @@ mod tests {
         // After drop, verify logs were flushed to disk
         let log_file = find_log_file(&log_dir);
         let content = fs::read_to_string(&log_file).unwrap();
-        assert!(content.contains("lifecycle test message"),
-                "Log should contain message emitted before guard move");
-        assert!(content.contains("after move message"),
-                "Log should contain message emitted after guard move");
+        assert!(
+            content.contains("lifecycle test message"),
+            "Log should contain message emitted before guard move"
+        );
+        assert!(
+            content.contains("after move message"),
+            "Log should contain message emitted after guard move"
+        );
     }
 
     // Test [AI-Review-R3 M2]: init_logging returns DirectoryCreationFailed on unwritable path
@@ -479,7 +515,10 @@ mod tests {
         };
 
         let result = init_logging(&config);
-        assert!(result.is_err(), "Malformed filter expression should return an error");
+        assert!(
+            result.is_err(),
+            "Malformed filter expression should return an error"
+        );
 
         let err = result.unwrap_err();
         assert_matches!(err, LoggingError::InvalidLogLevel { ref level, ref hint } => {
@@ -501,7 +540,10 @@ mod tests {
         };
 
         let guard = init_logging(&config);
-        assert!(guard.is_ok(), "Complex filter expression should be accepted");
+        assert!(
+            guard.is_ok(),
+            "Complex filter expression should be accepted"
+        );
 
         // Verify debug events from tf_logging target pass the filter
         tracing::debug!(target: "tf_logging", "debug from tf_logging target");
@@ -513,12 +555,43 @@ mod tests {
 
         let log_file = find_log_file(&log_dir);
         let content = fs::read_to_string(&log_file).unwrap();
-        assert!(content.contains("debug from tf_logging target"),
-                "tf_logging debug should pass with 'info,tf_logging=debug' filter");
-        assert!(!content.contains("debug from other target"),
-                "other_crate debug should be filtered out");
-        assert!(content.contains("info from other target"),
-                "other_crate info should pass the base info filter");
+        assert!(
+            content.contains("debug from tf_logging target"),
+            "tf_logging debug should pass with 'info,tf_logging=debug' filter"
+        );
+        assert!(
+            !content.contains("debug from other target"),
+            "other_crate debug should be filtered out"
+        );
+        assert!(
+            content.contains("info from other target"),
+            "other_crate info should pass the base info filter"
+        );
+    }
+
+    // Test QW-PERF-001: init_logging completes within 100ms (NFR8 budget)
+    #[test]
+    fn test_init_logging_completes_within_100ms() {
+        let temp = tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+
+        let config = LoggingConfig {
+            log_level: "info".to_string(),
+            log_dir: log_dir.to_string_lossy().to_string(),
+            log_to_stdout: false,
+        };
+
+        let start = std::time::Instant::now();
+        let guard = init_logging(&config).unwrap();
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed.as_millis() < 100,
+            "init_logging took {}ms, expected < 100ms",
+            elapsed.as_millis()
+        );
+
+        drop(guard);
     }
 
     // Test [AI-Review]: log_to_stdout=true creates stdout layer and emits to file
@@ -534,15 +607,20 @@ mod tests {
         };
 
         let guard = init_logging(&config);
-        assert!(guard.is_ok(), "init_logging with log_to_stdout=true should succeed");
+        assert!(
+            guard.is_ok(),
+            "init_logging with log_to_stdout=true should succeed"
+        );
 
         tracing::info!("stdout test message");
         drop(guard.unwrap());
 
         let log_file = find_log_file(&log_dir);
         let content = fs::read_to_string(&log_file).unwrap();
-        assert!(content.contains("stdout test message"),
-                "Log should still reach file when log_to_stdout=true");
+        assert!(
+            content.contains("stdout test message"),
+            "Log should still reach file when log_to_stdout=true"
+        );
     }
 
     // Test [AI-Review-R6 M3]: log_to_stdout actually produces output on stdout
@@ -560,24 +638,35 @@ mod tests {
             .arg("--exact")
             .arg("init::tests::stdout_subprocess_entrypoint")
             .env("TF_LOGGING_STDOUT_TEST", "1")
-            .env("TF_LOGGING_STDOUT_LOG_DIR", log_dir.to_string_lossy().to_string())
+            .env(
+                "TF_LOGGING_STDOUT_LOG_DIR",
+                log_dir.to_string_lossy().to_string(),
+            )
             .output()
             .expect("Failed to execute stdout subprocess");
 
-        assert!(output.status.success(),
+        assert!(
+            output.status.success(),
             "Subprocess stdout test failed:\nstderr:\n{}",
-            String::from_utf8_lossy(&output.stderr));
+            String::from_utf8_lossy(&output.stderr)
+        );
 
         let stdout_str = String::from_utf8_lossy(&output.stdout);
-        assert!(stdout_str.contains("stdout_capture_verification_message"),
-            "Expected log message on stdout, got:\n{stdout_str}");
+        assert!(
+            stdout_str.contains("stdout_capture_verification_message"),
+            "Expected log message on stdout, got:\n{stdout_str}"
+        );
         // Verify it's JSON-structured
-        let line = stdout_str.lines()
+        let line = stdout_str
+            .lines()
             .find(|l| l.contains("stdout_capture_verification_message"))
             .expect("Expected matching stdout line");
-        let json: serde_json::Value = serde_json::from_str(line)
-            .expect("stdout log line should be valid JSON");
-        assert!(json.get("timestamp").is_some(), "stdout JSON missing timestamp");
+        let json: serde_json::Value =
+            serde_json::from_str(line).expect("stdout log line should be valid JSON");
+        assert!(
+            json.get("timestamp").is_some(),
+            "stdout JSON missing timestamp"
+        );
     }
 
     #[test]
