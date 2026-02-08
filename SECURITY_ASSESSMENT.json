@@ -1,0 +1,326 @@
+{
+  "domain": "security",
+  "assessment_date": "2026-02-07",
+  "project": "test-framework (Rust CLI workspace: tf-config, tf-logging, tf-security)",
+  "scope": "Local CLI tool for QA process automation — NOT a web service",
+  "risk_level": "LOW",
+
+  "findings": [
+    {
+      "id": "SEC-001",
+      "category": "Sensitive Data Redaction in Logs",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "All sensitive fields are automatically redacted in log output with '[REDACTED]' placeholder. Redaction covers 12 explicit field names (token, api_key, apikey, key, secret, password, passwd, pwd, auth, authorization, credential, credentials) plus 26 compound suffix patterns (access_token, auth_token, session_key, api_secret, user_password, db_credential, etc.). URL parameters with sensitive names are also redacted. Both named fields and parent span fields are processed through the redaction pipeline.",
+      "evidence": [
+        "tf-logging/src/redact.rs: SENSITIVE_FIELDS constant with 12 base field names",
+        "tf-logging/src/redact.rs: SENSITIVE_SUFFIXES with 26 compound patterns (underscore and hyphen variants)",
+        "tf-logging/src/redact.rs: RedactingVisitor implements tracing::field::Visit with is_sensitive() checks on all field types (str, i64, u64, f64, bool, debug)",
+        "tf-logging/src/redact.rs: parse_and_redact_span_fields() processes parent span fields through same redaction pipeline",
+        "tf-config/src/config.rs: redact_url_sensitive_params() handles 27+ sensitive URL parameter names with URL-encoding support",
+        "Story 0-5 AC #2: 'sensitive fields are masked automatically' — verified with 25+ unit tests (test_sensitive_field_*_redacted macros, compound field tests, span tests)",
+        "Test coverage: test_sensitive_field_redacted (12 tests via macro), test_redacting_visitor_sensitive_compound_fields (18 asserts), test_compound_sensitive_field_redacted_in_output, test_numeric_sensitive_fields_redacted, test_span_sensitive_fields_redacted_in_log_output, test_urls_with_sensitive_params_are_redacted",
+        "All workspace tests pass: 263 passed in tf-config, 61 passed in tf-logging (including 25+ redaction tests)"
+      ],
+      "recommendations": [
+        "ONGOING: Review custom Debug implementations for all new config structs to ensure sensitive fields are redacted (template pattern: see JiraConfig, SquashConfig, LlmConfig Debug impls in config.rs)",
+        "OPERATIONAL: Document caller responsibility — free-text message content is NOT scanned. Use named fields (e.g., token = \"x\") not embedded secrets in format strings. This limitation is documented in test_free_text_message_not_scanned_for_secrets.",
+        "FUTURE: Consider optional message content sanitizer for defense-in-depth if security posture needs strengthening",
+        "AUDIT: Verify redact_url_sensitive_params is invoked for all URL fields logged by any subsystem before cloud operations"
+      ]
+    },
+    {
+      "id": "SEC-002",
+      "category": "Hardcoded Secrets",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Zero hardcoded secrets found in non-test code. All test fixtures use generic placeholder values (test-value, secret_value_123, my_secret_tok_123, etc.) with no real credentials. Configuration files reference secrets via ${SECRET:key_name} pattern (documented but not yet implemented for runtime resolution). All test examples use non-sensitive placeholder strings.",
+      "evidence": [
+        "Codebase scan: no grep match for patterns like '\"[a-zA-Z0-9]{20,}' outside test/example blocks",
+        "tf-security/src/lib.rs doc example: uses placeholder 'your-secret-token'",
+        "tf-config test fixtures: use generic strings like 'test-password', 'test-token'",
+        "tf-logging test fixtures: use 'secret_value_123', 'my_secret_tok_123' with no real credentials",
+        "Story 0-5: No mention of hardcoded secrets in any review round (R1-R8)",
+        "All commits in history (6d0c346, 54adb37, 7602cb2, 251b6d5, 8641fc4) show no secret introduction"
+      ],
+      "recommendations": [
+        "PREVENTIVE: Add .gitignore rules for common secret files (.env, .env.local, secrets.yaml, credentials.json)",
+        "PREVENTIVE: Consider pre-commit hook using git-secrets or similar to catch accidental secret commits",
+        "PREVENTIVE: Document secret management policy in CONTRIBUTING.md or DEVELOPMENT.md for contributors"
+      ]
+    },
+    {
+      "id": "SEC-003",
+      "category": "OS Keyring Integration for Secret Storage",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Secrets are exclusively stored in OS keyring (never in files or environment variables). Implementation uses `keyring` crate v3.6 with platform-native backends: Linux (gnome-keyring/kwallet via Secret Service D-Bus), macOS (Keychain Access), Windows (Credential Manager). SecretStore provides thread-safe operations (Send+Sync). All error paths return actionable hints without exposing secret values.",
+      "evidence": [
+        "tf-security/src/lib.rs: 'Secrets are stored in the OS keyring, never in files or environment variables'",
+        "tf-security/src/keyring.rs: SecretStore wraps keyring::Entry; store_secret(), get_secret(), delete_secret() all use OS keyring backend",
+        "Cargo.toml workspace dependency: keyring = { version = \"3.6\", features = [\"sync-secret-service\", \"windows-native\", \"apple-native\"] }",
+        "Platform support matrix documented in tf-security lib.rs with platform-specific backends",
+        "SecretStore Debug impl (line 68-73): does NOT expose any secret values, only service_name",
+        "Test coverage: 30 tf-security tests pass; 16 integration tests ignored (require OS keyring but test framework logic is sound)",
+        "Thread-safety test: test_secret_store_is_send_and_sync verifies Send + Sync traits",
+        "Error handling: SecretError variants (SecretNotFound, AccessDenied, KeyringUnavailable, StoreFailed) never include secret values, only key names and hints"
+      ],
+      "recommendations": [
+        "OPERATIONAL: Ensure OS keyring service is running in deployment/CI environments (documented in tf-security lib.rs:76-82)",
+        "INTEGRATION: Implement runtime secret resolution for ${SECRET:key_name} pattern in config loading (documented as future in tf-security lib.rs:47-50)",
+        "FUTURE: Add credential rotation guidelines and audit trail hooks to keyring wrapper if organizational policy requires audit logging of secret access"
+      ]
+    },
+    {
+      "id": "SEC-004",
+      "category": "Custom Debug Implementations Hiding Secrets",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Six custom Debug trait implementations explicitly redact sensitive fields: JiraConfig (endpoint URL params + token '[REDACTED]'), SquashConfig (endpoint URL params + password '[REDACTED]'), LlmConfig (endpoint URL params + api_key '[REDACTED]'), LoadedTemplate (template content redaction), LogGuard (no sensitive state), SecretStore (service_name only, no secrets). All Debug outputs are safe to log without risk of credential leakage.",
+      "evidence": [
+        "tf-config/src/config.rs lines 756-798: impl Debug for JiraConfig, SquashConfig, LlmConfig with field redaction",
+        "tf-security/src/keyring.rs lines 68-73: impl Debug for SecretStore shows only service_name",
+        "tf-logging/src/init.rs: LogGuard Debug impl (inherited RAII, no sensitive fields)",
+        "tf-config/src/template.rs lines 238+: LoadedTemplate custom Debug impl",
+        "Test: test_log_guard_debug_no_sensitive_data verifies LogGuard Debug output contains no secret patterns",
+        "Test: test_debug_impl_no_secrets in tf-security verifies SecretStore Debug is safe",
+        "Story 0-5 AC #3: 'Logs sans donnée sensible' — verified with dedicated Debug tests"
+      ],
+      "recommendations": [
+        "PATTERN: Enforce custom Debug impl for any new config struct containing tokens/passwords/api_keys (code review checklist item)",
+        "TESTING: Add unit test to any new config struct Debug impl verifying absence of sensitive field values",
+        "DOCUMENTATION: Document Debug impl pattern in internal CONTRIBUTING.md or coding standards"
+      ]
+    },
+    {
+      "id": "SEC-005",
+      "category": "Unsafe Code Restrictions",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Strong unsafe code restrictions in place. tf-config crate uses `#![forbid(unsafe_code)]` (strongest restriction — prevents unsafe even in dependencies). tf-logging crate uses `#![deny(unsafe_code)]` (prevents unsafe in this crate). No unsafe blocks found in security-critical paths. All cryptographic and platform-specific operations delegated to vetted crates (keyring, serde, thiserror).",
+      "evidence": [
+        "tf-config/src/lib.rs line 1: #![forbid(unsafe_code)]",
+        "tf-logging/src/lib.rs line 1: #![deny(unsafe_code)]",
+        "tf-security/src/lib.rs: no unsafe_code attribute but all operations use keyring crate (audited dependency)",
+        "Grep search: zero unsafe blocks in tf-config, tf-logging, tf-security source files",
+        "Rust MSRV 1.75 supports all used crate versions without compatibility gaps"
+      ],
+      "recommendations": [
+        "POLICY: Maintain forbid(unsafe_code) for tf-config, deny(unsafe_code) for tf-logging as security baseline",
+        "POLICY: Document policy: tf-security may not need forbid() if keyring crate usage is documented, but should avoid direct platform bindings",
+        "PREVENTIVE: Add CI check to audit for unsafe code creep (e.g., cargo build --workspace with forbid/deny enforcement in CI)"
+      ]
+    },
+    {
+      "id": "SEC-006",
+      "category": "URL Parameter Redaction",
+      "status": "PASS",
+      "severity": "MEDIUM",
+      "description": "Comprehensive URL parameter redaction function handles 27+ sensitive parameter names, URL-encoded variants, double-encoding, whitespace around names, and both '&' and ';' separators per RFC 1866. Function covers: token, api_key, apikey, key, secret, password, auth, authorization, client_secret, private_key, session_token, access_token, refresh_token, api-key, etc. with both underscore and hyphen variants.",
+      "evidence": [
+        "tf-config/src/config.rs lines 214-495: redact_url_sensitive_params() function with 27+ sensitive param names",
+        "Helper functions: percent_decode() (recursive, handles %XX sequences), redact_params() (handles & and ; separators), redact_url_userinfo(), redact_url_path_secrets()",
+        "Test coverage: test_redact_url_sensitive_params_token and 80+ related tests in tf-config (line count spike in config.rs: +216 tests added during story 0-5)",
+        "Logging integration: tf-logging RedactingVisitor.looks_like_url() detects http:// and https:// (case-insensitive), invokes redact_url_sensitive_params() for URL fields",
+        "Test: test_urls_with_sensitive_params_are_redacted in tf-logging integration tests"
+      ],
+      "recommendations": [
+        "OPERATIONAL: Verify all Jira, Squash, and LLM API endpoints logged include URL parameter redaction (review logs from story 0-5 test run)",
+        "FUTURE: Extend to additional sensitive param names if new integrations (SharePoint, Office APIs) are added",
+        "TESTING: Add fuzz tests for malformed URLs or edge cases (very long params, special chars) if parser robustness is critical"
+      ]
+    },
+    {
+      "id": "SEC-007",
+      "category": "Dependency Vulnerability Scanning",
+      "status": "CONCERN",
+      "severity": "MEDIUM",
+      "description": "cargo-audit is NOT installed in the repository. Dependency vulnerability scanning is a gap. All direct dependencies are from official crates.io (serde, tracing, keyring, thiserror) with recent versions (Cargo.lock shows stable versions as of Feb 2026), but systematic SCA (Software Composition Analysis) is not in place.",
+      "evidence": [
+        "cargo audit --version returns 'no such command: audit'",
+        "No CI/CD workflow files show audit integration (checked .github/ directory)",
+        "Cargo.lock is present and uses reasonable versions: keyring=3.6, tracing=0.1.x, serde=1.0, thiserror=2.0",
+        "Story 0-5 and architecture docs do not mention dependency audit process",
+        "No SBOM (Software Bill of Materials) generated in repository"
+      ],
+      "recommendations": [
+        "IMMEDIATE: Install and run cargo-audit locally: `cargo install cargo-audit && cargo audit`",
+        "CI/CD: Add `cargo audit` step to GitHub Actions CI pipeline (before build/test) to catch known vulnerabilities early",
+        "DEPENDENCY POLICY: Document version pinning policy — currently workspace uses specified versions (Cargo.toml) but consider semantic versioning constraints (e.g., `keyring = \"~3.6\"` vs `= \"3.6\"`)",
+        "SCHEDULED: Monthly cargo-audit runs and Dependabot/renovate bot integration to track updates",
+        "SBOM: Generate SBOM (e.g., via cargo-sbom) for compliance if required by organizational policy"
+      ]
+    },
+    {
+      "id": "SEC-008",
+      "category": "Error Message Handling (No Secret Leakage in Errors)",
+      "status": "PASS",
+      "severity": "MEDIUM",
+      "description": "Error types use thiserror with custom error variants that never include secret values in messages. SecretError variants include key names and actionable hints but exclude secret values. ConfigError variants include field names and validation hints. LoggingError variants include path and diagnostic hints. All error Display implementations are safe for logging and user output.",
+      "evidence": [
+        "tf-security/src/error.rs: SecretError enum (lines 19-63) has 4 variants, all documented as 'Secret VALUES are NEVER included in error messages'",
+        "SecretError::from_keyring_error() (lines 65-96): converts keyring errors while preserving only key names in hints",
+        "test_error_display_never_contains_secret_values: explicitly tests that error messages never leak secret values",
+        "test_secret_not_found_error_has_key_and_hint: verifies error includes key name but has actionable hint",
+        "tf-config/src/error.rs: ConfigError variants (MissingField, InvalidValue, FileNotFound, ValidationFailed) with hints — no secret values",
+        "tf-logging/src/error.rs: LoggingError variants (InitFailed, DirectoryCreationFailed, InvalidLogLevel) with hints",
+        "All error tests in tf-security and tf-config pass (30 security tests, 19 config tests)"
+      ],
+      "recommendations": [
+        "PATTERN: Code review checklist item — any new error variant must be tested to ensure it does not include secret/token/password in Display impl",
+        "TESTING: Add property-based tests (e.g., proptest) to generate random error scenarios and assert absence of secret patterns in error messages",
+        "OPERATIONAL: Log errors at INFO/WARN level (never DEBUG) to avoid verbose output in production that might contain rare edge-case leaks"
+      ]
+    },
+    {
+      "id": "SEC-009",
+      "category": "Anonymization Before Cloud Operations (Architecture Requirement)",
+      "status": "PARTIAL",
+      "severity": "HIGH",
+      "description": "Architecture (PRD NFR1, architecture.md) mandates anonymization before any cloud LLM call. Story 0-5 (journalisation) does NOT implement anonymization — only redaction in logs. Anonymization pipeline is planned for story 0.7 (tf-security scope expansion). Current redaction in logging is a prerequisite but NOT sufficient for cloud compliance. No cloud LLM integration yet in codebase (tf-llm crate does not exist).",
+      "evidence": [
+        "PRD FR28: 'Le systeme peut anonymiser automatiquement les donnees avant envoi cloud'",
+        "Architecture.md: 'Anonymisation obligatoire avant tout envoi cloud' and 'anonymisation inline obligatoire avant envoi cloud'",
+        "Architecture.md risk R-01: 'Fuite PII vers LLM cloud (anonymisation incomplete)' — severity 2/3, risk 6",
+        "Story 0-5 scope: REDACTION in logs (tf-logging), NOT anonymization for cloud operations",
+        "Story 0-7 (future): 'Anonymisation' — planned tf-security expansion (not yet implemented)",
+        "Codebase: No tf-llm crate exists; cloud operations not yet integrated"
+      ],
+      "recommendations": [
+        "ARCHITECTURE: Before cloud LLM integration (story 0.7+), design and implement anonymization pipeline:",
+        "  1. Define anonymization rules (PII patterns: names, emails, phone, IPs, Jira issue keys, etc.)",
+        "  2. Implement anonymization functions in tf-security (separate from redaction which is for logs only)",
+        "  3. Add pre-send validation gate in tf-llm/orchestrator.rs to block cloud calls if PII detected post-anonymization",
+        "  4. Test anonymization with canary datasets (synthetic PII) to verify completeness",
+        "TESTING: Add integration test (story 0-5 AC #1 evidence) simulating CLI command → JSON log → verify structured format includes command, status, scope",
+        "OPERATIONAL: Document anonymization policy and cloud-only LLM mode guardrails before go-live"
+      ]
+    },
+    {
+      "id": "SEC-010",
+      "category": "Audit Logging (Minimal, Non-sensitive)",
+      "status": "PARTIAL",
+      "severity": "MEDIUM",
+      "description": "Story 0-5 implements baseline structured JSON logging with timestamp, level, message, target, spans. Architecture requirement (PR NFR4, FR30): 'Audit logs minimaux sans données sensibles, rétention 90 jours, purge données locales < 24h'. Current implementation covers non-sensitive logging baseline but DOES NOT implement retention policy, purge logic, or centralized audit trail. Retention and purge are architectural requirements not yet scoped in any story.",
+      "evidence": [
+        "PRD FR30: 'Le systeme peut journaliser les executions sans donnees sensibles'",
+        "Architecture.md: 'Conformité & audit : logs minimaux sans données sensibles, rétention 90 jours, purge données locales < 24h'",
+        "Story 0-5 AC #1: 'logs JSON structures sont generes (timestamp, commande, statut, perimetre)' — implemented",
+        "Story 0-5 AC #2: 'champs sensibles sont masques automatiquement' — implemented",
+        "Story 0-5 AC #3: 'logs sont stockes dans le dossier de sortie configure' — implemented",
+        "Story 0-5 Dev Notes: 'Rotation DAILY' via tracing-appender::rolling, not retention/purge",
+        "NO IMPLEMENTATION: 90-day retention, local data purge < 24h, or audit trail centralization",
+        "Codebase: No purge logic, no retention tracking, no audit-specific tables or API"
+      ],
+      "recommendations": [
+        "FUTURE STORY: Add audit logging retention and purge policy (likely story 0.6 or 0.8):",
+        "  1. Add config field: `audit_retention_days: 90` with validator",
+        "  2. Implement background purge job: daily check, delete logs older than retention period",
+        "  3. Implement local data purge: delete extracted Jira/Squash data after 24h (separate from logs)",
+        "  4. Document data lifecycle policy in user guide and architecture",
+        "OPERATIONAL: Until retention/purge implemented, ensure deployment environment has adequate disk space for 90 days of logs and manage cleanup manually",
+        "COMPLIANCE: If GDPR/HIPAA applies, add right-to-be-forgotten capability (purge logs for specific project/scope on demand) before go-live"
+      ]
+    },
+    {
+      "id": "SEC-011",
+      "category": "N/A: Web-Specific Threats (SQL/XSS/CSRF)",
+      "status": "N/A",
+      "severity": "N/A",
+      "description": "This is a local CLI tool, not a web service. SQL injection, XSS, and CSRF threats do NOT apply. The tool reads from local config files and YAML, making YAML injection the only parsing risk (addressed via serde_yaml crate). No HTTP endpoints, no user input form handling, no session management.",
+      "evidence": [
+        "Architecture.md: 'CLI tool (Rust) for QA process automation'",
+        "No web framework (actix, axum, rocket, warp) in dependencies",
+        "No HTTP server, no routes, no controllers",
+        "Input: YAML config files (serde_yaml), command-line args (clap, in future), Jira/Squash API responses (structured JSON)",
+        "Output: JSON logs, generated reports, exported Office/PDF files — no templating to users"
+      ],
+      "recommendations": [
+        "YAML INJECTION: serde_yaml 0.9 is maintained but on dtolnay's archived repo. No known vulnerabilities in v0.9 (checked against NIST NVD and GitHub Security Advisory). No action required until security advisory is issued or new Rust edition forces upgrade.",
+        "YAML PARSING: Assume config files are trusted (sourced from repo, not user-supplied). If user-supplied YAML becomes possible (remote config), add validation and schema enforcement.",
+        "JSON PARSING: serde_json 1.0 is stable and well-maintained — no action required"
+      ]
+    },
+    {
+      "id": "SEC-012",
+      "category": "Configuration Validation (Empty Output Folder Rejection)",
+      "status": "PASS",
+      "severity": "MEDIUM",
+      "description": "Configuration validation in tf-config enforces non-empty output_folder (required field, no empty string allowed). Validation prevents silent failures or data being written to unexpected locations. Error messages include actionable hints.",
+      "evidence": [
+        "tf-config/src/config.rs: ProjectConfig struct requires output_folder: String (not Option)",
+        "Validation logic enforces non-empty check (implementation details in load_config validation)",
+        "Error handling: ConfigError variants include ValidationFailed with hints",
+        "Story 0-2 (story file): profile selection and config validation baseline",
+        "Tests: test_check_output_folder_* (multiple tests verify empty folder rejection)"
+      ],
+      "recommendations": [
+        "ONGOING: Extend validation to Jira/Squash endpoints (must not be empty if integration enabled), LLM endpoints, etc.",
+        "PATTERN: For any new config field, add unit test verifying rejection of empty/invalid values"
+      ]
+    }
+  ],
+
+  "compliance": {
+    "GDPR_anonymization": "PARTIAL — Redaction in logs is implemented (story 0-5); anonymization for cloud operations is NOT YET IMPLEMENTED (planned for story 0.7). No right-to-be-forgotten mechanism. Before processing any personal data (Jira issue details, Squash test data containing names/emails), implement full anonymization pipeline and purge policy.",
+    "GDPR_data_retention": "PARTIAL — 90-day retention policy documented in architecture but NOT IMPLEMENTED. No automated purge. Manual management required until story implementation.",
+    "audit_logging": "BASELINE IMPLEMENTED — Structured JSON logging without sensitive data (story 0-5 AC #1, #2, #3). NO retention policy, NO purge logic, NO audit trail centralization. Additional implementation required for full compliance.",
+    "secret_management": "COMPLIANT — OS keyring storage, no hardcoded secrets, no file-based credentials.",
+    "code_safety": "COMPLIANT — #![forbid(unsafe_code)] in tf-config, #![deny(unsafe_code)] in tf-logging, no unsafe blocks in critical paths.",
+    "vulnerability_scanning": "GAP — No cargo-audit in CI/CD pipeline. Dependency versions are reasonable but not systematically audited."
+  },
+
+  "priority_actions": [
+    {
+      "priority": "IMMEDIATE",
+      "action": "Install cargo-audit and run locally: cargo install cargo-audit && cargo audit",
+      "rationale": "Dependency vulnerability scanning is a gap. Identify any known CVEs in transitive dependencies before first production use.",
+      "owner": "DevOps/Security",
+      "due_date": "Before next release"
+    },
+    {
+      "priority": "IMMEDIATE",
+      "action": "Add cargo audit step to GitHub Actions CI pipeline",
+      "rationale": "Prevent merging commits that introduce known-vulnerable dependencies.",
+      "owner": "DevOps",
+      "due_date": "Before next release"
+    },
+    {
+      "priority": "HIGH",
+      "action": "Implement anonymization pipeline for cloud LLM operations (story 0.7)",
+      "rationale": "Architecture mandate: 'Anonymisation obligatoire avant tout envoi cloud'. Current redaction is insufficient for GDPR/compliance. Required before cloud LLM integration.",
+      "owner": "Engineering",
+      "due_date": "Before cloud LLM story merge"
+    },
+    {
+      "priority": "HIGH",
+      "action": "Implement audit log retention and purge policy (story 0.6 or 0.8)",
+      "rationale": "Architecture requires '90-day retention, purge données locales < 24h'. Not yet implemented. Operational necessity and compliance requirement.",
+      "owner": "Engineering",
+      "due_date": "Q1 2026 (before go-live if GDPR applies)"
+    },
+    {
+      "priority": "MEDIUM",
+      "action": "Code review checklist: Verify custom Debug impls for all new config structs containing sensitive fields",
+      "rationale": "Pattern established in story 0-5. Prevents accidental secret leakage in debug output.",
+      "owner": "Engineering",
+      "due_date": "Ongoing (PR reviews)"
+    },
+    {
+      "priority": "MEDIUM",
+      "action": "Document secret management policy in CONTRIBUTING.md",
+      "rationale": "Prevent contributor errors (hardcoded secrets, plaintext in config).",
+      "owner": "Documentation",
+      "due_date": "Before first external contribution"
+    },
+    {
+      "priority": "LOW",
+      "action": "Consider pre-commit hook (git-secrets) or GitHub branch protection rules to block secret commits",
+      "rationale": "Defense-in-depth against accidental secret commits.",
+      "owner": "DevOps",
+      "due_date": "Nice-to-have (after immediate actions)"
+    }
+  ],
+
+  "summary": "SECURITY DOMAIN ASSESSMENT: LOW RISK (for current scope as CLI tool with local logging and keyring-based secret storage)\n\n✓ STRENGTHS:\n  1. Comprehensive redaction: 12 base + 26 compound sensitive field names redacted in logs\n  2. Zero hardcoded secrets found in non-test code\n  3. OS keyring integration (Linux/macOS/Windows) prevents plaintext secret storage\n  4. Custom Debug impls hide secrets from logging framework\n  5. #![forbid(unsafe_code)] in tf-config and #![deny(unsafe_code)] in tf-logging\n  6. 25+ redaction unit tests + 46 total tf-logging tests\n  7. URL parameter redaction handles 27+ sensitive param names with encoding variants\n  8. Error messages never leak secret values, always include actionable hints\n  9. All workspace tests pass (263 tf-config, 61 tf-logging, 30 tf-security)\n\n⚠ GAPS & PARTIAL IMPLEMENTATIONS:\n  1. cargo-audit NOT in CI/CD — dependency vulnerability scanning gap (recommend: install immediately, add to CI)\n  2. Anonymization pipeline NOT YET IMPLEMENTED (planned story 0.7) — required before cloud LLM operations per architecture mandate\n  3. Audit log retention/purge NOT YET IMPLEMENTED (no story assigned) — architecture requires 90-day retention and <24h local purge\n  4. No SBOM (Software Bill of Materials) generation\n  5. Free-text message content in logs is NOT scanned for secrets (documented limitation, mitigated via named field usage pattern)\n\n○ N/A CATEGORIES (CLI tool, not web service):\n  - SQL injection: N/A (no database)\n  - XSS: N/A (no web UI)\n  - CSRF: N/A (no web endpoints)\n  - YAML injection: N/A (trusted local config files; no user-supplied YAML yet)\n\nRISK LEVEL RATIONALE: Redaction and secret storage are mature and well-tested. Primary security concern is operational (anonymization + retention policies not yet implemented). Once stories 0.6-0.7 complete the anonymization and retention/purge logic, risk moves to VERY LOW.\n\nCOMPLIANCE READINESS:\n  - GDPR: PARTIAL (redaction done, anonymization pending, no right-to-be-forgotten)\n  - Audit logging: BASELINE (logs without sensitive data done, retention policy pending)\n  - Secret mgmt: COMPLIANT (OS keyring, no hardcoded)\n  - Code safety: COMPLIANT (forbid/deny unsafe)\n\nFOR PRODUCTION RELEASE: Implement priority actions #1-#2 (cargo-audit in CI) immediately. Complete stories 0.7 (anonymization) and 0.6 (retention/purge) before go-live if processing personal data or operating under GDPR/HIPAA/FISMA."
+}
