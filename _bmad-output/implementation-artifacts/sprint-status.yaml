@@ -47,7 +47,7 @@ development_status:
   0-3-gestion-des-secrets-via-secret-store: done
   0-4-charger-des-templates-cr-ppt-anomalies: done
   0-5-journalisation-baseline-sans-donnees-sensibles: done
-  0-5b-refactoring-test-suite-tf-config: backlog
+  0-5b-refactoring-test-suite-tf-config: ready-for-dev
   0-6-configurer-checklist-de-testabilite-et-regles-de-scoring: backlog
   0-7-anonymisation-automatique-avant-envoi-cloud: backlog
   epic-0-retrospective: optional
