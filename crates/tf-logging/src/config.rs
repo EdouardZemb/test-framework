@@ -50,7 +50,8 @@ mod tests {
         let temp = tempdir().unwrap();
         let config_path = temp.path().join("config.yaml");
         let mut file = fs::File::create(&config_path).unwrap();
-        file.write_all(b"project_name: \"test-project\"\noutput_folder: \"/tmp/test-output\"\n").unwrap();
+        file.write_all(b"project_name: \"test-project\"\noutput_folder: \"/tmp/test-output\"\n")
+            .unwrap();
         file.flush().unwrap();
 
         let project_config = tf_config::load_config(&config_path).unwrap();
@@ -69,8 +70,11 @@ mod tests {
         let project_config: tf_config::ProjectConfig = serde_yaml::from_str(yaml).unwrap();
         let logging_config = LoggingConfig::from_project_config(&project_config);
         assert_eq!(logging_config.log_dir, "/tmp/test-output/logs");
-        assert!(!logging_config.log_dir.contains("//"),
-                "log_dir should not contain double slashes, got: {}", logging_config.log_dir);
+        assert!(
+            !logging_config.log_dir.contains("//"),
+            "log_dir should not contain double slashes, got: {}",
+            logging_config.log_dir
+        );
     }
 
     #[test]

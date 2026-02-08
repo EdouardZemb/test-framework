@@ -48,7 +48,10 @@ pub enum ConfigError {
     /// that is not defined in the `profiles` section of the configuration.
     /// The error includes the list of available profiles to help the user
     /// select a valid one.
-    #[error("Profile '{requested}' not found. {}", format_available_profiles(available))]
+    #[error(
+        "Profile '{requested}' not found. {}",
+        format_available_profiles(available)
+    )]
     ProfileNotFound {
         /// The profile name that was requested
         requested: String,
