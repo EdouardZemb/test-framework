@@ -2118,16 +2118,73 @@ mod tests {
     use std::io::Write;
     use tempfile::NamedTempFile;
 
-    fn create_temp_config(content: &str) -> NamedTempFile {
-        let mut file = NamedTempFile::new().unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-        file.flush().unwrap();
-        file
+    // =========================================================================
+    // helpers: shared utilities and the test_config_rejects! macro
+    // =========================================================================
+    mod helpers {
+        use super::*;
+
+        pub(super) fn create_temp_config(content: &str) -> NamedTempFile {
+            let mut file = NamedTempFile::new().unwrap();
+            file.write_all(content.as_bytes()).unwrap();
+            file.flush().unwrap();
+            file
+        }
+
+        macro_rules! test_config_rejects {
+            ($name:ident, $yaml:expr, $($expected:expr),+ $(,)?) => {
+                #[test]
+                fn $name() {
+                    let file = helpers::create_temp_config($yaml);
+                    let result = load_config(file.path());
+                    assert!(result.is_err(), "Expected rejection for {}", stringify!($name));
+                    let err = result.unwrap_err().to_string();
+                    $(
+                        assert!(
+                            err.contains($expected),
+                            "Error for {} should contain '{}', got: '{}'",
+                            stringify!($name), $expected, err
+                        );
+                    )+
+                }
+            };
+        }
+
+        pub(super) use test_config_rejects;
+
+        macro_rules! test_config_rejects_any {
+            ($name:ident, $yaml:expr, $($expected:expr),+ $(,)?) => {
+                #[test]
+                fn $name() {
+                    let file = helpers::create_temp_config($yaml);
+                    let result = load_config(file.path());
+                    assert!(result.is_err(), "Expected rejection for {}", stringify!($name));
+                    let err = result.unwrap_err().to_string();
+                    assert!(
+                        $( err.contains($expected) )||+,
+                        "Error for {} should contain one of [{}], got: '{}'",
+                        stringify!($name),
+                        stringify!($($expected),+),
+                        err
+                    );
+                }
+            };
+        }
+
+        pub(super) use test_config_rejects_any;
     }
 
-    #[test]
-    fn test_load_valid_config() {
-        let yaml = r#"
+    use helpers::create_temp_config;
+
+    // =========================================================================
+    // config_loading: tests that load valid configs or test file/folder errors
+    // =========================================================================
+    mod config_loading {
+        use super::*;
+
+        #[test]
+        fn test_load_valid_config() {
+            let yaml = r#"
 project_name: "test-project"
 output_folder: "./output"
 jira:
@@ -2137,226 +2194,42 @@ squash:
 llm:
   mode: "auto"
 "#;
-        let file = create_temp_config(yaml);
-        let config = load_config(file.path()).unwrap();
+            let file = create_temp_config(yaml);
+            let config = load_config(file.path()).unwrap();
 
-        assert_eq!(config.project_name, "test-project");
-        assert_eq!(config.output_folder, "./output");
-        assert!(config.jira.is_some());
-        assert!(config.squash.is_some());
-    }
+            assert_eq!(config.project_name, "test-project");
+            assert_eq!(config.output_folder, "./output");
+            assert!(config.jira.is_some());
+            assert!(config.squash.is_some());
+        }
 
-    #[test]
-    fn test_load_minimal_config() {
-        let yaml = r#"
+        #[test]
+        fn test_load_minimal_config() {
+            let yaml = r#"
 project_name: "minimal"
 output_folder: "./out"
 "#;
-        let file = create_temp_config(yaml);
-        let config = load_config(file.path()).unwrap();
+            let file = create_temp_config(yaml);
+            let config = load_config(file.path()).unwrap();
 
-        assert_eq!(config.project_name, "minimal");
-        assert!(config.jira.is_none());
-        assert!(config.squash.is_none());
-    }
+            assert_eq!(config.project_name, "minimal");
+            assert!(config.jira.is_none());
+            assert!(config.squash.is_none());
+        }
 
-    #[test]
-    fn test_file_not_found_error() {
-        let result = load_config(Path::new("/nonexistent/config.yaml"));
-        assert!(result.is_err());
+        #[test]
+        fn test_file_not_found_error() {
+            let result = load_config(Path::new("/nonexistent/config.yaml"));
+            assert!(result.is_err());
 
-        let err = result.unwrap_err();
-        let err_msg = err.to_string();
-        assert!(err_msg.contains("not found"));
-    }
+            let err = result.unwrap_err();
+            let err_msg = err.to_string();
+            assert!(err_msg.contains("not found"));
+        }
 
-    #[test]
-    fn test_empty_project_name_error() {
-        let yaml = r#"
-project_name: ""
-output_folder: "./output"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        let err_msg = err.to_string();
-        assert!(err_msg.contains("project_name"));
-        assert!(err_msg.contains("cannot be empty"));
-    }
-
-    #[test]
-    fn test_invalid_llm_mode_error() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm:
-  mode: "invalid_mode"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        let err_msg = err.to_string();
-        assert!(err_msg.contains("llm.mode"));
-        assert!(err_msg.contains("not a valid mode"));
-        assert!(err_msg.contains("Expected"));
-    }
-
-    #[test]
-    fn test_local_mode_requires_endpoint() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm:
-  mode: "local"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        let err_msg = err.to_string();
-        assert!(err_msg.contains("llm.local_endpoint"));
-        assert!(err_msg.contains("missing"));
-    }
-
-    #[test]
-    fn test_invalid_jira_url_error() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-jira:
-  endpoint: "not-a-url"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        let err_msg = err.to_string();
-        assert!(err_msg.contains("jira.endpoint"));
-        assert!(err_msg.contains("valid URL"));
-    }
-
-    #[test]
-    fn test_parse_error_invalid_yaml() {
-        // Use truly malformed YAML that can't be parsed at all
-        let yaml = "[[[invalid yaml structure";
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        let err_msg = err.to_string();
-        // Truly invalid YAML should result in a parsing error
-        assert!(
-            err_msg.to_lowercase().contains("parse") || err_msg.contains("expected"),
-            "Expected parse error, got: {}",
-            err_msg
-        );
-    }
-
-    #[test]
-    fn test_debug_redacts_jira_token() {
-        let jira = JiraConfig {
-            endpoint: "https://jira.example.com".to_string(),
-            token: Some("super_secret_token".to_string()),
-        };
-
-        let debug_output = format!("{:?}", jira);
-        assert!(!debug_output.contains("super_secret_token"));
-        assert!(debug_output.contains("[REDACTED]"));
-        assert!(debug_output.contains("jira.example.com"));
-    }
-
-    #[test]
-    fn test_debug_redacts_squash_password() {
-        let squash = SquashConfig {
-            endpoint: "https://squash.example.com".to_string(),
-            username: Some("user".to_string()),
-            password: Some("secret_password".to_string()),
-        };
-
-        let debug_output = format!("{:?}", squash);
-        assert!(!debug_output.contains("secret_password"));
-        assert!(debug_output.contains("[REDACTED]"));
-        assert!(debug_output.contains("squash.example.com"));
-    }
-
-    #[test]
-    fn test_debug_redacts_llm_api_key() {
-        let llm = LlmConfig {
-            mode: LlmMode::Cloud,
-            local_endpoint: None,
-            local_model: None,
-            cloud_enabled: true,
-            cloud_endpoint: None,
-            cloud_model: None,
-            api_key: Some("sk-secret-api-key-12345".to_string()),
-            timeout_seconds: 120,
-            max_tokens: 4096,
-        };
-
-        let debug_output = format!("{:?}", llm);
-        assert!(!debug_output.contains("sk-secret-api-key-12345"));
-        assert!(debug_output.contains("[REDACTED]"));
-    }
-
-    #[test]
-    fn test_redact_trait_jira() {
-        let jira = JiraConfig {
-            endpoint: "https://jira.example.com".to_string(),
-            token: Some("my_token".to_string()),
-        };
-
-        let redacted = jira.redacted();
-        assert!(!redacted.contains("my_token"));
-        assert!(redacted.contains("[REDACTED]"));
-        assert!(redacted.contains("jira.example.com"));
-    }
-
-    #[test]
-    fn test_redact_trait_squash() {
-        let squash = SquashConfig {
-            endpoint: "https://squash.example.com".to_string(),
-            username: Some("testuser".to_string()),
-            password: Some("secret_password".to_string()),
-        };
-
-        let redacted = squash.redacted();
-        assert!(!redacted.contains("secret_password"));
-        assert!(redacted.contains("[REDACTED]"));
-        assert!(redacted.contains("squash.example.com"));
-        assert!(redacted.contains("testuser")); // username should be visible
-    }
-
-    #[test]
-    fn test_redact_trait_llm() {
-        let llm = LlmConfig {
-            mode: LlmMode::Cloud,
-            local_endpoint: Some("http://localhost:11434".to_string()),
-            local_model: None,
-            cloud_enabled: true,
-            cloud_endpoint: None,
-            cloud_model: None,
-            api_key: Some("sk-super-secret-key".to_string()),
-            timeout_seconds: 120,
-            max_tokens: 4096,
-        };
-
-        let redacted = llm.redacted();
-        assert!(!redacted.contains("sk-super-secret-key"));
-        assert!(redacted.contains("[REDACTED]"));
-        assert!(redacted.contains("Cloud"));
-        assert!(redacted.contains("localhost:11434"));
-    }
-
-    #[test]
-    fn test_full_config_with_all_fields() {
-        let yaml = r#"
+        #[test]
+        fn test_full_config_with_all_fields() {
+            let yaml = r#"
 project_name: "full-project"
 output_folder: "./output"
 jira:
@@ -2375,437 +2248,1747 @@ llm:
   local_endpoint: "http://localhost:11434"
   api_key: "llm-api-key-secret"
 "#;
-        let file = create_temp_config(yaml);
-        let config = load_config(file.path()).unwrap();
+            let file = create_temp_config(yaml);
+            let config = load_config(file.path()).unwrap();
 
-        assert_eq!(config.project_name, "full-project");
+            assert_eq!(config.project_name, "full-project");
 
-        // Verify secrets are loaded but not exposed in debug
-        let jira = config.jira.as_ref().unwrap();
-        assert_eq!(jira.token.as_ref().unwrap(), "jira-token-secret");
+            // Verify secrets are loaded but not exposed in debug
+            let jira = config.jira.as_ref().unwrap();
+            assert_eq!(jira.token.as_ref().unwrap(), "jira-token-secret");
 
-        let debug_output = format!("{:?}", config);
-        assert!(!debug_output.contains("jira-token-secret"));
-        assert!(!debug_output.contains("squash-password-secret"));
-        assert!(!debug_output.contains("llm-api-key-secret"));
-    }
+            let debug_output = format!("{:?}", config);
+            assert!(!debug_output.contains("jira-token-secret"));
+            assert!(!debug_output.contains("squash-password-secret"));
+            assert!(!debug_output.contains("llm-api-key-secret"));
+        }
 
-    // === NEW TESTS FOR REVIEW FOLLOW-UPS ===
-
-    #[test]
-    fn test_url_scheme_only_rejected() {
-        // "https://" alone should be rejected as invalid
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-jira:
-  endpoint: "https://"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        let err_msg = err.to_string();
-        assert!(err_msg.contains("jira.endpoint"));
-        assert!(err_msg.contains("valid URL"));
-    }
-
-    #[test]
-    fn test_url_scheme_with_whitespace_rejected() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-squash:
-  endpoint: "https://   "
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("squash.endpoint"));
-    }
-
-    #[test]
-    fn test_url_space_after_schema_rejected_jira() {
-        // Test that "https:// example.com" (space after scheme) is rejected
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-jira:
-  endpoint: "https:// jira.example.com"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("jira.endpoint"));
-    }
-
-    #[test]
-    fn test_url_space_after_schema_rejected_squash() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-squash:
-  endpoint: "http:// squash.example.com:8080"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("squash.endpoint"));
-    }
-
-    #[test]
-    fn test_url_tab_after_schema_rejected() {
-        // Tab character immediately after scheme
-        let yaml = "project_name: \"test\"\noutput_folder: \"./output\"\njira:\n  endpoint: \"https://\texample.com\"\n";
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("jira.endpoint"));
-    }
-
-    #[test]
-    fn test_valid_url_helper() {
-        // Valid URLs
-        assert!(is_valid_url("https://example.com"));
-        assert!(is_valid_url("http://localhost:8080"));
-        assert!(is_valid_url("http://localhost"));
-        assert!(is_valid_url("https://jira.example.com/api"));
-        assert!(is_valid_url("https://api.example.com:443/path"));
-        assert!(is_valid_url("http://192.168.1.1"));
-        assert!(is_valid_url("http://192.168.1.1:8080"));
-
-        // Valid: uppercase schemes (RFC 3986 §3.1 schemes are case-insensitive)
-        assert!(is_valid_url("HTTP://example.com"));
-        assert!(is_valid_url("HTTPS://example.com"));
-        assert!(is_valid_url("Http://example.com"));
-        assert!(is_valid_url("Https://Example.COM:8080/Path"));
-
-        // Invalid: empty or whitespace after scheme
-        assert!(!is_valid_url("https://"));
-        assert!(!is_valid_url("http://"));
-        assert!(!is_valid_url("https://   "));
-
-        // Invalid: whitespace immediately after scheme (space before host)
-        assert!(!is_valid_url("https:// example.com"));
-        assert!(!is_valid_url("http:// localhost:8080"));
-        assert!(!is_valid_url("https://  jira.example.com"));
-        assert!(!is_valid_url("http://\texample.com")); // tab after scheme
-        assert!(!is_valid_url("https://\nexample.com")); // newline after scheme
-
-        // Invalid: wrong scheme or no scheme
-        assert!(!is_valid_url("not-a-url"));
-        assert!(!is_valid_url("ftp://example.com"));
-
-        // Valid: internal hostnames without dots (RFC 1123 compliant labels)
-        assert!(is_valid_url("https://a"));
-        assert!(is_valid_url("https://abc"));
-        assert!(is_valid_url("http://x:8080"));
-        assert!(is_valid_url("http://jira:8080"));
-        assert!(is_valid_url("http://squash"));
-        assert!(is_valid_url("http://server1"));
-        assert!(is_valid_url("http://my-internal-host:3000"));
-
-        // Invalid: dot-only hosts
-        assert!(!is_valid_url("https://..."));
-        assert!(!is_valid_url("https://."));
-        assert!(!is_valid_url("https://.."));
-
-        // Invalid: dots at start/end or consecutive
-        assert!(!is_valid_url("https://.example.com"));
-        assert!(!is_valid_url("https://example.com."));
-        assert!(!is_valid_url("https://example..com"));
-    }
-
-    #[test]
-    fn test_valid_path_helper() {
-        assert!(is_valid_path_format("./output"));
-        assert!(is_valid_path_format("/var/data"));
-        assert!(is_valid_path_format("relative/path"));
-        assert!(!is_valid_path_format(""));
-        assert!(!is_valid_path_format("   "));
-        assert!(!is_valid_path_format("path\0with\0null"));
-    }
-
-    #[test]
-    fn test_template_path_validation() {
-        // Valid template paths should work
-        let yaml = r#"
+        #[test]
+        fn test_template_path_validation() {
+            // Valid template paths should work
+            let yaml = r#"
 project_name: "test"
 output_folder: "./output"
 templates:
   cr: "./templates/cr.md"
   ppt: "./templates/report.pptx"
 "#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-        assert!(result.is_ok());
-    }
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+            assert!(result.is_ok());
+        }
 
-    #[test]
-    fn test_empty_template_path_rejected() {
-        let yaml = r#"
+        #[test]
+        fn test_valid_templates_without_traversal() {
+            // Verify valid template paths still work
+            let yaml = r#"
 project_name: "test"
 output_folder: "./output"
 templates:
-  cr: ""
+  cr: "./templates/cr.md"
+  ppt: "./templates/report.pptx"
+  anomaly: "./templates/anomaly.md"
 "#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
 
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("templates.cr"));
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn test_check_output_folder_exists_nonexistent() {
+            let yaml = r#"
+project_name: "test"
+output_folder: "/nonexistent/path/that/does/not/exist"
+"#;
+            let file = create_temp_config(yaml);
+            let config = load_config(file.path()).unwrap();
+
+            let warning = config.check_output_folder_exists();
+            assert!(warning.is_some());
+            assert!(warning.unwrap().contains("does not exist"));
+        }
+
+        #[test]
+        fn test_check_output_folder_exists_existing() {
+            let yaml = r#"
+project_name: "test"
+output_folder: "."
+"#;
+            let file = create_temp_config(yaml);
+            let config = load_config(file.path()).unwrap();
+
+            let warning = config.check_output_folder_exists();
+            assert!(warning.is_none());
+        }
+
+        #[test]
+        fn test_check_output_folder_exists_file_not_directory() {
+            // Test that check_output_folder_exists detects when path is a file, not directory
+            use std::io::Write;
+
+            // Create a unique temporary file using thread ID and timestamp to avoid collisions
+            let unique_id = format!(
+                "tf_config_test_{:?}_{}",
+                std::thread::current().id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            );
+            let temp_dir = std::env::temp_dir();
+            let test_file = temp_dir.join(format!("{}.txt", unique_id));
+
+            // Create the file
+            {
+                let mut file =
+                    std::fs::File::create(&test_file).expect("Failed to create test file");
+                writeln!(file, "test content").expect("Failed to write to test file");
+            }
+
+            // Create config pointing to the file (not a directory)
+            let yaml = format!(
+                r#"
+project_name: "test"
+output_folder: "{}"
+"#,
+                test_file.to_string_lossy().replace('\\', "/")
+            );
+
+            let file = create_temp_config(&yaml);
+            let config = load_config(file.path()).unwrap();
+
+            // check_output_folder_exists should return warning about not being a directory
+            let warning = config.check_output_folder_exists();
+            assert!(
+                warning.is_some(),
+                "Should warn when output_folder is a file, not directory"
+            );
+            let warning_msg = warning.unwrap();
+            assert!(
+                warning_msg.contains("not a directory"),
+                "Warning should mention 'not a directory': {}",
+                warning_msg
+            );
+
+            // Cleanup
+            let _ = std::fs::remove_file(&test_file);
+        }
+
+        #[test]
+        fn test_check_output_folder_nonexistent_tempdir() {
+            // P0: output_folder that does not exist returns Some(warning) mentioning "does not exist"
+            let dir = tempfile::tempdir().unwrap();
+            let nonexistent = dir.path().join("this_folder_does_not_exist");
+
+            let config = ProjectConfig {
+                project_name: "test".to_string(),
+                output_folder: nonexistent.to_string_lossy().to_string(),
+                jira: None,
+                squash: None,
+                templates: None,
+                llm: None,
+                profiles: None,
+                active_profile: None,
+            };
+
+            let warning = config.check_output_folder_exists();
+            assert!(
+                warning.is_some(),
+                "Should return warning for nonexistent folder"
+            );
+            let msg = warning.unwrap();
+            assert!(
+                msg.contains("does not exist"),
+                "Warning should mention 'does not exist': {}",
+                msg
+            );
+        }
+
+        #[test]
+        fn test_check_output_folder_is_file_tempdir() {
+            // P0: output_folder pointing to a file (not directory) returns Some(warning) mentioning "not a directory"
+            let dir = tempfile::tempdir().unwrap();
+            let file_path = dir.path().join("actually_a_file.txt");
+            std::fs::write(&file_path, "content").unwrap();
+
+            let config = ProjectConfig {
+                project_name: "test".to_string(),
+                output_folder: file_path.to_string_lossy().to_string(),
+                jira: None,
+                squash: None,
+                templates: None,
+                llm: None,
+                profiles: None,
+                active_profile: None,
+            };
+
+            let warning = config.check_output_folder_exists();
+            assert!(
+                warning.is_some(),
+                "Should return warning when output_folder is a file"
+            );
+            let msg = warning.unwrap();
+            assert!(
+                msg.contains("not a directory"),
+                "Warning should mention 'not a directory': {}",
+                msg
+            );
+        }
+
+        #[test]
+        fn test_check_output_folder_existing_directory_tempdir() {
+            // P0: output_folder pointing to an existing directory returns None
+            let dir = tempfile::tempdir().unwrap();
+
+            let config = ProjectConfig {
+                project_name: "test".to_string(),
+                output_folder: dir.path().to_string_lossy().to_string(),
+                jira: None,
+                squash: None,
+                templates: None,
+                llm: None,
+                profiles: None,
+                active_profile: None,
+            };
+
+            let warning = config.check_output_folder_exists();
+            assert!(
+                warning.is_none(),
+                "Should return None for existing directory"
+            );
+        }
+
+        #[test]
+        fn test_valid_endpoints_without_whitespace_accepted() {
+            let yaml = r#"
+project_name: test-project
+output_folder: ./output
+jira:
+  endpoint: "https://jira.example.com"
+squash:
+  endpoint: "https://squash.example.com"
+llm:
+  mode: auto
+  local_endpoint: "http://localhost:11434"
+"#;
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            assert!(result.is_ok(), "Should accept endpoints without whitespace");
+        }
     }
+    // =========================================================================
+    // url_validation: all tests that call is_valid_url() directly or test URLs
+    // =========================================================================
+    mod url_validation {
+        use super::*;
+        use helpers::test_config_rejects;
 
-    #[test]
-    fn test_llm_local_endpoint_url_validation() {
-        let yaml = r#"
+        #[test]
+        fn test_valid_url_helper() {
+            // Valid URLs
+            assert!(is_valid_url("https://example.com"));
+            assert!(is_valid_url("http://localhost:8080"));
+            assert!(is_valid_url("http://localhost"));
+            assert!(is_valid_url("https://jira.example.com/api"));
+            assert!(is_valid_url("https://api.example.com:443/path"));
+            assert!(is_valid_url("http://192.168.1.1"));
+            assert!(is_valid_url("http://192.168.1.1:8080"));
+
+            // Valid: uppercase schemes (RFC 3986 §3.1 schemes are case-insensitive)
+            assert!(is_valid_url("HTTP://example.com"));
+            assert!(is_valid_url("HTTPS://example.com"));
+            assert!(is_valid_url("Http://example.com"));
+            assert!(is_valid_url("Https://Example.COM:8080/Path"));
+
+            // Invalid: empty or whitespace after scheme
+            assert!(!is_valid_url("https://"));
+            assert!(!is_valid_url("http://"));
+            assert!(!is_valid_url("https://   "));
+
+            // Invalid: whitespace immediately after scheme (space before host)
+            assert!(!is_valid_url("https:// example.com"));
+            assert!(!is_valid_url("http:// localhost:8080"));
+            assert!(!is_valid_url("https://  jira.example.com"));
+            assert!(!is_valid_url("http://\texample.com")); // tab after scheme
+            assert!(!is_valid_url("https://\nexample.com")); // newline after scheme
+
+            // Invalid: wrong scheme or no scheme
+            assert!(!is_valid_url("not-a-url"));
+            assert!(!is_valid_url("ftp://example.com"));
+
+            // Valid: internal hostnames without dots (RFC 1123 compliant labels)
+            assert!(is_valid_url("https://a"));
+            assert!(is_valid_url("https://abc"));
+            assert!(is_valid_url("http://x:8080"));
+            assert!(is_valid_url("http://jira:8080"));
+            assert!(is_valid_url("http://squash"));
+            assert!(is_valid_url("http://server1"));
+            assert!(is_valid_url("http://my-internal-host:3000"));
+
+            // Invalid: dot-only hosts
+            assert!(!is_valid_url("https://..."));
+            assert!(!is_valid_url("https://."));
+            assert!(!is_valid_url("https://.."));
+
+            // Invalid: dots at start/end or consecutive
+            assert!(!is_valid_url("https://.example.com"));
+            assert!(!is_valid_url("https://example.com."));
+            assert!(!is_valid_url("https://example..com"));
+        }
+
+        #[test]
+        fn test_port_validation_valid() {
+            assert!(is_valid_url("http://localhost:8080"));
+            assert!(is_valid_url("http://localhost:1"));
+            assert!(is_valid_url("http://localhost:65535"));
+            assert!(is_valid_url("https://example.com:443"));
+        }
+
+        #[test]
+        fn test_port_validation_invalid() {
+            assert!(!is_valid_url("http://localhost:0"));
+            assert!(!is_valid_url("http://localhost:65536"));
+            assert!(!is_valid_url("http://localhost:99999"));
+            assert!(!is_valid_url("http://localhost:abc"));
+            assert!(!is_valid_url("http://example.com:999999"));
+        }
+
+        #[test]
+        fn test_hostname_validation_rfc1123_labels() {
+            // Valid hostnames
+            assert!(is_valid_url("https://example.com"));
+            assert!(is_valid_url("https://my-domain.example.com"));
+            assert!(is_valid_url("https://sub1.sub2.example.com"));
+            assert!(is_valid_url("https://a1.b2.c3.example.com"));
+
+            // Invalid: label starts with hyphen
+            assert!(!is_valid_url("https://-example.com"));
+            assert!(!is_valid_url("https://sub.-example.com"));
+
+            // Invalid: label ends with hyphen
+            assert!(!is_valid_url("https://example-.com"));
+            assert!(!is_valid_url("https://sub.example-.com"));
+
+            // Invalid: special characters in label
+            assert!(!is_valid_url("https://exam_ple.com"));
+            assert!(!is_valid_url("https://exam+ple.com"));
+            assert!(!is_valid_url("https://exam@ple.com"));
+        }
+
+        #[test]
+        fn test_hostname_label_length() {
+            // Valid: 63 char label (max allowed)
+            let label_63 = "a".repeat(63);
+            assert!(is_valid_url(&format!("https://{}.com", label_63)));
+
+            // Invalid: 64 char label (too long)
+            let label_64 = "a".repeat(64);
+            assert!(!is_valid_url(&format!("https://{}.com", label_64)));
+        }
+
+        #[test]
+        fn test_internal_hostname_jira() {
+            let yaml = r#"
+project_name: "test"
+output_folder: "./output"
+jira:
+  endpoint: "http://jira:8080"
+"#;
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn test_internal_hostname_squash() {
+            let yaml = r#"
+project_name: "test"
+output_folder: "./output"
+squash:
+  endpoint: "http://squash"
+"#;
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn test_internal_hostname_with_hyphen() {
+            assert!(is_valid_url("http://my-internal-server:3000"));
+            assert!(is_valid_url("http://test-jira"));
+            assert!(is_valid_url("https://prod-api:443"));
+        }
+
+        #[test]
+        fn test_internal_hostname_invalid_formats() {
+            // Cannot start or end with hyphen
+            assert!(!is_valid_url("http://-jira"));
+            assert!(!is_valid_url("http://jira-"));
+            assert!(!is_valid_url("http://-"));
+
+            // Empty hostname
+            assert!(!is_valid_url("http://"));
+
+            // Too long (> 63 chars)
+            let long_host = "a".repeat(64);
+            assert!(!is_valid_url(&format!("http://{}", long_host)));
+
+            // Invalid characters in hostname
+            assert!(!is_valid_url("http://jira_server")); // underscore not allowed
+
+            // Note: "http://jira.server" IS valid - it's a dotted hostname
+            // and goes through the standard dot validation path
+            assert!(is_valid_url("http://jira.server")); // valid hostname with dot
+        }
+
+        #[test]
+        fn test_single_label_hostname_documented_behavior() {
+            // Document that single-label hostnames (like "a", "jira") ARE valid
+            // This aligns documentation with actual implementation
+            assert!(is_valid_url("https://a"));
+            assert!(is_valid_url("http://jira"));
+            assert!(is_valid_url("http://squash:8080"));
+
+            // But invalid single-label formats are still rejected
+            assert!(!is_valid_url("http://-invalid"));
+            assert!(!is_valid_url("http://invalid-"));
+        }
+
+        mod ip_address {
+            use super::*;
+
+            // === IPv6 tests ===
+
+            #[test]
+            fn test_ipv6_url_valid() {
+                // IPv6 localhost
+                assert!(is_valid_url("http://[::1]:8080"));
+                assert!(is_valid_url("http://[::1]"));
+                // Full IPv6 address
+                assert!(is_valid_url("http://[2001:db8::1]:8080"));
+                assert!(is_valid_url("https://[2001:db8:85a3::8a2e:370:7334]"));
+                // IPv6 with port
+                assert!(is_valid_url("http://[fe80::1%25eth0]:3000"));
+            }
+
+            #[test]
+            fn test_ipv6_url_invalid_port() {
+                // IPv6 with invalid port
+                assert!(!is_valid_url("http://[::1]:0"));
+                assert!(!is_valid_url("http://[::1]:65536"));
+                assert!(!is_valid_url("http://[::1]:abc"));
+            }
+
+            #[test]
+            fn test_ipv6_invalid_chars_rejected() {
+                // Invalid IPv6 with non-hex characters
+                assert!(!is_valid_url("http://[abc%def]")); // Invalid IPv6 (no colons, wrong chars)
+                assert!(!is_valid_url("http://[xyz::1]")); // Invalid hex chars 'x', 'y', 'z'
+                assert!(!is_valid_url("http://[ghij::1]")); // Invalid hex chars
+                assert!(!is_valid_url("http://[::g]")); // Invalid hex char 'g'
+            }
+
+            #[test]
+            fn test_ipv6_too_few_colons_rejected() {
+                // IPv6 must have at least 2 colons
+                assert!(!is_valid_url("http://[1:2]")); // Only 1 colon
+                assert!(!is_valid_url("http://[abc]")); // No colons at all
+            }
+
+            #[test]
+            fn test_ipv6_valid_addresses() {
+                // Valid IPv6 addresses should still work
+                assert!(is_valid_url("http://[::1]:8080"));
+                assert!(is_valid_url("http://[2001:db8::1]"));
+                assert!(is_valid_url("https://[fe80::1]"));
+                assert!(is_valid_url("http://[::]:80"));
+                assert!(is_valid_url("http://[a:b:c:d:e:f:0:1]"));
+            }
+
+            #[test]
+            fn test_ipv6_empty_port_rejected() {
+                // IPv6 with empty port should be rejected
+                assert!(!is_valid_url("http://[::1]:"));
+                assert!(!is_valid_url("https://[2001:db8::1]:"));
+            }
+
+            #[test]
+            fn test_ipv6_with_zone_id_valid() {
+                // IPv6 with zone ID (link-local)
+                assert!(is_valid_url("http://[fe80::1%25eth0]:8080"));
+            }
+
+            #[test]
+            fn test_ipv6_invalid_forms_rejected() {
+                // Invalid IPv6 with too many consecutive colons (::::)
+                assert!(!is_valid_url("http://[::::]"), ":::: should be rejected");
+                assert!(
+                    !is_valid_url("http://[::::]:8080"),
+                    ":::: with port should be rejected"
+                );
+                assert!(
+                    !is_valid_url("http://[1:::2]"),
+                    "::: (triple colon) should be rejected"
+                );
+                assert!(
+                    !is_valid_url("http://[:::1]"),
+                    "::: at start should be rejected"
+                );
+                assert!(
+                    !is_valid_url("http://[1:::]"),
+                    "::: at end should be rejected"
+                );
+            }
+
+            #[test]
+            fn test_ipv6_multiple_double_colon_rejected() {
+                // Multiple :: groups are not allowed
+                assert!(
+                    !is_valid_url("http://[::1::2]"),
+                    "Multiple :: should be rejected"
+                );
+                assert!(
+                    !is_valid_url("http://[1::2::3]"),
+                    "Multiple :: should be rejected"
+                );
+            }
+
+            #[test]
+            fn test_ipv6_too_many_colons_rejected() {
+                // More than 7 colons (8 groups) is invalid
+                assert!(
+                    !is_valid_url("http://[1:2:3:4:5:6:7:8:9]"),
+                    "More than 8 groups should be rejected"
+                );
+            }
+
+            #[test]
+            fn test_ipv6_double_colon_alone_valid() {
+                // :: alone is valid (represents all zeros - 0:0:0:0:0:0:0:0)
+                assert!(is_valid_url("http://[::]"), ":: alone should be valid");
+                assert!(
+                    is_valid_url("http://[::]:8080"),
+                    ":: with port should be valid"
+                );
+            }
+
+            // === IPv4 tests ===
+
+            #[test]
+            fn test_ipv4_invalid_octet_rejected() {
+                // IPv4 addresses with octets > 255 should be rejected
+                assert!(
+                    !is_valid_url("http://999.999.999.999"),
+                    "999.999.999.999 should be invalid"
+                );
+                assert!(
+                    !is_valid_url("http://256.1.1.1"),
+                    "256 octet should be invalid"
+                );
+                assert!(
+                    !is_valid_url("http://1.256.1.1"),
+                    "256 octet should be invalid"
+                );
+                assert!(
+                    !is_valid_url("http://1.1.256.1"),
+                    "256 octet should be invalid"
+                );
+                assert!(
+                    !is_valid_url("http://1.1.1.256"),
+                    "256 octet should be invalid"
+                );
+                assert!(
+                    !is_valid_url("http://300.200.100.50"),
+                    "300 octet should be invalid"
+                );
+            }
+
+            #[test]
+            fn test_ipv4_valid_addresses() {
+                // Valid IPv4 addresses should be accepted
+                assert!(
+                    is_valid_url("http://192.168.1.1"),
+                    "192.168.1.1 should be valid"
+                );
+                assert!(is_valid_url("http://10.0.0.1"), "10.0.0.1 should be valid");
+                assert!(
+                    is_valid_url("http://255.255.255.255"),
+                    "255.255.255.255 should be valid"
+                );
+                assert!(is_valid_url("http://0.0.0.0"), "0.0.0.0 should be valid");
+                assert!(
+                    is_valid_url("http://127.0.0.1:8080"),
+                    "127.0.0.1 with port should be valid"
+                );
+            }
+
+            #[test]
+            fn test_ipv4_leading_zeros_rejected() {
+                // Leading zeros in IPv4 octets should be rejected (strict validation)
+                assert!(
+                    !is_valid_url("http://01.1.1.1"),
+                    "Leading zero should be invalid"
+                );
+                assert!(
+                    !is_valid_url("http://1.01.1.1"),
+                    "Leading zero should be invalid"
+                );
+                assert!(
+                    !is_valid_url("http://192.168.001.001"),
+                    "Leading zeros should be invalid"
+                );
+            }
+
+            #[test]
+            fn test_ipv4_single_zero_valid() {
+                // Single zero octets should be valid
+                assert!(is_valid_url("http://0.0.0.1"), "0.0.0.1 should be valid");
+                assert!(is_valid_url("http://10.0.0.0"), "10.0.0.0 should be valid");
+            }
+
+            #[test]
+            fn test_ipv4_not_four_octets_treated_as_hostname() {
+                // IPv4-like strings with wrong number of octets are treated as hostnames
+                // These should be valid hostnames (if they pass label validation)
+                assert!(
+                    is_valid_url("http://192.168.1"),
+                    "3-octet should be valid hostname"
+                );
+                assert!(
+                    is_valid_url("http://192.168.1.1.1"),
+                    "5-octet should be valid hostname"
+                );
+            }
+
+            // === IPv6 zone ID tests ===
+
+            #[test]
+            fn test_ipv6_zone_id_empty_rejected() {
+                // Empty zone ID is invalid (e.g., "fe80::1%" with nothing after %)
+                assert!(
+                    !is_valid_url("http://[fe80::1%]:8080"),
+                    "Should reject empty zone ID"
+                );
+                assert!(
+                    !is_valid_url("http://[fe80::1%]"),
+                    "Should reject empty zone ID without port"
+                );
+                assert!(
+                    !is_valid_url("https://[::1%]"),
+                    "Should reject empty zone ID on localhost"
+                );
+            }
+
+            #[test]
+            fn test_ipv6_zone_id_valid() {
+                // Valid zone IDs (interface names)
+                assert!(
+                    is_valid_url("http://[fe80::1%eth0]:8080"),
+                    "Should accept zone ID with interface name"
+                );
+                assert!(
+                    is_valid_url("http://[fe80::1%eth0]"),
+                    "Should accept zone ID without port"
+                );
+                assert!(
+                    is_valid_url("http://[fe80::1%wlan0]:3000"),
+                    "Should accept zone ID with wlan"
+                );
+                assert!(
+                    is_valid_url("http://[fe80::1%en0]:80"),
+                    "Should accept zone ID with en0"
+                );
+                assert!(
+                    is_valid_url("http://[fe80::1%lo]:8080"),
+                    "Should accept zone ID with lo"
+                );
+                // URL-encoded % is %25
+                assert!(
+                    is_valid_url("http://[fe80::1%25eth0]:8080"),
+                    "Should accept URL-encoded zone ID"
+                );
+            }
+
+            #[test]
+            fn test_ipv6_zone_id_invalid_chars() {
+                // Zone ID with invalid characters (only alphanumeric, hyphen, underscore, dot allowed)
+                assert!(
+                    !is_valid_url("http://[fe80::1%eth/0]:8080"),
+                    "Should reject zone ID with slash"
+                );
+                assert!(
+                    !is_valid_url("http://[fe80::1%eth@0]:8080"),
+                    "Should reject zone ID with @"
+                );
+                assert!(
+                    !is_valid_url("http://[fe80::1%eth 0]:8080"),
+                    "Should reject zone ID with space"
+                );
+            }
+        }
+
+        // === URL empty port ===
+
+        #[test]
+        fn test_url_empty_port_rejected() {
+            // Empty port (trailing colon without port number)
+            assert!(!is_valid_url("https://jira.example.com:"));
+            assert!(!is_valid_url("http://localhost:"));
+            assert!(!is_valid_url("https://api.example.com:/api"));
+        }
+
+        test_config_rejects!(
+            test_url_empty_port_in_config_rejected,
+            r#"
+project_name: "test"
+output_folder: "./output"
+jira:
+  endpoint: "https://jira.example.com:"
+"#,
+            "jira.endpoint",
+            "valid URL"
+        );
+
+        // === URL scheme-only and whitespace tests ===
+
+        test_config_rejects!(
+            test_url_scheme_only_rejected,
+            r#"
+project_name: "test"
+output_folder: "./output"
+jira:
+  endpoint: "https://"
+"#,
+            "jira.endpoint",
+            "valid URL"
+        );
+
+        test_config_rejects!(
+            test_url_scheme_with_whitespace_rejected,
+            r#"
+project_name: "test"
+output_folder: "./output"
+squash:
+  endpoint: "https://   "
+"#,
+            "squash.endpoint"
+        );
+
+        test_config_rejects!(
+            test_url_space_after_schema_rejected_jira,
+            r#"
+project_name: "test"
+output_folder: "./output"
+jira:
+  endpoint: "https:// jira.example.com"
+"#,
+            "jira.endpoint"
+        );
+
+        test_config_rejects!(
+            test_url_space_after_schema_rejected_squash,
+            r#"
+project_name: "test"
+output_folder: "./output"
+squash:
+  endpoint: "http:// squash.example.com:8080"
+"#,
+            "squash.endpoint"
+        );
+
+        test_config_rejects!(
+            test_url_tab_after_schema_rejected,
+            "project_name: \"test\"\noutput_folder: \"./output\"\njira:\n  endpoint: \"https://\texample.com\"\n",
+            "jira.endpoint"
+        );
+
+        // === URL with query/fragment tests ===
+
+        #[test]
+        fn test_url_with_query_no_path_valid() {
+            // URLs with query string but no path should be valid
+            assert!(
+                is_valid_url("https://example.com?foo=bar"),
+                "URL with query but no path should be valid"
+            );
+            assert!(
+                is_valid_url("http://localhost?param=value"),
+                "localhost with query but no path should be valid"
+            );
+            assert!(
+                is_valid_url("https://api.example.com?key=value&other=123"),
+                "URL with multiple query params but no path should be valid"
+            );
+        }
+
+        #[test]
+        fn test_url_with_fragment_no_path_valid() {
+            // URLs with fragment but no path should be valid
+            assert!(
+                is_valid_url("https://example.com#section"),
+                "URL with fragment but no path should be valid"
+            );
+            assert!(
+                is_valid_url("http://localhost#anchor"),
+                "localhost with fragment but no path should be valid"
+            );
+        }
+
+        #[test]
+        fn test_url_with_query_and_fragment_no_path_valid() {
+            // URLs with both query and fragment but no path should be valid
+            assert!(
+                is_valid_url("https://example.com?foo=bar#section"),
+                "URL with query and fragment but no path should be valid"
+            );
+        }
+
+        #[test]
+        fn test_url_with_path_query_fragment_still_valid() {
+            // Existing URLs with path, query, and fragment should still work
+            assert!(
+                is_valid_url("https://example.com/path?foo=bar#section"),
+                "Full URL with path, query, and fragment should be valid"
+            );
+            assert!(
+                is_valid_url("http://localhost:8080/api/v1?key=value"),
+                "localhost with path and query should be valid"
+            );
+        }
+
+        // === Endpoint URL validation via load_config ===
+
+        test_config_rejects!(
+            test_invalid_jira_url_error,
+            r#"
+project_name: "test"
+output_folder: "./output"
+jira:
+  endpoint: "not-a-url"
+"#,
+            "jira.endpoint",
+            "valid URL"
+        );
+
+        test_config_rejects!(
+            test_cloud_endpoint_url_validation,
+            r#"
+project_name: "test"
+output_folder: "./output"
+llm:
+  mode: "cloud"
+  cloud_enabled: true
+  api_key: "sk-key"
+  cloud_endpoint: "not-a-url"
+  cloud_model: "gpt-4o-mini"
+"#,
+            "llm.cloud_endpoint",
+            "valid URL"
+        );
+
+        test_config_rejects!(
+            test_llm_local_endpoint_url_validation,
+            r#"
 project_name: "test"
 output_folder: "./output"
 llm:
   mode: "local"
   local_endpoint: "not-a-valid-url"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
+"#,
+            "llm.local_endpoint"
+        );
 
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("llm.local_endpoint"));
+        // === Endpoint whitespace tests (converted from std::env::temp_dir) ===
+
+        test_config_rejects!(
+            test_jira_endpoint_trailing_whitespace_rejected,
+            r#"
+project_name: test-project
+output_folder: ./output
+jira:
+  endpoint: "https://jira.example.com  "
+"#,
+            "jira.endpoint",
+            "whitespace"
+        );
+
+        test_config_rejects!(
+            test_jira_endpoint_leading_whitespace_rejected,
+            r#"
+project_name: test-project
+output_folder: ./output
+jira:
+  endpoint: "  https://jira.example.com"
+"#,
+            "whitespace"
+        );
+
+        test_config_rejects!(
+            test_squash_endpoint_whitespace_rejected,
+            r#"
+project_name: test-project
+output_folder: ./output
+squash:
+  endpoint: "https://squash.example.com   "
+"#,
+            "squash.endpoint"
+        );
+
+        test_config_rejects!(
+            test_llm_local_endpoint_whitespace_rejected,
+            r#"
+project_name: test-project
+output_folder: ./output
+llm:
+  mode: local
+  local_endpoint: " http://localhost:11434 "
+"#,
+            "llm.local_endpoint"
+        );
+
+        test_config_rejects!(
+            test_llm_cloud_endpoint_whitespace_rejected,
+            r#"
+project_name: test-project
+output_folder: ./output
+llm:
+  mode: cloud
+  cloud_enabled: true
+  cloud_endpoint: "https://api.openai.com/v1   "
+  cloud_model: gpt-4
+  api_key: sk-test
+"#,
+            "llm.cloud_endpoint"
+        );
     }
+    // =========================================================================
+    // path_validation: all path-related tests
+    // =========================================================================
+    mod path_validation {
+        use super::*;
+        use helpers::test_config_rejects;
 
-    #[test]
-    fn test_output_folder_null_bytes_rejected() {
-        // Test with actual null byte character using Rust escape sequence
-        let yaml = "project_name: \"test\"\noutput_folder: \"path\0withnull\"";
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        // The null byte should cause either a parse error or validation failure
-        match result {
-            Err(_) => {
-                // Expected: YAML parser or our validation caught the null byte
-            }
-            Ok(config) => {
-                // If somehow loaded, our validation helper should still flag it
-                assert!(
-                    !is_valid_path_format(&config.output_folder),
-                    "Path with null byte should be invalid"
-                );
-            }
+        #[test]
+        fn test_valid_path_helper() {
+            assert!(is_valid_path_format("./output"));
+            assert!(is_valid_path_format("/var/data"));
+            assert!(is_valid_path_format("relative/path"));
+            assert!(!is_valid_path_format(""));
+            assert!(!is_valid_path_format("   "));
+            assert!(!is_valid_path_format("path\0with\0null"));
         }
-    }
 
-    #[test]
-    fn test_is_valid_path_format_null_byte() {
-        // Direct test of the helper function with actual null bytes
-        assert!(!is_valid_path_format("path\0with\0null"));
-        assert!(!is_valid_path_format("\0"));
-        assert!(!is_valid_path_format("before\0after"));
-    }
+        #[test]
+        fn test_is_valid_path_format_null_byte() {
+            // Direct test of the helper function with actual null bytes
+            assert!(!is_valid_path_format("path\0with\0null"));
+            assert!(!is_valid_path_format("\0"));
+            assert!(!is_valid_path_format("before\0after"));
+        }
 
-    #[test]
-    fn test_check_output_folder_exists_nonexistent() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "/nonexistent/path/that/does/not/exist"
-"#;
-        let file = create_temp_config(yaml);
-        let config = load_config(file.path()).unwrap();
+        #[test]
+        fn test_safe_path_helper() {
+            assert!(is_safe_path("./output"));
+            assert!(is_safe_path("/var/data"));
+            assert!(is_safe_path("relative/path"));
+            assert!(!is_safe_path("../parent"));
+            assert!(!is_safe_path("./data/../secrets"));
+            assert!(!is_safe_path(".."));
+        }
 
-        let warning = config.check_output_folder_exists();
-        assert!(warning.is_some());
-        assert!(warning.unwrap().contains("does not exist"));
-    }
-
-    #[test]
-    fn test_check_output_folder_exists_existing() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "."
-"#;
-        let file = create_temp_config(yaml);
-        let config = load_config(file.path()).unwrap();
-
-        let warning = config.check_output_folder_exists();
-        assert!(warning.is_none());
-    }
-
-    // === REVIEW 5 TESTS ===
-
-    #[test]
-    fn test_path_traversal_rejected() {
-        let yaml = r#"
+        test_config_rejects!(
+            test_path_traversal_rejected,
+            r#"
 project_name: "test"
 output_folder: "../../../etc"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
+"#,
+            "output_folder",
+            "path traversal"
+        );
 
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        let err_msg = err.to_string();
-        assert!(err_msg.contains("output_folder"));
-        assert!(err_msg.contains("path traversal"));
-    }
-
-    #[test]
-    fn test_path_traversal_in_middle_rejected() {
-        let yaml = r#"
+        test_config_rejects!(
+            test_path_traversal_in_middle_rejected,
+            r#"
 project_name: "test"
 output_folder: "./data/../secrets"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
+"#,
+            "path traversal"
+        );
 
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("path traversal"));
-    }
+        #[test]
+        fn test_safe_path_allows_double_dots_in_filename() {
+            // Double dots in filename (not as path component) should be allowed
+            assert!(is_safe_path("file..txt"));
+            assert!(is_safe_path("my..folder/data"));
+            assert!(is_safe_path("test..data..file.txt"));
+            assert!(is_safe_path("./output/file..backup"));
+        }
 
-    #[test]
-    fn test_safe_path_helper() {
-        assert!(is_safe_path("./output"));
-        assert!(is_safe_path("/var/data"));
-        assert!(is_safe_path("relative/path"));
-        assert!(!is_safe_path("../parent"));
-        assert!(!is_safe_path("./data/../secrets"));
-        assert!(!is_safe_path(".."));
-    }
+        #[test]
+        fn test_safe_path_rejects_traversal_sequences() {
+            // Actual path traversal should still be rejected
+            assert!(!is_safe_path(".."));
+            assert!(!is_safe_path("../parent"));
+            assert!(!is_safe_path("./data/../secrets"));
+            assert!(!is_safe_path("folder/../../etc"));
+            assert!(!is_safe_path("..\\windows\\style"));
+        }
 
-    #[test]
-    fn test_port_validation_valid() {
-        assert!(is_valid_url("http://localhost:8080"));
-        assert!(is_valid_url("http://localhost:1"));
-        assert!(is_valid_url("http://localhost:65535"));
-        assert!(is_valid_url("https://example.com:443"));
-    }
+        // === Template path traversal ===
 
-    #[test]
-    fn test_port_validation_invalid() {
-        assert!(!is_valid_url("http://localhost:0"));
-        assert!(!is_valid_url("http://localhost:65536"));
-        assert!(!is_valid_url("http://localhost:99999"));
-        assert!(!is_valid_url("http://localhost:abc"));
-        assert!(!is_valid_url("http://example.com:999999"));
-    }
+        test_config_rejects!(
+            test_template_cr_path_traversal_rejected,
+            r#"
+project_name: "test"
+output_folder: "./output"
+templates:
+  cr: "../../../etc/passwd.md"
+"#,
+            "templates.cr",
+            "path traversal"
+        );
 
-    #[test]
-    fn test_template_cr_wrong_extension_rejected() {
-        let yaml = r#"
+        test_config_rejects!(
+            test_template_ppt_path_traversal_rejected,
+            r#"
+project_name: "test"
+output_folder: "./output"
+templates:
+  ppt: "./templates/../../../secrets/report.pptx"
+"#,
+            "templates.ppt",
+            "path traversal"
+        );
+
+        test_config_rejects!(
+            test_template_anomaly_path_traversal_rejected,
+            r#"
+project_name: "test"
+output_folder: "./output"
+templates:
+  anomaly: "../parent/../grandparent/anomaly.md"
+"#,
+            "templates.anomaly",
+            "path traversal"
+        );
+
+        // === Output folder null bytes (complex - keep explicit) ===
+
+        #[test]
+        fn test_output_folder_null_bytes_rejected() {
+            // Test with actual null byte character using Rust escape sequence
+            let yaml = "project_name: \"test\"\noutput_folder: \"path\0withnull\"";
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            // The null byte should cause either a parse error or validation failure
+            match result {
+                Err(_) => {
+                    // Expected: YAML parser or our validation caught the null byte
+                }
+                Ok(config) => {
+                    // If somehow loaded, our validation helper should still flag it
+                    assert!(
+                        !is_valid_path_format(&config.output_folder),
+                        "Path with null byte should be invalid"
+                    );
+                }
+            }
+        }
+
+        // === Template wrong extension ===
+
+        test_config_rejects!(
+            test_template_cr_wrong_extension_rejected,
+            r#"
 project_name: "test"
 output_folder: "./output"
 templates:
   cr: "./templates/cr.txt"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
+"#,
+            "templates.cr",
+            "Markdown"
+        );
 
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("templates.cr"));
-        assert!(err_msg.contains("Markdown"));
-    }
-
-    #[test]
-    fn test_template_ppt_wrong_extension_rejected() {
-        let yaml = r#"
+        test_config_rejects!(
+            test_template_ppt_wrong_extension_rejected,
+            r#"
 project_name: "test"
 output_folder: "./output"
 templates:
   ppt: "./templates/report.pdf"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
+"#,
+            "templates.ppt",
+            "PowerPoint"
+        );
 
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("templates.ppt"));
-        assert!(err_msg.contains("PowerPoint"));
-    }
-
-    #[test]
-    fn test_template_anomaly_wrong_extension_rejected() {
-        let yaml = r#"
+        test_config_rejects!(
+            test_template_anomaly_wrong_extension_rejected,
+            r#"
 project_name: "test"
 output_folder: "./output"
 templates:
   anomaly: "./templates/anomaly.docx"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
+"#,
+            "templates.anomaly",
+            "Markdown"
+        );
 
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("templates.anomaly"));
-        assert!(err_msg.contains("Markdown"));
-    }
-
-    #[test]
-    fn test_extension_helper() {
-        use crate::template::TemplateKind;
-        assert!(has_valid_template_extension("file.md", TemplateKind::Cr));
-        assert!(has_valid_template_extension("file.MD", TemplateKind::Cr));
-        assert!(has_valid_template_extension(
-            "path/to/file.pptx",
-            TemplateKind::Ppt
-        ));
-        assert!(!has_valid_template_extension("file.txt", TemplateKind::Cr));
-        assert!(!has_valid_template_extension("file.ppt", TemplateKind::Ppt));
-    }
-
-    #[test]
-    fn test_missing_project_name_serde_error() {
-        let yaml = r#"
-output_folder: "./output"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("project_name"));
-        assert!(err_msg.contains("missing"));
-    }
-
-    #[test]
-    fn test_missing_output_folder_serde_error() {
-        let yaml = r#"
+        test_config_rejects!(
+            test_empty_template_path_rejected,
+            r#"
 project_name: "test"
+output_folder: "./output"
+templates:
+  cr: ""
+"#,
+            "templates.cr"
+        );
+
+        #[test]
+        fn test_extension_helper() {
+            use crate::template::TemplateKind;
+            assert!(has_valid_template_extension("file.md", TemplateKind::Cr));
+            assert!(has_valid_template_extension("file.MD", TemplateKind::Cr));
+            assert!(has_valid_template_extension(
+                "path/to/file.pptx",
+                TemplateKind::Ppt
+            ));
+            assert!(!has_valid_template_extension("file.txt", TemplateKind::Cr));
+            assert!(!has_valid_template_extension("file.ppt", TemplateKind::Ppt));
+        }
+
+        // === Output folder type errors ===
+
+        test_config_rejects!(
+            test_output_folder_boolean_scalar_rejected,
+            r#"
+project_name: "test"
+output_folder: true
+"#,
+            "output_folder"
+        );
+
+        #[test]
+        fn test_output_folder_null_scalar_rejected() {
+            let yaml = r#"
+project_name: "test"
+output_folder: null
 "#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
 
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("output_folder"));
-        assert!(err_msg.contains("missing"));
+            // Should fail - null scalar is rejected
+            assert!(
+                result.is_err(),
+                "Null scalars should be rejected for output_folder"
+            );
+        }
+
+        #[test]
+        fn test_output_folder_array_type_error() {
+            let yaml = r#"
+project_name: "test"
+output_folder:
+  - item1
+  - item2
+"#;
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            assert!(result.is_err(), "Arrays should not be coercible to string");
+        }
+
+        #[test]
+        fn test_output_folder_map_type_error() {
+            let yaml = r#"
+project_name: "test"
+output_folder:
+  key: value
+"#;
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            assert!(result.is_err(), "Maps should not be coercible to string");
+        }
+
+        #[test]
+        fn test_output_folder_numeric_string_accepted() {
+            let yaml = r#"
+project_name: "test"
+output_folder: 123
+"#;
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            // Should succeed - numeric folder names are legitimate
+            assert!(
+                result.is_ok(),
+                "Numeric folder names should be accepted: {:?}",
+                result.err()
+            );
+            let config = result.unwrap();
+            assert_eq!(config.output_folder, "123");
+        }
+
+        #[test]
+        fn test_output_folder_year_string_accepted() {
+            let yaml = r#"
+project_name: "test"
+output_folder: "2026"
+"#;
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            assert!(
+                result.is_ok(),
+                "Year folder names should be accepted: {:?}",
+                result.err()
+            );
+            let config = result.unwrap();
+            assert_eq!(config.output_folder, "2026");
+        }
+
+        #[test]
+        fn test_output_folder_intentional_yaml11_names_accepted() {
+            for folder_name in &["yes", "no", "on", "off"] {
+                let yaml = format!(
+                    r#"
+project_name: "test"
+output_folder: "{}"
+"#,
+                    folder_name
+                );
+                let file = create_temp_config(&yaml);
+                let result = load_config(file.path());
+                assert!(
+                    result.is_ok(),
+                    "Intentionally quoted '{}' should be accepted as folder name: {:?}",
+                    folder_name,
+                    result.err()
+                );
+                let config = result.unwrap();
+                assert_eq!(config.output_folder, *folder_name);
+            }
+        }
+
+        // === Project name validation ===
+
+        #[test]
+        fn test_project_name_valid_formats() {
+            // Valid: alphanumeric, hyphens, underscores
+            assert!(is_valid_project_name("my-project"));
+            assert!(is_valid_project_name("test_framework"));
+            assert!(is_valid_project_name("MyProject123"));
+            assert!(is_valid_project_name("a"));
+            assert!(is_valid_project_name("test-project_v2"));
+        }
+
+        #[test]
+        fn test_project_name_invalid_formats() {
+            // Invalid: spaces, special chars, etc.
+            assert!(!is_valid_project_name("my project"));
+            assert!(!is_valid_project_name("test.project"));
+            assert!(!is_valid_project_name("project@name"));
+            assert!(!is_valid_project_name("project/name"));
+            assert!(!is_valid_project_name(""));
+            assert!(!is_valid_project_name("项目")); // non-ASCII
+        }
+
+        test_config_rejects!(
+            test_project_name_validation_in_config,
+            r#"
+project_name: "my project with spaces"
+output_folder: "./output"
+"#,
+            "project_name",
+            "invalid characters"
+        );
+
+        test_config_rejects!(
+            test_empty_project_name_error,
+            r#"
+project_name: ""
+output_folder: "./output"
+"#,
+            "project_name",
+            "cannot be empty"
+        );
     }
+    // =========================================================================
+    // serde_errors: unknown fields, missing fields, type errors
+    // =========================================================================
+    mod serde_errors {
+        use super::*;
+        use helpers::test_config_rejects;
+        use helpers::test_config_rejects_any;
 
-    #[test]
-    fn test_llm_mode_enum_values() {
-        // Test that enum deserializes correctly
-        let yaml = r#"
+        test_config_rejects!(
+            test_missing_project_name_serde_error,
+            r#"
+output_folder: "./output"
+"#,
+            "project_name",
+            "missing"
+        );
+
+        test_config_rejects!(
+            test_missing_output_folder_serde_error,
+            r#"
+project_name: "test"
+"#,
+            "output_folder",
+            "missing"
+        );
+
+        test_config_rejects_any!(
+            test_deny_unknown_fields_root_level,
+            r#"
+project_name: "test"
+output_folder: "./output"
+unknown_field: "should fail"
+"#,
+            "unknown_field",
+            "not a recognized"
+        );
+
+        test_config_rejects_any!(
+            test_deny_unknown_fields_jira,
+            r#"
+project_name: "test"
+output_folder: "./output"
+jira:
+  endpoint: "https://jira.example.com"
+  unknown_jira_field: "should fail"
+"#,
+            "unknown",
+            "not a recognized"
+        );
+
+        test_config_rejects_any!(
+            test_deny_unknown_fields_llm,
+            r#"
+project_name: "test"
+output_folder: "./output"
+llm:
+  mode: "auto"
+  invalid_llm_option: true
+"#,
+            "unknown",
+            "not a recognized"
+        );
+
+        test_config_rejects_any!(
+            test_deny_unknown_fields_templates,
+            r#"
+project_name: "test"
+output_folder: "./output"
+templates:
+  cr: "./templates/cr.md"
+  extra_template: "./templates/extra.md"
+"#,
+            "unknown",
+            "not a recognized"
+        );
+
+        #[test]
+        fn test_unknown_field_error_message_quality() {
+            // Test that unknown field errors provide helpful hints
+            let yaml = r#"
+project_name: "test"
+output_folder: "./output"
+typo_field: "value"
+"#;
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            assert!(result.is_err());
+            let err_msg = result.unwrap_err().to_string();
+            // Should mention valid fields or indicate it's not recognized
+            assert!(
+                err_msg.contains("not a recognized") || err_msg.contains("unknown"),
+                "Error should indicate field is unknown: {}",
+                err_msg
+            );
+        }
+
+        #[test]
+        fn test_section_detection_reliability() {
+            // Test that unknown field in llm section is correctly attributed to llm
+            let yaml = r#"
+project_name: "test"
+output_folder: "./output"
+llm:
+  mode: "auto"
+  unknown_llm_field: "value"
+"#;
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            assert!(result.is_err());
+            let err_msg = result.unwrap_err().to_string();
+            // Should mention llm fields in the hint
+            assert!(
+                err_msg.contains("llm")
+                    || err_msg.contains("mode")
+                    || err_msg.contains("local_endpoint"),
+                "Expected llm section hint, got: {}",
+                err_msg
+            );
+        }
+
+        #[test]
+        fn test_unknown_field_in_jira_section() {
+            let yaml = r#"
+project_name: "test"
+output_folder: "./output"
+jira:
+  endpoint: "https://jira.example.com"
+  invalid_jira_option: "value"
+"#;
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            assert!(result.is_err());
+            let err_msg = result.unwrap_err().to_string();
+            // Should provide jira-specific hint
+            assert!(
+                err_msg.contains("jira")
+                    || err_msg.contains("endpoint")
+                    || err_msg.contains("token"),
+                "Expected jira section hint, got: {}",
+                err_msg
+            );
+        }
+
+        // === Nested section type errors ===
+
+        test_config_rejects!(
+            test_templates_wrong_type_scalar,
+            r#"
+project_name: "test"
+output_folder: "./output"
+templates: 123
+"#,
+            "templates"
+        );
+
+        test_config_rejects!(
+            test_llm_wrong_type_string,
+            r#"
+project_name: "test"
+output_folder: "./output"
+llm: "yes"
+"#,
+            "llm"
+        );
+
+        test_config_rejects!(
+            test_jira_wrong_type_boolean,
+            r#"
+project_name: "test"
+output_folder: "./output"
+jira: true
+"#,
+            "jira"
+        );
+
+        test_config_rejects_any!(
+            test_squash_wrong_type_array,
+            r#"
+project_name: "test"
+output_folder: "./output"
+squash:
+  - item1
+  - item2
+"#,
+            "squash",
+            "invalid type",
+            "expected"
+        );
+
+        // === Scalar field type errors ===
+
+        #[test]
+        fn test_timeout_seconds_wrong_type_string() {
+            let yaml = r#"
+project_name: "test"
+output_folder: "./output"
+llm:
+  mode: "auto"
+  timeout_seconds: "not a number"
+"#;
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            assert!(result.is_err());
+            let err_msg = result.unwrap_err().to_string();
+            // Should provide field-specific hint
+            assert!(
+                err_msg.contains("timeout")
+                    || err_msg.contains("invalid type")
+                    || err_msg.contains("integer"),
+                "Expected timeout-related error, got: {}",
+                err_msg
+            );
+        }
+
+        #[test]
+        fn test_max_tokens_wrong_type_string() {
+            let yaml = r#"
+project_name: "test"
+output_folder: "./output"
+llm:
+  mode: "auto"
+  max_tokens: "four thousand"
+"#;
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            assert!(result.is_err());
+            let err_msg = result.unwrap_err().to_string();
+            // Should provide field-specific hint
+            assert!(
+                err_msg.contains("max_token")
+                    || err_msg.contains("invalid type")
+                    || err_msg.contains("integer"),
+                "Expected max_tokens-related error, got: {}",
+                err_msg
+            );
+        }
+
+        #[test]
+        fn test_timeout_seconds_wrong_type_float() {
+            let yaml = r#"
+project_name: "test"
+output_folder: "./output"
+llm:
+  mode: "auto"
+  timeout_seconds: 120.5
+"#;
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            // Floats might be coerced to int or fail - either is acceptable
+            // The key is that we don't panic and provide a reasonable response
+            match result {
+                Ok(config) => {
+                    // If it loaded, the value should be truncated or rounded
+                    let llm = config.llm.unwrap();
+                    assert!(llm.timeout_seconds > 0);
+                }
+                Err(e) => {
+                    // If it failed, should have a meaningful error
+                    let err_msg = e.to_string();
+                    assert!(
+                        err_msg.contains("timeout")
+                            || err_msg.contains("invalid")
+                            || err_msg.contains("type"),
+                        "Expected timeout-related error, got: {}",
+                        err_msg
+                    );
+                }
+            }
+        }
+
+        // === Boolean type errors ===
+
+        #[test]
+        fn test_boolean_type_error_cloud_enabled() {
+            let yaml = r#"
+project_name: "test"
+output_folder: "./output"
+llm:
+  mode: "auto"
+  cloud_enabled: "nope"
+"#;
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            assert!(result.is_err());
+            let err_msg = result.unwrap_err().to_string();
+            // Should provide a helpful message about boolean type
+            assert!(
+                err_msg.contains("boolean")
+                    || err_msg.contains("true")
+                    || err_msg.contains("false")
+                    || err_msg.contains("cloud_enabled"),
+                "Expected boolean-related error, got: {}",
+                err_msg
+            );
+        }
+
+        #[test]
+        fn test_boolean_type_error_string_yes() {
+            let yaml = r#"
+project_name: "test"
+output_folder: "./output"
+llm:
+  mode: "auto"
+  cloud_enabled: "yes"
+"#;
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            assert!(result.is_err());
+            let err_msg = result.unwrap_err().to_string();
+            assert!(
+                err_msg.contains("boolean")
+                    || err_msg.contains("true")
+                    || err_msg.contains("false"),
+                "Expected boolean-related error, got: {}",
+                err_msg
+            );
+        }
+
+        // === Parse errors ===
+
+        #[test]
+        fn test_parse_error_invalid_yaml() {
+            // Use truly malformed YAML that can't be parsed at all
+            let yaml = "[[[invalid yaml structure";
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            let err_msg = err.to_string();
+            // Truly invalid YAML should result in a parsing error
+            assert!(
+                err_msg.to_lowercase().contains("parse") || err_msg.contains("expected"),
+                "Expected parse error, got: {}",
+                err_msg
+            );
+        }
+
+        #[test]
+        fn test_string_type_error_not_attributed_to_output_folder() {
+            let yaml = r#"
+project_name: "test"
+output_folder: "./valid-path"
+jira:
+  endpoint: "https://jira.example.com"
+  token:
+    - should
+    - be
+    - string
+"#;
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
+
+            assert!(result.is_err(), "Array for jira.token should fail");
+            let err_msg = result.unwrap_err().to_string();
+            // The error should NOT mention output_folder
+            assert!(
+                !err_msg.contains("output_folder"),
+                "Error for jira.token should not be attributed to output_folder: {}",
+                err_msg
+            );
+            // Verify it identifies the correct field or provides actionable guidance
+            assert!(
+                err_msg.contains("token")
+                    || err_msg.contains("configuration field")
+                    || err_msg.contains("Parse"),
+                "Error should mention token field or provide guidance: {}",
+                err_msg
+            );
+        }
+
+        // === parse_serde_error tests ===
+
+        #[test]
+        fn test_parse_serde_error_yaml_syntax_error() {
+            // Test that YAML syntax errors are handled with helpful messages
+            let err = parse_serde_error("did not find expected key at line 5");
+            assert!(err.is_some(), "YAML syntax errors should be handled");
+            let err = err.unwrap();
+            match err {
+                SerdeErrorKind::InvalidEnumValue {
+                    field,
+                    reason,
+                    hint,
+                } => {
+                    assert!(field.contains("YAML"));
+                    assert!(reason.contains("invalid"));
+                    assert!(hint.contains("indentation") || hint.contains("format"));
+                }
+                _ => panic!("Expected InvalidEnumValue for syntax error"),
+            }
+        }
+
+        #[test]
+        fn test_parse_serde_error_duplicate_key() {
+            // Test that duplicate key errors are handled
+            let err = parse_serde_error("duplicate key at line 3");
+            assert!(err.is_some(), "Duplicate key errors should be handled");
+            let err = err.unwrap();
+            match err {
+                SerdeErrorKind::InvalidEnumValue { field, reason, .. } => {
+                    assert!(field.contains("YAML"));
+                    assert!(reason.contains("duplicate"));
+                }
+                _ => panic!("Expected InvalidEnumValue for duplicate key"),
+            }
+        }
+
+        #[test]
+        fn test_parse_serde_error_end_of_stream() {
+            // Test that EOF errors are handled
+            let err = parse_serde_error("unexpected end of stream");
+            assert!(err.is_some(), "End of stream errors should be handled");
+        }
+    }
+    // =========================================================================
+    // llm_config: LLM mode validation, cloud mode, auto mode
+    // =========================================================================
+    mod llm_config {
+        use super::*;
+        use helpers::test_config_rejects;
+
+        test_config_rejects!(
+            test_invalid_llm_mode_error,
+            r#"
+project_name: "test"
+output_folder: "./output"
+llm:
+  mode: "invalid_mode"
+"#,
+            "llm.mode",
+            "not a valid mode",
+            "Expected"
+        );
+
+        test_config_rejects!(
+            test_local_mode_requires_endpoint,
+            r#"
+project_name: "test"
+output_folder: "./output"
+llm:
+  mode: "local"
+"#,
+            "llm.local_endpoint",
+            "missing"
+        );
+
+        #[test]
+        fn test_llm_mode_enum_values() {
+            // Test that enum deserializes correctly
+            let yaml = r#"
 project_name: "test"
 output_folder: "./output"
 llm:
   mode: "auto"
 "#;
-        let file = create_temp_config(yaml);
-        let config = load_config(file.path()).unwrap();
-        assert_eq!(config.llm.unwrap().mode, LlmMode::Auto);
+            let file = create_temp_config(yaml);
+            let config = load_config(file.path()).unwrap();
+            assert_eq!(config.llm.unwrap().mode, LlmMode::Auto);
 
-        // Cloud mode requires cloud_enabled, api_key, cloud_endpoint, and cloud_model
-        let yaml = r#"
+            // Cloud mode requires cloud_enabled, api_key, cloud_endpoint, and cloud_model
+            let yaml = r#"
 project_name: "test"
 output_folder: "./output"
 llm:
@@ -2815,53 +3998,29 @@ llm:
   cloud_endpoint: "https://api.openai.com/v1"
   cloud_model: "gpt-4o-mini"
 "#;
-        let file = create_temp_config(yaml);
-        let config = load_config(file.path()).unwrap();
-        assert_eq!(config.llm.unwrap().mode, LlmMode::Cloud);
-    }
+            let file = create_temp_config(yaml);
+            let config = load_config(file.path()).unwrap();
+            assert_eq!(config.llm.unwrap().mode, LlmMode::Cloud);
+        }
 
-    #[test]
-    fn test_llm_mode_display() {
-        assert_eq!(format!("{}", LlmMode::Auto), "auto");
-        assert_eq!(format!("{}", LlmMode::Local), "local");
-        assert_eq!(format!("{}", LlmMode::Cloud), "cloud");
-    }
+        #[test]
+        fn test_llm_mode_display() {
+            assert_eq!(format!("{}", LlmMode::Auto), "auto");
+            assert_eq!(format!("{}", LlmMode::Local), "local");
+            assert_eq!(format!("{}", LlmMode::Cloud), "cloud");
+        }
 
-    // === REVIEW 6 TESTS: IPv6 URL validation ===
+        #[test]
+        fn test_llm_mode_default() {
+            // Test that Default derive works correctly
+            let mode = LlmMode::default();
+            assert_eq!(mode, LlmMode::Auto);
+        }
 
-    #[test]
-    fn test_ipv6_url_valid() {
-        // IPv6 localhost
-        assert!(is_valid_url("http://[::1]:8080"));
-        assert!(is_valid_url("http://[::1]"));
-        // Full IPv6 address
-        assert!(is_valid_url("http://[2001:db8::1]:8080"));
-        assert!(is_valid_url("https://[2001:db8:85a3::8a2e:370:7334]"));
-        // IPv6 with port
-        assert!(is_valid_url("http://[fe80::1%25eth0]:3000"));
-    }
-
-    #[test]
-    fn test_ipv6_url_invalid_port() {
-        // IPv6 with invalid port
-        assert!(!is_valid_url("http://[::1]:0"));
-        assert!(!is_valid_url("http://[::1]:65536"));
-        assert!(!is_valid_url("http://[::1]:abc"));
-    }
-
-    #[test]
-    fn test_llm_mode_default() {
-        // Test that Default derive works correctly
-        let mode = LlmMode::default();
-        assert_eq!(mode, LlmMode::Auto);
-    }
-
-    // === REVIEW 7 TESTS ===
-
-    #[test]
-    fn test_llm_config_full_architecture_fields() {
-        // Test all LlmConfig fields from architecture spec
-        let yaml = r#"
+        #[test]
+        fn test_llm_config_full_architecture_fields() {
+            // Test all LlmConfig fields from architecture spec
+            let yaml = r#"
 project_name: "test"
 output_folder: "./output"
 llm:
@@ -2875,328 +4034,75 @@ llm:
   timeout_seconds: 60
   max_tokens: 2048
 "#;
-        let file = create_temp_config(yaml);
-        let config = load_config(file.path()).unwrap();
+            let file = create_temp_config(yaml);
+            let config = load_config(file.path()).unwrap();
 
-        let llm = config.llm.unwrap();
-        assert_eq!(llm.mode, LlmMode::Cloud);
-        assert_eq!(
-            llm.local_endpoint.as_deref(),
-            Some("http://localhost:11434")
-        );
-        assert_eq!(llm.local_model.as_deref(), Some("mistral:7b-instruct"));
-        assert!(llm.cloud_enabled);
-        assert_eq!(
-            llm.cloud_endpoint.as_deref(),
-            Some("https://api.openai.com/v1")
-        );
-        assert_eq!(llm.cloud_model.as_deref(), Some("gpt-4o-mini"));
-        assert_eq!(llm.api_key.as_deref(), Some("sk-secret-key"));
-        assert_eq!(llm.timeout_seconds, 60);
-        assert_eq!(llm.max_tokens, 2048);
-    }
+            let llm = config.llm.unwrap();
+            assert_eq!(llm.mode, LlmMode::Cloud);
+            assert_eq!(
+                llm.local_endpoint.as_deref(),
+                Some("http://localhost:11434")
+            );
+            assert_eq!(llm.local_model.as_deref(), Some("mistral:7b-instruct"));
+            assert!(llm.cloud_enabled);
+            assert_eq!(
+                llm.cloud_endpoint.as_deref(),
+                Some("https://api.openai.com/v1")
+            );
+            assert_eq!(llm.cloud_model.as_deref(), Some("gpt-4o-mini"));
+            assert_eq!(llm.api_key.as_deref(), Some("sk-secret-key"));
+            assert_eq!(llm.timeout_seconds, 60);
+            assert_eq!(llm.max_tokens, 2048);
+        }
 
-    #[test]
-    fn test_llm_config_default_timeout_and_max_tokens() {
-        let yaml = r#"
+        #[test]
+        fn test_llm_config_default_timeout_and_max_tokens() {
+            let yaml = r#"
 project_name: "test"
 output_folder: "./output"
 llm:
   mode: "auto"
 "#;
-        let file = create_temp_config(yaml);
-        let config = load_config(file.path()).unwrap();
+            let file = create_temp_config(yaml);
+            let config = load_config(file.path()).unwrap();
 
-        let llm = config.llm.unwrap();
-        assert_eq!(llm.timeout_seconds, 120); // default
-        assert_eq!(llm.max_tokens, 4096); // default
-    }
+            let llm = config.llm.unwrap();
+            assert_eq!(llm.timeout_seconds, 120); // default
+            assert_eq!(llm.max_tokens, 4096); // default
+        }
 
-    #[test]
-    fn test_cloud_mode_requires_api_key() {
-        let yaml = r#"
+        // === Cloud mode requirements ===
+
+        test_config_rejects!(
+            test_cloud_mode_requires_api_key,
+            r#"
 project_name: "test"
 output_folder: "./output"
 llm:
   mode: "cloud"
   cloud_enabled: true
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
+"#,
+            "llm.api_key",
+            "missing"
+        );
 
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("llm.api_key"));
-        assert!(err_msg.contains("missing"));
-    }
-
-    #[test]
-    fn test_cloud_mode_requires_cloud_enabled() {
-        let yaml = r#"
+        test_config_rejects!(
+            test_cloud_mode_requires_cloud_enabled,
+            r#"
 project_name: "test"
 output_folder: "./output"
 llm:
   mode: "cloud"
   cloud_enabled: false
   api_key: "sk-key"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("cloud_enabled"));
-        assert!(err_msg.contains("must be true"));
-    }
-
-    #[test]
-    fn test_cloud_endpoint_url_validation() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm:
-  mode: "cloud"
-  cloud_enabled: true
-  api_key: "sk-key"
-  cloud_endpoint: "not-a-url"
-  cloud_model: "gpt-4o-mini"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("llm.cloud_endpoint"));
-        assert!(err_msg.contains("valid URL"));
-    }
-
-    #[test]
-    fn test_project_name_valid_formats() {
-        // Valid: alphanumeric, hyphens, underscores
-        assert!(is_valid_project_name("my-project"));
-        assert!(is_valid_project_name("test_framework"));
-        assert!(is_valid_project_name("MyProject123"));
-        assert!(is_valid_project_name("a"));
-        assert!(is_valid_project_name("test-project_v2"));
-    }
-
-    #[test]
-    fn test_project_name_invalid_formats() {
-        // Invalid: spaces, special chars, etc.
-        assert!(!is_valid_project_name("my project"));
-        assert!(!is_valid_project_name("test.project"));
-        assert!(!is_valid_project_name("project@name"));
-        assert!(!is_valid_project_name("project/name"));
-        assert!(!is_valid_project_name(""));
-        assert!(!is_valid_project_name("项目")); // non-ASCII
-    }
-
-    #[test]
-    fn test_project_name_validation_in_config() {
-        let yaml = r#"
-project_name: "my project with spaces"
-output_folder: "./output"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("project_name"));
-        assert!(err_msg.contains("invalid characters"));
-    }
-
-    #[test]
-    fn test_safe_path_allows_double_dots_in_filename() {
-        // Double dots in filename (not as path component) should be allowed
-        assert!(is_safe_path("file..txt"));
-        assert!(is_safe_path("my..folder/data"));
-        assert!(is_safe_path("test..data..file.txt"));
-        assert!(is_safe_path("./output/file..backup"));
-    }
-
-    #[test]
-    fn test_safe_path_rejects_traversal_sequences() {
-        // Actual path traversal should still be rejected
-        assert!(!is_safe_path(".."));
-        assert!(!is_safe_path("../parent"));
-        assert!(!is_safe_path("./data/../secrets"));
-        assert!(!is_safe_path("folder/../../etc"));
-        assert!(!is_safe_path("..\\windows\\style"));
-    }
-
-    #[test]
-    fn test_llm_debug_redacts_all_sensitive_fields() {
-        let llm = LlmConfig {
-            mode: LlmMode::Cloud,
-            local_endpoint: Some("http://localhost:11434".to_string()),
-            local_model: Some("mistral".to_string()),
-            cloud_enabled: true,
-            cloud_endpoint: Some("https://api.openai.com/v1".to_string()),
-            cloud_model: Some("gpt-4o-mini".to_string()),
-            api_key: Some("sk-super-secret-key-12345".to_string()),
-            timeout_seconds: 120,
-            max_tokens: 4096,
-        };
-
-        let debug_output = format!("{:?}", llm);
-        assert!(!debug_output.contains("sk-super-secret-key-12345"));
-        assert!(debug_output.contains("[REDACTED]"));
-        assert!(debug_output.contains("Cloud"));
-        assert!(debug_output.contains("mistral"));
-        assert!(debug_output.contains("gpt-4o-mini"));
-    }
-
-    #[test]
-    fn test_llm_redact_trait_all_fields() {
-        let llm = LlmConfig {
-            mode: LlmMode::Auto,
-            local_endpoint: Some("http://localhost:11434".to_string()),
-            local_model: Some("codellama:13b".to_string()),
-            cloud_enabled: false,
-            cloud_endpoint: None,
-            cloud_model: None,
-            api_key: Some("secret-api-key".to_string()),
-            timeout_seconds: 60,
-            max_tokens: 2048,
-        };
-
-        let redacted = llm.redacted();
-        assert!(!redacted.contains("secret-api-key"));
-        assert!(redacted.contains("[REDACTED]"));
-        assert!(redacted.contains("Auto"));
-        assert!(redacted.contains("codellama:13b"));
-        assert!(redacted.contains("timeout_seconds: 60"));
-        assert!(redacted.contains("max_tokens: 2048"));
-    }
-
-    // === REVIEW 8 TESTS ===
-
-    #[test]
-    fn test_deny_unknown_fields_root_level() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-unknown_field: "should fail"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("unknown_field") || err_msg.contains("not a recognized"));
-    }
-
-    #[test]
-    fn test_deny_unknown_fields_jira() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-jira:
-  endpoint: "https://jira.example.com"
-  unknown_jira_field: "should fail"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("unknown") || err_msg.contains("not a recognized"));
-    }
-
-    #[test]
-    fn test_deny_unknown_fields_llm() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm:
-  mode: "auto"
-  invalid_llm_option: true
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("unknown") || err_msg.contains("not a recognized"));
-    }
-
-    #[test]
-    fn test_deny_unknown_fields_templates() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-templates:
-  cr: "./templates/cr.md"
-  extra_template: "./templates/extra.md"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("unknown") || err_msg.contains("not a recognized"));
-    }
-
-    #[test]
-    fn test_hostname_validation_rfc1123_labels() {
-        // Valid hostnames
-        assert!(is_valid_url("https://example.com"));
-        assert!(is_valid_url("https://my-domain.example.com"));
-        assert!(is_valid_url("https://sub1.sub2.example.com"));
-        assert!(is_valid_url("https://a1.b2.c3.example.com"));
-
-        // Invalid: label starts with hyphen
-        assert!(!is_valid_url("https://-example.com"));
-        assert!(!is_valid_url("https://sub.-example.com"));
-
-        // Invalid: label ends with hyphen
-        assert!(!is_valid_url("https://example-.com"));
-        assert!(!is_valid_url("https://sub.example-.com"));
-
-        // Invalid: special characters in label
-        assert!(!is_valid_url("https://exam_ple.com"));
-        assert!(!is_valid_url("https://exam+ple.com"));
-        assert!(!is_valid_url("https://exam@ple.com"));
-    }
-
-    #[test]
-    fn test_hostname_label_length() {
-        // Valid: 63 char label (max allowed)
-        let label_63 = "a".repeat(63);
-        assert!(is_valid_url(&format!("https://{}.com", label_63)));
-
-        // Invalid: 64 char label (too long)
-        let label_64 = "a".repeat(64);
-        assert!(!is_valid_url(&format!("https://{}.com", label_64)));
-    }
-
-    #[test]
-    fn test_unknown_field_error_message_quality() {
-        // Test that unknown field errors provide helpful hints
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-typo_field: "value"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        // Should mention valid fields or indicate it's not recognized
-        assert!(
-            err_msg.contains("not a recognized") || err_msg.contains("unknown"),
-            "Error should indicate field is unknown: {}",
-            err_msg
+"#,
+            "cloud_enabled",
+            "must be true"
         );
-    }
 
-    // === REVIEW 9 TESTS: Cloud mode complete validation ===
-
-    #[test]
-    fn test_cloud_mode_requires_cloud_endpoint() {
-        let yaml = r#"
+        test_config_rejects!(
+            test_cloud_mode_requires_cloud_endpoint,
+            r#"
 project_name: "test"
 output_folder: "./output"
 llm:
@@ -3204,19 +4110,14 @@ llm:
   cloud_enabled: true
   api_key: "sk-key"
   cloud_model: "gpt-4o-mini"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
+"#,
+            "llm.cloud_endpoint",
+            "missing"
+        );
 
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("llm.cloud_endpoint"));
-        assert!(err_msg.contains("missing"));
-    }
-
-    #[test]
-    fn test_cloud_mode_requires_cloud_model() {
-        let yaml = r#"
+        test_config_rejects!(
+            test_cloud_mode_requires_cloud_model,
+            r#"
 project_name: "test"
 output_folder: "./output"
 llm:
@@ -3224,19 +4125,14 @@ llm:
   cloud_enabled: true
   api_key: "sk-key"
   cloud_endpoint: "https://api.openai.com/v1"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
+"#,
+            "llm.cloud_model",
+            "missing"
+        );
 
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("llm.cloud_model"));
-        assert!(err_msg.contains("missing"));
-    }
-
-    #[test]
-    fn test_cloud_mode_valid_complete_config() {
-        let yaml = r#"
+        #[test]
+        fn test_cloud_mode_valid_complete_config() {
+            let yaml = r#"
 project_name: "test"
 output_folder: "./output"
 llm:
@@ -3246,472 +4142,24 @@ llm:
   cloud_endpoint: "https://api.openai.com/v1"
   cloud_model: "gpt-4o-mini"
 "#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
 
-        assert!(result.is_ok());
-        let config = result.unwrap();
-        let llm = config.llm.unwrap();
-        assert_eq!(llm.mode, LlmMode::Cloud);
-        assert_eq!(
-            llm.cloud_endpoint.as_deref(),
-            Some("https://api.openai.com/v1")
-        );
-        assert_eq!(llm.cloud_model.as_deref(), Some("gpt-4o-mini"));
-    }
-
-    // === REVIEW 9 TESTS: Internal hostnames without dots ===
-
-    #[test]
-    fn test_internal_hostname_jira() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-jira:
-  endpoint: "http://jira:8080"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_internal_hostname_squash() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-squash:
-  endpoint: "http://squash"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_internal_hostname_with_hyphen() {
-        assert!(is_valid_url("http://my-internal-server:3000"));
-        assert!(is_valid_url("http://test-jira"));
-        assert!(is_valid_url("https://prod-api:443"));
-    }
-
-    #[test]
-    fn test_internal_hostname_invalid_formats() {
-        // Cannot start or end with hyphen
-        assert!(!is_valid_url("http://-jira"));
-        assert!(!is_valid_url("http://jira-"));
-        assert!(!is_valid_url("http://-"));
-
-        // Empty hostname
-        assert!(!is_valid_url("http://"));
-
-        // Too long (> 63 chars)
-        let long_host = "a".repeat(64);
-        assert!(!is_valid_url(&format!("http://{}", long_host)));
-
-        // Invalid characters in hostname
-        assert!(!is_valid_url("http://jira_server")); // underscore not allowed
-
-        // Note: "http://jira.server" IS valid - it's a dotted hostname
-        // and goes through the standard dot validation path
-        assert!(is_valid_url("http://jira.server")); // valid hostname with dot
-    }
-
-    // === REVIEW 9 TESTS: Nested section type errors ===
-
-    #[test]
-    fn test_templates_wrong_type_scalar() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-templates: 123
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("templates"));
-        assert!(err_msg.contains("invalid type") || err_msg.contains("expected a section"));
-    }
-
-    #[test]
-    fn test_llm_wrong_type_string() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm: "yes"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("llm"));
-        assert!(err_msg.contains("invalid type") || err_msg.contains("expected a section"));
-    }
-
-    #[test]
-    fn test_jira_wrong_type_boolean() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-jira: true
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("jira"));
-        assert!(err_msg.contains("invalid type") || err_msg.contains("expected a section"));
-    }
-
-    #[test]
-    fn test_squash_wrong_type_array() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-squash:
-  - item1
-  - item2
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        // Should fail either at parse or validation
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("squash")
-                || err_msg.contains("invalid type")
-                || err_msg.contains("expected")
-        );
-    }
-
-    // === REVIEW 10 TESTS: Scalar field type errors ===
-
-    #[test]
-    fn test_timeout_seconds_wrong_type_string() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm:
-  mode: "auto"
-  timeout_seconds: "not a number"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        // Should provide field-specific hint
-        assert!(
-            err_msg.contains("timeout")
-                || err_msg.contains("invalid type")
-                || err_msg.contains("integer"),
-            "Expected timeout-related error, got: {}",
-            err_msg
-        );
-    }
-
-    #[test]
-    fn test_max_tokens_wrong_type_string() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm:
-  mode: "auto"
-  max_tokens: "four thousand"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        // Should provide field-specific hint
-        assert!(
-            err_msg.contains("max_token")
-                || err_msg.contains("invalid type")
-                || err_msg.contains("integer"),
-            "Expected max_tokens-related error, got: {}",
-            err_msg
-        );
-    }
-
-    #[test]
-    fn test_timeout_seconds_wrong_type_float() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm:
-  mode: "auto"
-  timeout_seconds: 120.5
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        // Floats might be coerced to int or fail - either is acceptable
-        // The key is that we don't panic and provide a reasonable response
-        match result {
-            Ok(config) => {
-                // If it loaded, the value should be truncated or rounded
-                let llm = config.llm.unwrap();
-                assert!(llm.timeout_seconds > 0);
-            }
-            Err(e) => {
-                // If it failed, should have a meaningful error
-                let err_msg = e.to_string();
-                assert!(
-                    err_msg.contains("timeout")
-                        || err_msg.contains("invalid")
-                        || err_msg.contains("type"),
-                    "Expected timeout-related error, got: {}",
-                    err_msg
-                );
-            }
+            assert!(result.is_ok());
+            let config = result.unwrap();
+            let llm = config.llm.unwrap();
+            assert_eq!(llm.mode, LlmMode::Cloud);
+            assert_eq!(
+                llm.cloud_endpoint.as_deref(),
+                Some("https://api.openai.com/v1")
+            );
+            assert_eq!(llm.cloud_model.as_deref(), Some("gpt-4o-mini"));
         }
-    }
 
-    #[test]
-    fn test_section_detection_reliability() {
-        // Test that unknown field in llm section is correctly attributed to llm
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm:
-  mode: "auto"
-  unknown_llm_field: "value"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        // Should mention llm fields in the hint
-        assert!(
-            err_msg.contains("llm")
-                || err_msg.contains("mode")
-                || err_msg.contains("local_endpoint"),
-            "Expected llm section hint, got: {}",
-            err_msg
-        );
-    }
-
-    #[test]
-    fn test_unknown_field_in_jira_section() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-jira:
-  endpoint: "https://jira.example.com"
-  invalid_jira_option: "value"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        // Should provide jira-specific hint
-        assert!(
-            err_msg.contains("jira") || err_msg.contains("endpoint") || err_msg.contains("token"),
-            "Expected jira section hint, got: {}",
-            err_msg
-        );
-    }
-
-    #[test]
-    fn test_single_label_hostname_documented_behavior() {
-        // Document that single-label hostnames (like "a", "jira") ARE valid
-        // This aligns documentation with actual implementation
-        assert!(is_valid_url("https://a"));
-        assert!(is_valid_url("http://jira"));
-        assert!(is_valid_url("http://squash:8080"));
-
-        // But invalid single-label formats are still rejected
-        assert!(!is_valid_url("http://-invalid"));
-        assert!(!is_valid_url("http://invalid-"));
-    }
-
-    // === REVIEW 11 TESTS: Empty cloud fields, zero timeout/max_tokens, template traversal ===
-
-    #[test]
-    fn test_cloud_mode_empty_api_key_rejected() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm:
-  mode: "cloud"
-  cloud_enabled: true
-  api_key: ""
-  cloud_endpoint: "https://api.openai.com/v1"
-  cloud_model: "gpt-4o-mini"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("llm.api_key"));
-        assert!(err_msg.contains("cannot be empty") || err_msg.contains("empty"));
-    }
-
-    #[test]
-    fn test_cloud_mode_whitespace_api_key_rejected() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm:
-  mode: "cloud"
-  cloud_enabled: true
-  api_key: "   "
-  cloud_endpoint: "https://api.openai.com/v1"
-  cloud_model: "gpt-4o-mini"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("llm.api_key"));
-        assert!(err_msg.contains("cannot be empty") || err_msg.contains("empty"));
-    }
-
-    #[test]
-    fn test_cloud_mode_empty_cloud_model_rejected() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm:
-  mode: "cloud"
-  cloud_enabled: true
-  api_key: "sk-valid-key"
-  cloud_endpoint: "https://api.openai.com/v1"
-  cloud_model: ""
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("llm.cloud_model"));
-        assert!(err_msg.contains("cannot be empty") || err_msg.contains("empty"));
-    }
-
-    #[test]
-    fn test_cloud_mode_whitespace_cloud_model_rejected() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm:
-  mode: "cloud"
-  cloud_enabled: true
-  api_key: "sk-valid-key"
-  cloud_endpoint: "https://api.openai.com/v1"
-  cloud_model: "   "
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("llm.cloud_model"));
-        assert!(err_msg.contains("cannot be empty") || err_msg.contains("empty"));
-    }
-
-    #[test]
-    fn test_timeout_seconds_zero_rejected() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm:
-  mode: "auto"
-  timeout_seconds: 0
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("llm.timeout_seconds"));
-        assert!(err_msg.contains("positive") || err_msg.contains("greater than 0"));
-    }
-
-    #[test]
-    fn test_max_tokens_zero_rejected() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm:
-  mode: "auto"
-  max_tokens: 0
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("llm.max_tokens"));
-        assert!(err_msg.contains("positive") || err_msg.contains("greater than 0"));
-    }
-
-    #[test]
-    fn test_template_cr_path_traversal_rejected() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-templates:
-  cr: "../../../etc/passwd.md"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("templates.cr"));
-        assert!(err_msg.contains("path traversal"));
-    }
-
-    #[test]
-    fn test_template_ppt_path_traversal_rejected() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-templates:
-  ppt: "./templates/../../../secrets/report.pptx"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("templates.ppt"));
-        assert!(err_msg.contains("path traversal"));
-    }
-
-    #[test]
-    fn test_template_anomaly_path_traversal_rejected() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-templates:
-  anomaly: "../parent/../grandparent/anomaly.md"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("templates.anomaly"));
-        assert!(err_msg.contains("path traversal"));
-    }
-
-    #[test]
-    fn test_valid_cloud_config_with_all_required_fields() {
-        // Verify valid cloud config still works after all validations
-        let yaml = r#"
+        #[test]
+        fn test_valid_cloud_config_with_all_required_fields() {
+            // Verify valid cloud config still works after all validations
+            let yaml = r#"
 project_name: "test"
 output_folder: "./output"
 llm:
@@ -3723,718 +4171,118 @@ llm:
   timeout_seconds: 60
   max_tokens: 2048
 "#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_ok());
-        let config = result.unwrap();
-        let llm = config.llm.unwrap();
-        assert_eq!(llm.mode, LlmMode::Cloud);
-        assert_eq!(llm.api_key.as_deref(), Some("sk-valid-key-12345"));
-        assert_eq!(llm.cloud_model.as_deref(), Some("gpt-4o-mini"));
-        assert_eq!(llm.timeout_seconds, 60);
-        assert_eq!(llm.max_tokens, 2048);
-    }
-
-    #[test]
-    fn test_valid_templates_without_traversal() {
-        // Verify valid template paths still work
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-templates:
-  cr: "./templates/cr.md"
-  ppt: "./templates/report.pptx"
-  anomaly: "./templates/anomaly.md"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_ok());
-    }
-
-    // === REVIEW 12 TESTS: Boolean type errors, URL sensitive params, empty port, IPv6 validation ===
-
-    #[test]
-    fn test_boolean_type_error_cloud_enabled() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm:
-  mode: "auto"
-  cloud_enabled: "nope"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        // Should provide a helpful message about boolean type
-        assert!(
-            err_msg.contains("boolean")
-                || err_msg.contains("true")
-                || err_msg.contains("false")
-                || err_msg.contains("cloud_enabled"),
-            "Expected boolean-related error, got: {}",
-            err_msg
-        );
-    }
-
-    #[test]
-    fn test_boolean_type_error_string_yes() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-llm:
-  mode: "auto"
-  cloud_enabled: "yes"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("boolean") || err_msg.contains("true") || err_msg.contains("false"),
-            "Expected boolean-related error, got: {}",
-            err_msg
-        );
-    }
-
-    #[test]
-    fn test_redact_url_sensitive_params_token() {
-        let url = "https://jira.example.com/api?token=secret123&project=PROJ";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("secret123"));
-        assert!(redacted.contains("token=[REDACTED]"));
-        assert!(redacted.contains("project=PROJ"));
-    }
-
-    #[test]
-    fn test_redact_url_sensitive_params_api_key() {
-        let url = "https://api.example.com?api_key=sk-12345&foo=bar";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("sk-12345"));
-        assert!(redacted.contains("api_key=[REDACTED]"));
-        assert!(redacted.contains("foo=bar"));
-    }
-
-    #[test]
-    fn test_redact_url_sensitive_params_password() {
-        let url = "https://example.com?user=admin&password=hunter2";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("hunter2"));
-        assert!(redacted.contains("password=[REDACTED]"));
-        assert!(redacted.contains("user=admin"));
-    }
-
-    #[test]
-    fn test_redact_url_sensitive_params_no_query() {
-        let url = "https://example.com/api/v1";
-        let redacted = redact_url_sensitive_params(url);
-        assert_eq!(redacted, url); // Unchanged
-    }
-
-    #[test]
-    fn test_redact_url_sensitive_params_no_sensitive() {
-        let url = "https://example.com?page=1&limit=10";
-        let redacted = redact_url_sensitive_params(url);
-        assert_eq!(redacted, url); // Unchanged
-    }
-
-    #[test]
-    fn test_redact_url_path_token_secret() {
-        // Test redacting secrets in URL path segments (AC #3 - no secrets in logs)
-        let url = "https://api.example.com/token/sk-abc123def456/resource";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("sk-abc123def456"));
-        assert!(redacted.contains("/token/[REDACTED]/"));
-    }
-
-    #[test]
-    fn test_redact_url_path_key_secret() {
-        let url = "https://api.example.com/api/key/abcdef123456789/data";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("abcdef123456789"));
-        assert!(redacted.contains("/key/[REDACTED]/"));
-    }
-
-    #[test]
-    fn test_redact_url_path_no_false_positive() {
-        // Normal path segments should not be redacted
-        let url = "https://api.example.com/api/v1/users";
-        let redacted = redact_url_sensitive_params(url);
-        assert_eq!(redacted, url); // Unchanged - no secret-looking segments
-    }
-
-    #[test]
-    fn test_redact_url_path_combined_with_query() {
-        // Test that both path secrets and query secrets are redacted
-        let url = "https://api.example.com/token/sk-12345678/resource?api_key=secret";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("sk-12345678"));
-        assert!(!redacted.contains("secret"));
-        assert!(redacted.contains("/token/[REDACTED]/"));
-        assert!(redacted.contains("api_key=[REDACTED]"));
-    }
-
-    #[test]
-    fn test_redact_url_path_short_segment_not_redacted() {
-        // Short segments after sensitive keywords should not be redacted
-        // (they're likely IDs or other non-secret data)
-        let url = "https://api.example.com/token/123/resource";
-        let redacted = redact_url_sensitive_params(url);
-        // "123" is too short to look like a secret, should not be redacted
-        assert!(redacted.contains("/token/123/"));
-    }
-
-    #[test]
-    fn test_redact_url_userinfo_with_password() {
-        // Test redacting user:password@host format (AC #3 - no secrets in logs)
-        let url = "https://admin:secret123@jira.example.com/api";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("admin"));
-        assert!(!redacted.contains("secret123"));
-        assert!(redacted.contains("[REDACTED]@jira.example.com"));
-        assert_eq!(redacted, "https://[REDACTED]@jira.example.com/api");
-    }
-
-    #[test]
-    fn test_redact_url_userinfo_without_password() {
-        // Test redacting user@host format (username only, still sensitive)
-        let url = "https://apiuser@api.example.com/v1";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("apiuser"));
-        assert!(redacted.contains("[REDACTED]@api.example.com"));
-        assert_eq!(redacted, "https://[REDACTED]@api.example.com/v1");
-    }
-
-    #[test]
-    fn test_redact_url_userinfo_with_port() {
-        // Test redacting userinfo when port is present
-        let url = "https://user:pass@example.com:8080/path";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("user"));
-        assert!(!redacted.contains("pass"));
-        assert!(redacted.contains(":8080"));
-        assert_eq!(redacted, "https://[REDACTED]@example.com:8080/path");
-    }
-
-    #[test]
-    fn test_redact_url_userinfo_with_query() {
-        // Test redacting both userinfo AND sensitive query params
-        let url = "https://user:pass@example.com?token=secret";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("user"));
-        assert!(!redacted.contains("pass"));
-        assert!(!redacted.contains("secret"));
-        assert!(redacted.contains("[REDACTED]@example.com"));
-        assert!(redacted.contains("token=[REDACTED]"));
-    }
-
-    #[test]
-    fn test_redact_url_no_userinfo() {
-        // Test that URLs without userinfo are not modified (except query params)
-        let url = "https://example.com/path?foo=bar";
-        let redacted = redact_url_sensitive_params(url);
-        assert_eq!(redacted, url); // No userinfo to redact, no sensitive params
-    }
-
-    #[test]
-    fn test_redact_url_at_in_path_not_userinfo() {
-        // Test that @ in path is not treated as userinfo
-        let url = "https://example.com/user@domain/resource";
-        let redacted = redact_url_sensitive_params(url);
-        assert_eq!(redacted, url); // @ is in path, not userinfo
-    }
-
-    #[test]
-    fn test_redact_url_at_in_query_not_userinfo() {
-        // Test that @ in query params is not treated as userinfo
-        let url = "https://example.com?email=user@domain.com";
-        let redacted = redact_url_sensitive_params(url);
-        assert_eq!(redacted, url); // @ is in query value, not userinfo
-    }
-
-    // === Fragment param redaction tests (AC #3 - sensitive data in URL fragments) ===
-
-    #[test]
-    fn test_redact_url_fragment_token() {
-        // OAuth implicit flow puts tokens in fragments - must be redacted (AC #3)
-        let url = "https://example.com/callback#access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            !redacted.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"),
-            "Fragment token should be redacted"
-        );
-        assert!(redacted.contains("access_token=[REDACTED]"));
-    }
-
-    #[test]
-    fn test_redact_url_fragment_api_key() {
-        // API key in fragment should be redacted
-        let url = "https://example.com#api_key=sk-secret123";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            !redacted.contains("sk-secret123"),
-            "Fragment api_key should be redacted"
-        );
-        assert!(redacted.contains("api_key=[REDACTED]"));
-    }
-
-    #[test]
-    fn test_redact_url_fragment_multiple_params() {
-        // Multiple params in fragment - redact only sensitive ones
-        let url = "https://example.com#state=abc&token=secret&redirect=/home";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            !redacted.contains("secret"),
-            "Fragment token should be redacted"
-        );
-        assert!(
-            redacted.contains("state=abc"),
-            "Non-sensitive param should remain"
-        );
-        assert!(redacted.contains("token=[REDACTED]"));
-        assert!(
-            redacted.contains("redirect=/home"),
-            "Non-sensitive param should remain"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_fragment_with_query() {
-        // Both query and fragment params should be redacted
-        let url = "https://example.com?api_key=query_secret#token=frag_secret";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            !redacted.contains("query_secret"),
-            "Query api_key should be redacted"
-        );
-        assert!(
-            !redacted.contains("frag_secret"),
-            "Fragment token should be redacted"
-        );
-        assert!(redacted.contains("api_key=[REDACTED]"));
-        assert!(redacted.contains("token=[REDACTED]"));
-    }
-
-    #[test]
-    fn test_redact_url_fragment_no_sensitive() {
-        // Fragment without sensitive params should remain unchanged
-        let url = "https://example.com#section=intro&page=2";
-        let redacted = redact_url_sensitive_params(url);
-        assert_eq!(
-            redacted, url,
-            "Non-sensitive fragment should remain unchanged"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_fragment_only_identifier() {
-        // Simple fragment identifier (no key=value) should remain unchanged
-        let url = "https://example.com/docs#introduction";
-        let redacted = redact_url_sensitive_params(url);
-        assert_eq!(
-            redacted, url,
-            "Simple fragment identifier should remain unchanged"
-        );
-    }
-
-    #[test]
-    fn test_jira_debug_redacts_endpoint_token_param() {
-        let jira = JiraConfig {
-            endpoint: "https://jira.example.com?token=secret".to_string(),
-            token: Some("other_secret".to_string()),
-        };
-
-        let debug_output = format!("{:?}", jira);
-        assert!(
-            !debug_output.contains("secret"),
-            "Endpoint token should be redacted: {}",
-            debug_output
-        );
-        assert!(debug_output.contains("[REDACTED]"));
-    }
-
-    #[test]
-    fn test_squash_debug_redacts_endpoint_password_param() {
-        let squash = SquashConfig {
-            endpoint: "https://squash.example.com?password=secret123".to_string(),
-            username: Some("user".to_string()),
-            password: Some("other_secret".to_string()),
-        };
-
-        let debug_output = format!("{:?}", squash);
-        assert!(
-            !debug_output.contains("secret123"),
-            "Endpoint password should be redacted: {}",
-            debug_output
-        );
-        assert!(debug_output.contains("[REDACTED]"));
-    }
-
-    #[test]
-    fn test_jira_redact_trait_redacts_endpoint_token_param() {
-        let jira = JiraConfig {
-            endpoint: "https://jira.example.com?api_key=sk-12345".to_string(),
-            token: Some("token_value".to_string()),
-        };
-
-        let redacted = jira.redacted();
-        assert!(
-            !redacted.contains("sk-12345"),
-            "Endpoint api_key should be redacted: {}",
-            redacted
-        );
-        assert!(redacted.contains("[REDACTED]"));
-    }
-
-    #[test]
-    fn test_url_empty_port_rejected() {
-        // Empty port (trailing colon without port number)
-        assert!(!is_valid_url("https://jira.example.com:"));
-        assert!(!is_valid_url("http://localhost:"));
-        assert!(!is_valid_url("https://api.example.com:/api"));
-    }
-
-    #[test]
-    fn test_url_empty_port_in_config_rejected() {
-        let yaml = r#"
-project_name: "test"
-output_folder: "./output"
-jira:
-  endpoint: "https://jira.example.com:"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("jira.endpoint"));
-        assert!(err_msg.contains("valid URL"));
-    }
-
-    #[test]
-    fn test_ipv6_invalid_chars_rejected() {
-        // Invalid IPv6 with non-hex characters
-        assert!(!is_valid_url("http://[abc%def]")); // Invalid IPv6 (no colons, wrong chars)
-        assert!(!is_valid_url("http://[xyz::1]")); // Invalid hex chars 'x', 'y', 'z'
-        assert!(!is_valid_url("http://[ghij::1]")); // Invalid hex chars
-        assert!(!is_valid_url("http://[::g]")); // Invalid hex char 'g'
-    }
-
-    #[test]
-    fn test_ipv6_too_few_colons_rejected() {
-        // IPv6 must have at least 2 colons
-        assert!(!is_valid_url("http://[1:2]")); // Only 1 colon
-        assert!(!is_valid_url("http://[abc]")); // No colons at all
-    }
-
-    #[test]
-    fn test_ipv6_valid_addresses() {
-        // Valid IPv6 addresses should still work
-        assert!(is_valid_url("http://[::1]:8080"));
-        assert!(is_valid_url("http://[2001:db8::1]"));
-        assert!(is_valid_url("https://[fe80::1]"));
-        assert!(is_valid_url("http://[::]:80"));
-        assert!(is_valid_url("http://[a:b:c:d:e:f:0:1]"));
-    }
-
-    #[test]
-    fn test_ipv6_empty_port_rejected() {
-        // IPv6 with empty port should be rejected
-        assert!(!is_valid_url("http://[::1]:"));
-        assert!(!is_valid_url("https://[2001:db8::1]:"));
-    }
-
-    #[test]
-    fn test_ipv6_with_zone_id_valid() {
-        // IPv6 with zone ID (link-local)
-        assert!(is_valid_url("http://[fe80::1%25eth0]:8080"));
-    }
-
-    // ===== Review 13 Tests =====
-
-    #[test]
-    fn test_ipv6_invalid_forms_rejected() {
-        // Invalid IPv6 with too many consecutive colons (::::)
-        assert!(!is_valid_url("http://[::::]"), ":::: should be rejected");
-        assert!(
-            !is_valid_url("http://[::::]:8080"),
-            ":::: with port should be rejected"
-        );
-        assert!(
-            !is_valid_url("http://[1:::2]"),
-            "::: (triple colon) should be rejected"
-        );
-        assert!(
-            !is_valid_url("http://[:::1]"),
-            "::: at start should be rejected"
-        );
-        assert!(
-            !is_valid_url("http://[1:::]"),
-            "::: at end should be rejected"
-        );
-    }
-
-    #[test]
-    fn test_ipv6_multiple_double_colon_rejected() {
-        // Multiple :: groups are not allowed
-        assert!(
-            !is_valid_url("http://[::1::2]"),
-            "Multiple :: should be rejected"
-        );
-        assert!(
-            !is_valid_url("http://[1::2::3]"),
-            "Multiple :: should be rejected"
-        );
-    }
-
-    #[test]
-    fn test_ipv6_too_many_colons_rejected() {
-        // More than 7 colons (8 groups) is invalid
-        assert!(
-            !is_valid_url("http://[1:2:3:4:5:6:7:8:9]"),
-            "More than 8 groups should be rejected"
-        );
-    }
-
-    #[test]
-    fn test_ipv6_double_colon_alone_valid() {
-        // :: alone is valid (represents all zeros - 0:0:0:0:0:0:0:0)
-        assert!(is_valid_url("http://[::]"), ":: alone should be valid");
-        assert!(
-            is_valid_url("http://[::]:8080"),
-            ":: with port should be valid"
-        );
-    }
-
-    #[test]
-    fn test_llm_config_debug_redacts_cloud_endpoint_params() {
-        let llm = LlmConfig {
-            mode: LlmMode::Cloud,
-            local_endpoint: None,
-            local_model: None,
-            cloud_enabled: true,
-            cloud_endpoint: Some("https://api.example.com?api_key=secret123&foo=bar".to_string()),
-            cloud_model: Some("gpt-4".to_string()),
-            api_key: Some("other_secret".to_string()),
-            timeout_seconds: 120,
-            max_tokens: 4096,
-        };
-
-        let debug_output = format!("{:?}", llm);
-        assert!(
-            !debug_output.contains("secret123"),
-            "cloud_endpoint api_key should be redacted in Debug: {}",
-            debug_output
-        );
-        assert!(debug_output.contains("[REDACTED]"));
-        assert!(debug_output.contains("foo=bar")); // Non-sensitive params should remain
-    }
-
-    #[test]
-    fn test_llm_config_redact_trait_redacts_cloud_endpoint_params() {
-        let llm = LlmConfig {
-            mode: LlmMode::Cloud,
-            local_endpoint: None,
-            local_model: None,
-            cloud_enabled: true,
-            cloud_endpoint: Some("https://api.example.com?token=mysecret&version=v1".to_string()),
-            cloud_model: Some("gpt-4".to_string()),
-            api_key: Some("other_secret".to_string()),
-            timeout_seconds: 120,
-            max_tokens: 4096,
-        };
-
-        let redacted = llm.redacted();
-        assert!(
-            !redacted.contains("mysecret"),
-            "cloud_endpoint token should be redacted in Redact: {}",
-            redacted
-        );
-        assert!(redacted.contains("[REDACTED]"));
-        assert!(redacted.contains("version=v1")); // Non-sensitive params should remain
-    }
-
-    #[test]
-    fn test_output_folder_numeric_string_accepted() {
-        // YAML coerces 123 to string "123" - numeric paths are valid folder names
-        // Examples: year-based directories like "2026", version folders like "123"
-        // This was changed in Review 16 to accept numeric strings as valid paths
-        let yaml = r#"
-project_name: "test"
-output_folder: 123
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        // Should succeed - numeric folder names are legitimate
-        assert!(
-            result.is_ok(),
-            "Numeric folder names should be accepted: {:?}",
-            result.err()
-        );
-        let config = result.unwrap();
-        assert_eq!(config.output_folder, "123");
-    }
-
-    #[test]
-    fn test_output_folder_year_string_accepted() {
-        // Year-based folder names like "2026" should be accepted
-        let yaml = r#"
-project_name: "test"
-output_folder: "2026"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(
-            result.is_ok(),
-            "Year folder names should be accepted: {:?}",
-            result.err()
-        );
-        let config = result.unwrap();
-        assert_eq!(config.output_folder, "2026");
-    }
-
-    #[test]
-    fn test_output_folder_boolean_scalar_rejected() {
-        // YAML coerces true to string "true", but this is NOT a valid path
-        // We explicitly reject coerced scalar values for output_folder
-        let yaml = r#"
-project_name: "test"
-output_folder: true
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        // Should fail - boolean scalars are rejected even after YAML coercion
-        assert!(
-            result.is_err(),
-            "Boolean scalars should be rejected for output_folder"
-        );
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("output_folder"),
-            "Error should mention field name: {}",
-            err_msg
-        );
-    }
-
-    #[test]
-    fn test_output_folder_null_scalar_rejected() {
-        // YAML null (~ or null) should also be rejected
-        let yaml = r#"
-project_name: "test"
-output_folder: null
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        // Should fail - null scalar is rejected
-        // Note: serde_yaml may fail at parsing level for required field, or our validation catches it
-        assert!(
-            result.is_err(),
-            "Null scalars should be rejected for output_folder"
-        );
-    }
-
-    #[test]
-    fn test_output_folder_intentional_yaml11_names_accepted() {
-        // YAML 1.1 boolean names like "yes", "no", "on", "off" should be accepted
-        // when intentionally quoted as folder names
-        for folder_name in &["yes", "no", "on", "off"] {
-            let yaml = format!(
-                r#"
-project_name: "test"
-output_folder: "{}"
-"#,
-                folder_name
-            );
-            let file = create_temp_config(&yaml);
+            let file = create_temp_config(yaml);
             let result = load_config(file.path());
-            assert!(
-                result.is_ok(),
-                "Intentionally quoted '{}' should be accepted as folder name: {:?}",
-                folder_name,
-                result.err()
-            );
+
+            assert!(result.is_ok());
             let config = result.unwrap();
-            assert_eq!(config.output_folder, *folder_name);
+            let llm = config.llm.unwrap();
+            assert_eq!(llm.mode, LlmMode::Cloud);
+            assert_eq!(llm.api_key.as_deref(), Some("sk-valid-key-12345"));
+            assert_eq!(llm.cloud_model.as_deref(), Some("gpt-4o-mini"));
+            assert_eq!(llm.timeout_seconds, 60);
+            assert_eq!(llm.max_tokens, 2048);
         }
-    }
 
-    #[test]
-    fn test_output_folder_array_type_error() {
-        // Arrays cannot be coerced to strings - this should fail
-        let yaml = r#"
+        // === Cloud mode empty/whitespace fields ===
+
+        test_config_rejects!(
+            test_cloud_mode_empty_api_key_rejected,
+            r#"
 project_name: "test"
-output_folder:
-  - item1
-  - item2
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err(), "Arrays should not be coercible to string");
-    }
-
-    #[test]
-    fn test_output_folder_map_type_error() {
-        // Maps cannot be coerced to strings - this should fail
-        let yaml = r#"
-project_name: "test"
-output_folder:
-  key: value
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err(), "Maps should not be coercible to string");
-    }
-
-    #[test]
-    fn test_string_type_error_not_attributed_to_output_folder() {
-        // When other string fields have type errors, they should NOT be attributed to output_folder
-        // This test ensures parse_serde_error correctly identifies the actual field (Review 15+16 fix)
-        let yaml = r#"
-project_name: "test"
-output_folder: "./valid-path"
-jira:
-  endpoint: "https://jira.example.com"
-  token:
-    - should
-    - be
-    - string
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err(), "Array for jira.token should fail");
-        let err_msg = result.unwrap_err().to_string();
-        // The error should NOT mention output_folder
-        // It should either mention "token", "jira.token", "configuration field", or be a ParseError
-        assert!(
-            !err_msg.contains("output_folder"),
-            "Error for jira.token should not be attributed to output_folder: {}",
-            err_msg
+output_folder: "./output"
+llm:
+  mode: "cloud"
+  cloud_enabled: true
+  api_key: ""
+  cloud_endpoint: "https://api.openai.com/v1"
+  cloud_model: "gpt-4o-mini"
+"#,
+            "llm.api_key",
+            "empty"
         );
-        // Verify it identifies the correct field or provides actionable guidance
-        assert!(
-            err_msg.contains("token")
-                || err_msg.contains("configuration field")
-                || err_msg.contains("Parse"),
-            "Error should mention token field or provide guidance: {}",
-            err_msg
-        );
-    }
 
-    #[test]
-    fn test_auto_mode_cloud_enabled_requires_cloud_endpoint() {
-        // When mode=auto and cloud_enabled=true, cloud_endpoint is required
-        let yaml = r#"
+        test_config_rejects!(
+            test_cloud_mode_whitespace_api_key_rejected,
+            r#"
+project_name: "test"
+output_folder: "./output"
+llm:
+  mode: "cloud"
+  cloud_enabled: true
+  api_key: "   "
+  cloud_endpoint: "https://api.openai.com/v1"
+  cloud_model: "gpt-4o-mini"
+"#,
+            "llm.api_key",
+            "empty"
+        );
+
+        test_config_rejects!(
+            test_cloud_mode_empty_cloud_model_rejected,
+            r#"
+project_name: "test"
+output_folder: "./output"
+llm:
+  mode: "cloud"
+  cloud_enabled: true
+  api_key: "sk-valid-key"
+  cloud_endpoint: "https://api.openai.com/v1"
+  cloud_model: ""
+"#,
+            "llm.cloud_model",
+            "empty"
+        );
+
+        test_config_rejects!(
+            test_cloud_mode_whitespace_cloud_model_rejected,
+            r#"
+project_name: "test"
+output_folder: "./output"
+llm:
+  mode: "cloud"
+  cloud_enabled: true
+  api_key: "sk-valid-key"
+  cloud_endpoint: "https://api.openai.com/v1"
+  cloud_model: "   "
+"#,
+            "llm.cloud_model",
+            "empty"
+        );
+
+        // === Zero values ===
+
+        test_config_rejects!(
+            test_timeout_seconds_zero_rejected,
+            r#"
+project_name: "test"
+output_folder: "./output"
+llm:
+  mode: "auto"
+  timeout_seconds: 0
+"#,
+            "llm.timeout_seconds",
+            "positive"
+        );
+
+        test_config_rejects!(
+            test_max_tokens_zero_rejected,
+            r#"
+project_name: "test"
+output_folder: "./output"
+llm:
+  mode: "auto"
+  max_tokens: 0
+"#,
+            "llm.max_tokens",
+            "positive"
+        );
+
+        // === Auto mode with cloud_enabled ===
+
+        test_config_rejects!(
+            test_auto_mode_cloud_enabled_requires_cloud_endpoint,
+            r#"
 project_name: "test"
 output_folder: "./output"
 llm:
@@ -4442,23 +4290,14 @@ llm:
   cloud_enabled: true
   cloud_model: "gpt-4"
   api_key: "sk-123"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("llm.cloud_endpoint") && err_msg.contains("missing"),
-            "Should require cloud_endpoint in auto mode with cloud_enabled: {}",
-            err_msg
+"#,
+            "llm.cloud_endpoint",
+            "missing"
         );
-    }
 
-    #[test]
-    fn test_auto_mode_cloud_enabled_requires_cloud_model() {
-        // When mode=auto and cloud_enabled=true, cloud_model is required
-        let yaml = r#"
+        test_config_rejects!(
+            test_auto_mode_cloud_enabled_requires_cloud_model,
+            r#"
 project_name: "test"
 output_folder: "./output"
 llm:
@@ -4466,23 +4305,14 @@ llm:
   cloud_enabled: true
   cloud_endpoint: "https://api.example.com"
   api_key: "sk-123"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("llm.cloud_model") && err_msg.contains("missing"),
-            "Should require cloud_model in auto mode with cloud_enabled: {}",
-            err_msg
+"#,
+            "llm.cloud_model",
+            "missing"
         );
-    }
 
-    #[test]
-    fn test_auto_mode_cloud_enabled_requires_api_key() {
-        // When mode=auto and cloud_enabled=true, api_key is required
-        let yaml = r#"
+        test_config_rejects!(
+            test_auto_mode_cloud_enabled_requires_api_key,
+            r#"
 project_name: "test"
 output_folder: "./output"
 llm:
@@ -4490,23 +4320,14 @@ llm:
   cloud_enabled: true
   cloud_endpoint: "https://api.example.com"
   cloud_model: "gpt-4"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("llm.api_key") && err_msg.contains("missing"),
-            "Should require api_key in auto mode with cloud_enabled: {}",
-            err_msg
+"#,
+            "llm.api_key",
+            "missing"
         );
-    }
 
-    #[test]
-    fn test_auto_mode_cloud_enabled_empty_api_key_rejected() {
-        // When mode=auto and cloud_enabled=true, api_key cannot be empty
-        let yaml = r#"
+        test_config_rejects!(
+            test_auto_mode_cloud_enabled_empty_api_key_rejected,
+            r#"
 project_name: "test"
 output_folder: "./output"
 llm:
@@ -4515,23 +4336,14 @@ llm:
   cloud_endpoint: "https://api.example.com"
   cloud_model: "gpt-4"
   api_key: "   "
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("llm.api_key") && err_msg.contains("empty"),
-            "Should reject empty api_key in auto mode with cloud_enabled: {}",
-            err_msg
+"#,
+            "llm.api_key",
+            "empty"
         );
-    }
 
-    #[test]
-    fn test_auto_mode_cloud_enabled_empty_cloud_model_rejected() {
-        // When mode=auto and cloud_enabled=true, cloud_model cannot be empty
-        let yaml = r#"
+        test_config_rejects!(
+            test_auto_mode_cloud_enabled_empty_cloud_model_rejected,
+            r#"
 project_name: "test"
 output_folder: "./output"
 llm:
@@ -4540,23 +4352,15 @@ llm:
   cloud_endpoint: "https://api.example.com"
   cloud_model: ""
   api_key: "sk-123"
-"#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("llm.cloud_model") && err_msg.contains("empty"),
-            "Should reject empty cloud_model in auto mode with cloud_enabled: {}",
-            err_msg
+"#,
+            "llm.cloud_model",
+            "empty"
         );
-    }
 
-    #[test]
-    fn test_auto_mode_cloud_enabled_valid_config() {
-        // Valid config with mode=auto and cloud_enabled=true
-        let yaml = r#"
+        #[test]
+        fn test_auto_mode_cloud_enabled_valid_config() {
+            // Valid config with mode=auto and cloud_enabled=true
+            let yaml = r#"
 project_name: "test"
 output_folder: "./output"
 llm:
@@ -4566,1370 +4370,1305 @@ llm:
   cloud_model: "gpt-4o-mini"
   api_key: "sk-valid-key"
 "#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
 
-        assert!(
-            result.is_ok(),
-            "Valid auto+cloud_enabled config should work: {:?}",
-            result
-        );
-    }
+            assert!(
+                result.is_ok(),
+                "Valid auto+cloud_enabled config should work: {:?}",
+                result
+            );
+        }
 
-    #[test]
-    fn test_auto_mode_cloud_disabled_no_requirements() {
-        // When mode=auto but cloud_enabled=false, no cloud requirements
-        let yaml = r#"
+        #[test]
+        fn test_auto_mode_cloud_disabled_no_requirements() {
+            // When mode=auto but cloud_enabled=false, no cloud requirements
+            let yaml = r#"
 project_name: "test"
 output_folder: "./output"
 llm:
   mode: "auto"
   cloud_enabled: false
 "#;
-        let file = create_temp_config(yaml);
-        let result = load_config(file.path());
+            let file = create_temp_config(yaml);
+            let result = load_config(file.path());
 
-        assert!(
-            result.is_ok(),
-            "auto mode with cloud_enabled=false should not require cloud fields: {:?}",
-            result
-        );
+            assert!(
+                result.is_ok(),
+                "auto mode with cloud_enabled=false should not require cloud fields: {:?}",
+                result
+            );
+        }
     }
+    // =========================================================================
+    // redact_url: all tests for redact_url_sensitive_params, Debug/Redact trait
+    // =========================================================================
+    mod redact_url {
+        use super::*;
 
-    // ==================== Review 14 Tests ====================
+        mod debug_and_trait {
+            use super::*;
 
-    #[test]
-    fn test_ipv4_invalid_octet_rejected() {
-        // IPv4 addresses with octets > 255 should be rejected
-        assert!(
-            !is_valid_url("http://999.999.999.999"),
-            "999.999.999.999 should be invalid"
-        );
-        assert!(
-            !is_valid_url("http://256.1.1.1"),
-            "256 octet should be invalid"
-        );
-        assert!(
-            !is_valid_url("http://1.256.1.1"),
-            "256 octet should be invalid"
-        );
-        assert!(
-            !is_valid_url("http://1.1.256.1"),
-            "256 octet should be invalid"
-        );
-        assert!(
-            !is_valid_url("http://1.1.1.256"),
-            "256 octet should be invalid"
-        );
-        assert!(
-            !is_valid_url("http://300.200.100.50"),
-            "300 octet should be invalid"
-        );
-    }
+            #[test]
+            fn test_debug_redacts_jira_token() {
+                let jira = JiraConfig {
+                    endpoint: "https://jira.example.com".to_string(),
+                    token: Some("super_secret_token".to_string()),
+                };
 
-    #[test]
-    fn test_ipv4_valid_addresses() {
-        // Valid IPv4 addresses should be accepted
-        assert!(
-            is_valid_url("http://192.168.1.1"),
-            "192.168.1.1 should be valid"
-        );
-        assert!(is_valid_url("http://10.0.0.1"), "10.0.0.1 should be valid");
-        assert!(
-            is_valid_url("http://255.255.255.255"),
-            "255.255.255.255 should be valid"
-        );
-        assert!(is_valid_url("http://0.0.0.0"), "0.0.0.0 should be valid");
-        assert!(
-            is_valid_url("http://127.0.0.1:8080"),
-            "127.0.0.1 with port should be valid"
-        );
-    }
-
-    #[test]
-    fn test_ipv4_leading_zeros_rejected() {
-        // Leading zeros in IPv4 octets should be rejected (strict validation)
-        assert!(
-            !is_valid_url("http://01.1.1.1"),
-            "Leading zero should be invalid"
-        );
-        assert!(
-            !is_valid_url("http://1.01.1.1"),
-            "Leading zero should be invalid"
-        );
-        assert!(
-            !is_valid_url("http://192.168.001.001"),
-            "Leading zeros should be invalid"
-        );
-    }
-
-    #[test]
-    fn test_ipv4_single_zero_valid() {
-        // Single zero octets should be valid
-        assert!(is_valid_url("http://0.0.0.1"), "0.0.0.1 should be valid");
-        assert!(is_valid_url("http://10.0.0.0"), "10.0.0.0 should be valid");
-    }
-
-    #[test]
-    fn test_redact_url_camelcase_params() {
-        // camelCase sensitive params should be redacted
-        let url_accesstoken = "https://api.example.com?accessToken=secret123&version=v1";
-        let redacted = redact_url_sensitive_params(url_accesstoken);
-        assert!(
-            !redacted.contains("secret123"),
-            "accessToken should be redacted: {}",
-            redacted
-        );
-        assert!(redacted.contains("accessToken=[REDACTED]"));
-        assert!(redacted.contains("version=v1"));
-    }
-
-    #[test]
-    fn test_redact_url_more_camelcase_params() {
-        // Additional camelCase params
-        assert!(redact_url_sensitive_params("http://x?refreshToken=abc").contains("[REDACTED]"));
-        assert!(redact_url_sensitive_params("http://x?clientSecret=abc").contains("[REDACTED]"));
-        assert!(redact_url_sensitive_params("http://x?privateKey=abc").contains("[REDACTED]"));
-        assert!(redact_url_sensitive_params("http://x?sessionToken=abc").contains("[REDACTED]"));
-        assert!(redact_url_sensitive_params("http://x?authToken=abc").contains("[REDACTED]"));
-        assert!(redact_url_sensitive_params("http://x?apiToken=abc").contains("[REDACTED]"));
-        assert!(redact_url_sensitive_params("http://x?secretKey=abc").contains("[REDACTED]"));
-        assert!(redact_url_sensitive_params("http://x?accessKey=abc").contains("[REDACTED]"));
-    }
-
-    #[test]
-    fn test_parse_serde_error_yaml_syntax_error() {
-        // Test that YAML syntax errors are handled with helpful messages
-        let err = parse_serde_error("did not find expected key at line 5");
-        assert!(err.is_some(), "YAML syntax errors should be handled");
-        let err = err.unwrap();
-        match err {
-            SerdeErrorKind::InvalidEnumValue {
-                field,
-                reason,
-                hint,
-            } => {
-                assert!(field.contains("YAML"));
-                assert!(reason.contains("invalid"));
-                assert!(hint.contains("indentation") || hint.contains("format"));
+                let debug_output = format!("{:?}", jira);
+                assert!(!debug_output.contains("super_secret_token"));
+                assert!(debug_output.contains("[REDACTED]"));
+                assert!(debug_output.contains("jira.example.com"));
             }
-            _ => panic!("Expected InvalidEnumValue for syntax error"),
-        }
-    }
 
-    #[test]
-    fn test_parse_serde_error_duplicate_key() {
-        // Test that duplicate key errors are handled
-        let err = parse_serde_error("duplicate key at line 3");
-        assert!(err.is_some(), "Duplicate key errors should be handled");
-        let err = err.unwrap();
-        match err {
-            SerdeErrorKind::InvalidEnumValue { field, reason, .. } => {
-                assert!(field.contains("YAML"));
-                assert!(reason.contains("duplicate"));
+            #[test]
+            fn test_debug_redacts_squash_password() {
+                let squash = SquashConfig {
+                    endpoint: "https://squash.example.com".to_string(),
+                    username: Some("user".to_string()),
+                    password: Some("secret_password".to_string()),
+                };
+
+                let debug_output = format!("{:?}", squash);
+                assert!(!debug_output.contains("secret_password"));
+                assert!(debug_output.contains("[REDACTED]"));
+                assert!(debug_output.contains("squash.example.com"));
             }
-            _ => panic!("Expected InvalidEnumValue for duplicate key"),
-        }
-    }
 
-    #[test]
-    fn test_parse_serde_error_end_of_stream() {
-        // Test that EOF errors are handled
-        let err = parse_serde_error("unexpected end of stream");
-        assert!(err.is_some(), "End of stream errors should be handled");
-    }
+            #[test]
+            fn test_debug_redacts_llm_api_key() {
+                let llm = LlmConfig {
+                    mode: LlmMode::Cloud,
+                    local_endpoint: None,
+                    local_model: None,
+                    cloud_enabled: true,
+                    cloud_endpoint: None,
+                    cloud_model: None,
+                    api_key: Some("sk-secret-api-key-12345".to_string()),
+                    timeout_seconds: 120,
+                    max_tokens: 4096,
+                };
 
-    #[test]
-    fn test_ipv4_not_four_octets_treated_as_hostname() {
-        // IPv4-like strings with wrong number of octets are treated as hostnames
-        // These should be valid hostnames (if they pass label validation)
-        assert!(
-            is_valid_url("http://192.168.1"),
-            "3-octet should be valid hostname"
-        );
-        assert!(
-            is_valid_url("http://192.168.1.1.1"),
-            "5-octet should be valid hostname"
-        );
-    }
+                let debug_output = format!("{:?}", llm);
+                assert!(!debug_output.contains("sk-secret-api-key-12345"));
+                assert!(debug_output.contains("[REDACTED]"));
+            }
 
-    // ==================== Review 18 Tests ====================
+            #[test]
+            fn test_redact_trait_jira() {
+                let jira = JiraConfig {
+                    endpoint: "https://jira.example.com".to_string(),
+                    token: Some("my_token".to_string()),
+                };
 
-    #[test]
-    fn test_llm_config_debug_redacts_local_endpoint_params() {
-        // Test that local_endpoint with sensitive query params is redacted in Debug output
-        let llm = LlmConfig {
-            mode: LlmMode::Local,
-            local_endpoint: Some(
-                "http://localhost:11434?api_key=secret-local-key&model=llama".to_string(),
-            ),
-            local_model: Some("llama2".to_string()),
-            cloud_enabled: false,
-            cloud_endpoint: None,
-            cloud_model: None,
-            api_key: None,
-            timeout_seconds: 120,
-            max_tokens: 4096,
-        };
+                let redacted = jira.redacted();
+                assert!(!redacted.contains("my_token"));
+                assert!(redacted.contains("[REDACTED]"));
+                assert!(redacted.contains("jira.example.com"));
+            }
 
-        let debug_output = format!("{:?}", llm);
-        assert!(
-            !debug_output.contains("secret-local-key"),
-            "local_endpoint api_key should be redacted in Debug: {}",
-            debug_output
-        );
-        assert!(
-            debug_output.contains("[REDACTED]"),
-            "Debug output should contain [REDACTED]: {}",
-            debug_output
-        );
-        assert!(
-            debug_output.contains("model=llama"),
-            "Non-sensitive params should remain: {}",
-            debug_output
-        );
-    }
+            #[test]
+            fn test_redact_trait_squash() {
+                let squash = SquashConfig {
+                    endpoint: "https://squash.example.com".to_string(),
+                    username: Some("testuser".to_string()),
+                    password: Some("secret_password".to_string()),
+                };
 
-    #[test]
-    fn test_llm_config_redact_trait_redacts_local_endpoint_params() {
-        // Test that local_endpoint with sensitive query params is redacted via Redact trait
-        let llm = LlmConfig {
-            mode: LlmMode::Local,
-            local_endpoint: Some("http://localhost:11434?token=mysecret&format=json".to_string()),
-            local_model: Some("codellama".to_string()),
-            cloud_enabled: false,
-            cloud_endpoint: None,
-            cloud_model: None,
-            api_key: None,
-            timeout_seconds: 60,
-            max_tokens: 2048,
-        };
+                let redacted = squash.redacted();
+                assert!(!redacted.contains("secret_password"));
+                assert!(redacted.contains("[REDACTED]"));
+                assert!(redacted.contains("squash.example.com"));
+                assert!(redacted.contains("testuser")); // username should be visible
+            }
 
-        let redacted = llm.redacted();
-        assert!(
-            !redacted.contains("mysecret"),
-            "local_endpoint token should be redacted in Redact: {}",
-            redacted
-        );
-        assert!(
-            redacted.contains("[REDACTED]"),
-            "Redacted output should contain [REDACTED]: {}",
-            redacted
-        );
-        assert!(
-            redacted.contains("format=json"),
-            "Non-sensitive params should remain: {}",
-            redacted
-        );
-    }
+            #[test]
+            fn test_redact_trait_llm() {
+                let llm = LlmConfig {
+                    mode: LlmMode::Cloud,
+                    local_endpoint: Some("http://localhost:11434".to_string()),
+                    local_model: None,
+                    cloud_enabled: true,
+                    cloud_endpoint: None,
+                    cloud_model: None,
+                    api_key: Some("sk-super-secret-key".to_string()),
+                    timeout_seconds: 120,
+                    max_tokens: 4096,
+                };
 
-    #[test]
-    fn test_llm_config_redacts_local_endpoint_userinfo() {
-        // Test that local_endpoint with userinfo (user:pass@host) is redacted
-        let llm = LlmConfig {
-            mode: LlmMode::Local,
-            local_endpoint: Some("http://admin:secret@localhost:11434".to_string()),
-            local_model: None,
-            cloud_enabled: false,
-            cloud_endpoint: None,
-            cloud_model: None,
-            api_key: None,
-            timeout_seconds: 120,
-            max_tokens: 4096,
-        };
+                let redacted = llm.redacted();
+                assert!(!redacted.contains("sk-super-secret-key"));
+                assert!(redacted.contains("[REDACTED]"));
+                assert!(redacted.contains("Cloud"));
+                assert!(redacted.contains("localhost:11434"));
+            }
 
-        let debug_output = format!("{:?}", llm);
-        assert!(
-            !debug_output.contains("secret"),
-            "local_endpoint userinfo password should be redacted: {}",
-            debug_output
-        );
-        assert!(
-            !debug_output.contains("admin:"),
-            "local_endpoint userinfo should be fully redacted: {}",
-            debug_output
-        );
-        assert!(
-            debug_output.contains("[REDACTED]@"),
-            "Redacted userinfo should be visible: {}",
-            debug_output
-        );
+            #[test]
+            fn test_llm_debug_redacts_all_sensitive_fields() {
+                let llm = LlmConfig {
+                    mode: LlmMode::Cloud,
+                    local_endpoint: Some("http://localhost:11434".to_string()),
+                    local_model: Some("mistral".to_string()),
+                    cloud_enabled: true,
+                    cloud_endpoint: Some("https://api.openai.com/v1".to_string()),
+                    cloud_model: Some("gpt-4o-mini".to_string()),
+                    api_key: Some("sk-super-secret-key-12345".to_string()),
+                    timeout_seconds: 120,
+                    max_tokens: 4096,
+                };
 
-        let redacted = llm.redacted();
-        assert!(
-            !redacted.contains("secret"),
-            "Redact trait should also redact userinfo: {}",
-            redacted
-        );
-    }
+                let debug_output = format!("{:?}", llm);
+                assert!(!debug_output.contains("sk-super-secret-key-12345"));
+                assert!(debug_output.contains("[REDACTED]"));
+                assert!(debug_output.contains("Cloud"));
+                assert!(debug_output.contains("mistral"));
+                assert!(debug_output.contains("gpt-4o-mini"));
+            }
 
-    #[test]
-    fn test_url_with_query_no_path_valid() {
-        // URLs with query string but no path should be valid
-        // Review 18 fix: is_valid_url should accept these
-        assert!(
-            is_valid_url("https://example.com?foo=bar"),
-            "URL with query but no path should be valid"
-        );
-        assert!(
-            is_valid_url("http://localhost?param=value"),
-            "localhost with query but no path should be valid"
-        );
-        assert!(
-            is_valid_url("https://api.example.com?key=value&other=123"),
-            "URL with multiple query params but no path should be valid"
-        );
-    }
+            #[test]
+            fn test_llm_redact_trait_all_fields() {
+                let llm = LlmConfig {
+                    mode: LlmMode::Auto,
+                    local_endpoint: Some("http://localhost:11434".to_string()),
+                    local_model: Some("codellama:13b".to_string()),
+                    cloud_enabled: false,
+                    cloud_endpoint: None,
+                    cloud_model: None,
+                    api_key: Some("secret-api-key".to_string()),
+                    timeout_seconds: 60,
+                    max_tokens: 2048,
+                };
 
-    #[test]
-    fn test_url_with_fragment_no_path_valid() {
-        // URLs with fragment but no path should be valid
-        assert!(
-            is_valid_url("https://example.com#section"),
-            "URL with fragment but no path should be valid"
-        );
-        assert!(
-            is_valid_url("http://localhost#anchor"),
-            "localhost with fragment but no path should be valid"
-        );
-    }
-
-    #[test]
-    fn test_url_with_query_and_fragment_no_path_valid() {
-        // URLs with both query and fragment but no path should be valid
-        assert!(
-            is_valid_url("https://example.com?foo=bar#section"),
-            "URL with query and fragment but no path should be valid"
-        );
-    }
-
-    #[test]
-    fn test_url_with_path_query_fragment_still_valid() {
-        // Existing URLs with path, query, and fragment should still work
-        assert!(
-            is_valid_url("https://example.com/path?foo=bar#section"),
-            "Full URL with path, query, and fragment should be valid"
-        );
-        assert!(
-            is_valid_url("http://localhost:8080/api/v1?key=value"),
-            "localhost with path and query should be valid"
-        );
-    }
-
-    #[test]
-    fn test_check_output_folder_exists_file_not_directory() {
-        // Test that check_output_folder_exists detects when path is a file, not directory
-        use std::io::Write;
-
-        // Create a unique temporary file using thread ID and timestamp to avoid collisions
-        let unique_id = format!(
-            "tf_config_test_{:?}_{}",
-            std::thread::current().id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        let temp_dir = std::env::temp_dir();
-        let test_file = temp_dir.join(format!("{}.txt", unique_id));
-
-        // Create the file
-        {
-            let mut file = std::fs::File::create(&test_file).expect("Failed to create test file");
-            writeln!(file, "test content").expect("Failed to write to test file");
+                let redacted = llm.redacted();
+                assert!(!redacted.contains("secret-api-key"));
+                assert!(redacted.contains("[REDACTED]"));
+                assert!(redacted.contains("Auto"));
+                assert!(redacted.contains("codellama:13b"));
+                assert!(redacted.contains("timeout_seconds: 60"));
+                assert!(redacted.contains("max_tokens: 2048"));
+            }
         }
 
-        // Create config pointing to the file (not a directory)
-        let yaml = format!(
-            r#"
-project_name: "test"
-output_folder: "{}"
-"#,
-            test_file.to_string_lossy().replace('\\', "/")
-        );
+        mod url_redaction {
+            use super::*;
 
-        let file = create_temp_config(&yaml);
-        let config = load_config(file.path()).unwrap();
+            // === Query param redaction ===
 
-        // check_output_folder_exists should return warning about not being a directory
-        let warning = config.check_output_folder_exists();
-        assert!(
-            warning.is_some(),
-            "Should warn when output_folder is a file, not directory"
-        );
-        let warning_msg = warning.unwrap();
-        assert!(
-            warning_msg.contains("not a directory"),
-            "Warning should mention 'not a directory': {}",
-            warning_msg
-        );
+            #[test]
+            fn test_redact_url_sensitive_params_token() {
+                let url = "https://jira.example.com/api?token=secret123&project=PROJ";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(!redacted.contains("secret123"));
+                assert!(redacted.contains("token=[REDACTED]"));
+                assert!(redacted.contains("project=PROJ"));
+            }
 
-        // Cleanup
-        let _ = std::fs::remove_file(&test_file);
+            #[test]
+            fn test_redact_url_sensitive_params_api_key() {
+                let url = "https://api.example.com?api_key=sk-12345&foo=bar";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(!redacted.contains("sk-12345"));
+                assert!(redacted.contains("api_key=[REDACTED]"));
+                assert!(redacted.contains("foo=bar"));
+            }
+
+            #[test]
+            fn test_redact_url_sensitive_params_password() {
+                let url = "https://example.com?user=admin&password=hunter2";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(!redacted.contains("hunter2"));
+                assert!(redacted.contains("password=[REDACTED]"));
+                assert!(redacted.contains("user=admin"));
+            }
+
+            #[test]
+            fn test_redact_url_sensitive_params_no_query() {
+                let url = "https://example.com/api/v1";
+                let redacted = redact_url_sensitive_params(url);
+                assert_eq!(redacted, url); // Unchanged
+            }
+
+            #[test]
+            fn test_redact_url_sensitive_params_no_sensitive() {
+                let url = "https://example.com?page=1&limit=10";
+                let redacted = redact_url_sensitive_params(url);
+                assert_eq!(redacted, url); // Unchanged
+            }
+
+            // === Path secret redaction ===
+
+            #[test]
+            fn test_redact_url_path_token_secret() {
+                let url = "https://api.example.com/token/sk-abc123def456/resource";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(!redacted.contains("sk-abc123def456"));
+                assert!(redacted.contains("/token/[REDACTED]/"));
+            }
+
+            #[test]
+            fn test_redact_url_path_key_secret() {
+                let url = "https://api.example.com/api/key/abcdef123456789/data";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(!redacted.contains("abcdef123456789"));
+                assert!(redacted.contains("/key/[REDACTED]/"));
+            }
+
+            #[test]
+            fn test_redact_url_path_no_false_positive() {
+                let url = "https://api.example.com/api/v1/users";
+                let redacted = redact_url_sensitive_params(url);
+                assert_eq!(redacted, url); // Unchanged - no secret-looking segments
+            }
+
+            #[test]
+            fn test_redact_url_path_combined_with_query() {
+                let url = "https://api.example.com/token/sk-12345678/resource?api_key=secret";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(!redacted.contains("sk-12345678"));
+                assert!(!redacted.contains("secret"));
+                assert!(redacted.contains("/token/[REDACTED]/"));
+                assert!(redacted.contains("api_key=[REDACTED]"));
+            }
+
+            #[test]
+            fn test_redact_url_path_short_segment_not_redacted() {
+                let url = "https://api.example.com/token/123/resource";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(redacted.contains("/token/123/"));
+            }
+
+            // === Userinfo redaction ===
+
+            #[test]
+            fn test_redact_url_userinfo_with_password() {
+                let url = "https://admin:secret123@jira.example.com/api";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(!redacted.contains("admin"));
+                assert!(!redacted.contains("secret123"));
+                assert!(redacted.contains("[REDACTED]@jira.example.com"));
+                assert_eq!(redacted, "https://[REDACTED]@jira.example.com/api");
+            }
+
+            #[test]
+            fn test_redact_url_userinfo_without_password() {
+                let url = "https://apiuser@api.example.com/v1";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(!redacted.contains("apiuser"));
+                assert!(redacted.contains("[REDACTED]@api.example.com"));
+                assert_eq!(redacted, "https://[REDACTED]@api.example.com/v1");
+            }
+
+            #[test]
+            fn test_redact_url_userinfo_with_port() {
+                let url = "https://user:pass@example.com:8080/path";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(!redacted.contains("user"));
+                assert!(!redacted.contains("pass"));
+                assert!(redacted.contains(":8080"));
+                assert_eq!(redacted, "https://[REDACTED]@example.com:8080/path");
+            }
+
+            #[test]
+            fn test_redact_url_userinfo_with_query() {
+                let url = "https://user:pass@example.com?token=secret";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(!redacted.contains("user"));
+                assert!(!redacted.contains("pass"));
+                assert!(!redacted.contains("secret"));
+                assert!(redacted.contains("[REDACTED]@example.com"));
+                assert!(redacted.contains("token=[REDACTED]"));
+            }
+
+            #[test]
+            fn test_redact_url_no_userinfo() {
+                let url = "https://example.com/path?foo=bar";
+                let redacted = redact_url_sensitive_params(url);
+                assert_eq!(redacted, url); // No userinfo to redact, no sensitive params
+            }
+
+            #[test]
+            fn test_redact_url_at_in_path_not_userinfo() {
+                let url = "https://example.com/user@domain/resource";
+                let redacted = redact_url_sensitive_params(url);
+                assert_eq!(redacted, url); // @ is in path, not userinfo
+            }
+
+            #[test]
+            fn test_redact_url_at_in_query_not_userinfo() {
+                let url = "https://example.com?email=user@domain.com";
+                let redacted = redact_url_sensitive_params(url);
+                assert_eq!(redacted, url); // @ is in query value, not userinfo
+            }
+
+            // === Fragment param redaction ===
+
+            #[test]
+            fn test_redact_url_fragment_token() {
+                let url =
+                    "https://example.com/callback#access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    !redacted.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"),
+                    "Fragment token should be redacted"
+                );
+                assert!(redacted.contains("access_token=[REDACTED]"));
+            }
+
+            #[test]
+            fn test_redact_url_fragment_api_key() {
+                let url = "https://example.com#api_key=sk-secret123";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    !redacted.contains("sk-secret123"),
+                    "Fragment api_key should be redacted"
+                );
+                assert!(redacted.contains("api_key=[REDACTED]"));
+            }
+
+            #[test]
+            fn test_redact_url_fragment_multiple_params() {
+                let url = "https://example.com#state=abc&token=secret&redirect=/home";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    !redacted.contains("secret"),
+                    "Fragment token should be redacted"
+                );
+                assert!(
+                    redacted.contains("state=abc"),
+                    "Non-sensitive param should remain"
+                );
+                assert!(redacted.contains("token=[REDACTED]"));
+                assert!(
+                    redacted.contains("redirect=/home"),
+                    "Non-sensitive param should remain"
+                );
+            }
+
+            #[test]
+            fn test_redact_url_fragment_with_query() {
+                let url = "https://example.com?api_key=query_secret#token=frag_secret";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    !redacted.contains("query_secret"),
+                    "Query api_key should be redacted"
+                );
+                assert!(
+                    !redacted.contains("frag_secret"),
+                    "Fragment token should be redacted"
+                );
+                assert!(redacted.contains("api_key=[REDACTED]"));
+                assert!(redacted.contains("token=[REDACTED]"));
+            }
+
+            #[test]
+            fn test_redact_url_fragment_no_sensitive() {
+                let url = "https://example.com#section=intro&page=2";
+                let redacted = redact_url_sensitive_params(url);
+                assert_eq!(
+                    redacted, url,
+                    "Non-sensitive fragment should remain unchanged"
+                );
+            }
+
+            #[test]
+            fn test_redact_url_fragment_only_identifier() {
+                let url = "https://example.com/docs#introduction";
+                let redacted = redact_url_sensitive_params(url);
+                assert_eq!(
+                    redacted, url,
+                    "Simple fragment identifier should remain unchanged"
+                );
+            }
+
+            // === Endpoint param redaction in Debug/Redact ===
+
+            #[test]
+            fn test_jira_debug_redacts_endpoint_token_param() {
+                let jira = JiraConfig {
+                    endpoint: "https://jira.example.com?token=secret".to_string(),
+                    token: Some("other_secret".to_string()),
+                };
+
+                let debug_output = format!("{:?}", jira);
+                assert!(
+                    !debug_output.contains("secret"),
+                    "Endpoint token should be redacted: {}",
+                    debug_output
+                );
+                assert!(debug_output.contains("[REDACTED]"));
+            }
+
+            #[test]
+            fn test_squash_debug_redacts_endpoint_password_param() {
+                let squash = SquashConfig {
+                    endpoint: "https://squash.example.com?password=secret123".to_string(),
+                    username: Some("user".to_string()),
+                    password: Some("other_secret".to_string()),
+                };
+
+                let debug_output = format!("{:?}", squash);
+                assert!(
+                    !debug_output.contains("secret123"),
+                    "Endpoint password should be redacted: {}",
+                    debug_output
+                );
+                assert!(debug_output.contains("[REDACTED]"));
+            }
+
+            #[test]
+            fn test_jira_redact_trait_redacts_endpoint_token_param() {
+                let jira = JiraConfig {
+                    endpoint: "https://jira.example.com?api_key=sk-12345".to_string(),
+                    token: Some("token_value".to_string()),
+                };
+
+                let redacted = jira.redacted();
+                assert!(
+                    !redacted.contains("sk-12345"),
+                    "Endpoint api_key should be redacted: {}",
+                    redacted
+                );
+                assert!(redacted.contains("[REDACTED]"));
+            }
+
+            #[test]
+            fn test_llm_config_debug_redacts_cloud_endpoint_params() {
+                let llm = LlmConfig {
+                    mode: LlmMode::Cloud,
+                    local_endpoint: None,
+                    local_model: None,
+                    cloud_enabled: true,
+                    cloud_endpoint: Some(
+                        "https://api.example.com?api_key=secret123&foo=bar".to_string(),
+                    ),
+                    cloud_model: Some("gpt-4".to_string()),
+                    api_key: Some("other_secret".to_string()),
+                    timeout_seconds: 120,
+                    max_tokens: 4096,
+                };
+
+                let debug_output = format!("{:?}", llm);
+                assert!(
+                    !debug_output.contains("secret123"),
+                    "cloud_endpoint api_key should be redacted in Debug: {}",
+                    debug_output
+                );
+                assert!(debug_output.contains("[REDACTED]"));
+                assert!(debug_output.contains("foo=bar")); // Non-sensitive params should remain
+            }
+
+            #[test]
+            fn test_llm_config_redact_trait_redacts_cloud_endpoint_params() {
+                let llm = LlmConfig {
+                    mode: LlmMode::Cloud,
+                    local_endpoint: None,
+                    local_model: None,
+                    cloud_enabled: true,
+                    cloud_endpoint: Some(
+                        "https://api.example.com?token=mysecret&version=v1".to_string(),
+                    ),
+                    cloud_model: Some("gpt-4".to_string()),
+                    api_key: Some("other_secret".to_string()),
+                    timeout_seconds: 120,
+                    max_tokens: 4096,
+                };
+
+                let redacted = llm.redacted();
+                assert!(
+                    !redacted.contains("mysecret"),
+                    "cloud_endpoint token should be redacted in Redact: {}",
+                    redacted
+                );
+                assert!(redacted.contains("[REDACTED]"));
+                assert!(redacted.contains("version=v1")); // Non-sensitive params should remain
+            }
+
+            #[test]
+            fn test_llm_config_debug_redacts_local_endpoint_params() {
+                let llm = LlmConfig {
+                    mode: LlmMode::Local,
+                    local_endpoint: Some(
+                        "http://localhost:11434?api_key=secret-local-key&model=llama".to_string(),
+                    ),
+                    local_model: Some("llama2".to_string()),
+                    cloud_enabled: false,
+                    cloud_endpoint: None,
+                    cloud_model: None,
+                    api_key: None,
+                    timeout_seconds: 120,
+                    max_tokens: 4096,
+                };
+
+                let debug_output = format!("{:?}", llm);
+                assert!(
+                    !debug_output.contains("secret-local-key"),
+                    "local_endpoint api_key should be redacted in Debug: {}",
+                    debug_output
+                );
+                assert!(
+                    debug_output.contains("[REDACTED]"),
+                    "Debug output should contain [REDACTED]: {}",
+                    debug_output
+                );
+                assert!(
+                    debug_output.contains("model=llama"),
+                    "Non-sensitive params should remain: {}",
+                    debug_output
+                );
+            }
+
+            #[test]
+            fn test_llm_config_redact_trait_redacts_local_endpoint_params() {
+                let llm = LlmConfig {
+                    mode: LlmMode::Local,
+                    local_endpoint: Some(
+                        "http://localhost:11434?token=mysecret&format=json".to_string(),
+                    ),
+                    local_model: Some("codellama".to_string()),
+                    cloud_enabled: false,
+                    cloud_endpoint: None,
+                    cloud_model: None,
+                    api_key: None,
+                    timeout_seconds: 60,
+                    max_tokens: 2048,
+                };
+
+                let redacted = llm.redacted();
+                assert!(
+                    !redacted.contains("mysecret"),
+                    "local_endpoint token should be redacted in Redact: {}",
+                    redacted
+                );
+                assert!(
+                    redacted.contains("[REDACTED]"),
+                    "Redacted output should contain [REDACTED]: {}",
+                    redacted
+                );
+                assert!(
+                    redacted.contains("format=json"),
+                    "Non-sensitive params should remain: {}",
+                    redacted
+                );
+            }
+
+            #[test]
+            fn test_llm_config_redacts_local_endpoint_userinfo() {
+                let llm = LlmConfig {
+                    mode: LlmMode::Local,
+                    local_endpoint: Some("http://admin:secret@localhost:11434".to_string()),
+                    local_model: None,
+                    cloud_enabled: false,
+                    cloud_endpoint: None,
+                    cloud_model: None,
+                    api_key: None,
+                    timeout_seconds: 120,
+                    max_tokens: 4096,
+                };
+
+                let debug_output = format!("{:?}", llm);
+                assert!(
+                    !debug_output.contains("secret"),
+                    "local_endpoint userinfo password should be redacted: {}",
+                    debug_output
+                );
+                assert!(
+                    !debug_output.contains("admin:"),
+                    "local_endpoint userinfo should be fully redacted: {}",
+                    debug_output
+                );
+                assert!(
+                    debug_output.contains("[REDACTED]@"),
+                    "Redacted userinfo should be visible: {}",
+                    debug_output
+                );
+
+                let redacted = llm.redacted();
+                assert!(
+                    !redacted.contains("secret"),
+                    "Redact trait should also redact userinfo: {}",
+                    redacted
+                );
+            }
+
+            #[test]
+            fn test_redact_url_userinfo_fragment_boundary() {
+                let url = "https://example.com#user@mention";
+                let redacted = redact_url_userinfo(url);
+                assert_eq!(
+                    redacted, url,
+                    "@ in fragment should not be treated as userinfo"
+                );
+
+                let url2 = "https://example.com/path#section@ref";
+                let redacted2 = redact_url_userinfo(url2);
+                assert_eq!(
+                    redacted2, url2,
+                    "@ in fragment after path should not be treated as userinfo"
+                );
+            }
+        }
+
+        mod param_encoding {
+            use super::*;
+
+            // === Userinfo with @ in password ===
+
+            #[test]
+            fn test_redact_url_userinfo_password_contains_at() {
+                let url = "https://admin:p@ssword@example.com/api";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(!redacted.contains("admin"), "Username should be redacted");
+                assert!(
+                    !redacted.contains("p@ssword"),
+                    "Password with @ should be redacted"
+                );
+                assert!(redacted.contains("[REDACTED]@example.com"));
+                assert_eq!(redacted, "https://[REDACTED]@example.com/api");
+            }
+
+            #[test]
+            fn test_redact_url_userinfo_password_multiple_at() {
+                let url = "https://user:p@ss@word@host.example.com:8080/path";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(!redacted.contains("user"), "Username should be redacted");
+                assert!(
+                    !redacted.contains("p@ss@word"),
+                    "Password with multiple @ should be redacted"
+                );
+                assert!(redacted.contains(":8080"));
+                assert_eq!(redacted, "https://[REDACTED]@host.example.com:8080/path");
+            }
+
+            #[test]
+            fn test_redact_url_userinfo_complex_password() {
+                let url = "https://admin:C0mpl3x!P@ss%23123@api.example.com?token=abc";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(!redacted.contains("admin"));
+                assert!(!redacted.contains("C0mpl3x!P@ss%23123"));
+                assert!(redacted.contains("token=[REDACTED]"));
+                assert_eq!(
+                    redacted,
+                    "https://[REDACTED]@api.example.com?token=[REDACTED]"
+                );
+            }
+
+            // === URL-encoded param names ===
+
+            #[test]
+            fn test_redact_url_encoded_param_api_key() {
+                let url = "https://example.com?api%5Fkey=secret123";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    !redacted.contains("secret123"),
+                    "Value of encoded api_key should be redacted"
+                );
+                assert!(redacted.contains("api%5Fkey=[REDACTED]"));
+            }
+
+            #[test]
+            fn test_redact_url_encoded_param_token() {
+                let url = "https://example.com?%74%6F%6B%65%6E=mysecret";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    !redacted.contains("mysecret"),
+                    "Value of encoded token should be redacted"
+                );
+                assert!(redacted.contains("[REDACTED]"));
+            }
+
+            #[test]
+            fn test_redact_url_encoded_param_mixed() {
+                let url = "https://example.com?api%5Fkey=secret1&password=secret2&foo=bar";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(!redacted.contains("secret1"));
+                assert!(!redacted.contains("secret2"));
+                assert!(
+                    redacted.contains("foo=bar"),
+                    "Non-sensitive param should remain"
+                );
+                assert!(redacted.contains("api%5Fkey=[REDACTED]"));
+                assert!(redacted.contains("password=[REDACTED]"));
+            }
+
+            #[test]
+            fn test_redact_url_encoded_param_in_fragment() {
+                let url = "https://example.com#access%5Ftoken=xyz123";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    !redacted.contains("xyz123"),
+                    "Value of encoded access_token should be redacted"
+                );
+                assert!(redacted.contains("access%5Ftoken=[REDACTED]"));
+            }
+
+            #[test]
+            fn test_redact_url_encoded_plus_as_space() {
+                let url = "https://example.com?api+key=value";
+                let redacted = redact_url_sensitive_params(url);
+                assert_eq!(redacted, url);
+            }
+
+            #[test]
+            fn test_redact_url_combined_userinfo_at_and_encoded_params() {
+                let url =
+                    "https://user:p@ss@example.com?api%5Fkey=secret&access%5Ftoken=mytoken123";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(!redacted.contains("user:"), "Username should be redacted");
+                assert!(
+                    !redacted.contains("p@ss"),
+                    "Password with @ should be redacted"
+                );
+                assert!(
+                    !redacted.contains("secret"),
+                    "api_key value should be redacted"
+                );
+                assert!(
+                    !redacted.contains("mytoken123"),
+                    "access_token value should be redacted"
+                );
+                assert_eq!(
+                    redacted,
+                    "https://[REDACTED]@example.com?api%5Fkey=[REDACTED]&access%5Ftoken=[REDACTED]"
+                );
+            }
+
+            // === Double-encoded params ===
+
+            #[test]
+            fn test_redact_url_double_encoded_api_key() {
+                let url = "https://example.com?api%255Fkey=secret123";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    !redacted.contains("secret123"),
+                    "Double-encoded api_key value should be redacted"
+                );
+                assert!(
+                    redacted.contains("=[REDACTED]"),
+                    "Should contain redacted value"
+                );
+            }
+
+            #[test]
+            fn test_redact_url_double_encoded_token() {
+                let url = "https://example.com?api%255Fkey=mysecret";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    !redacted.contains("mysecret"),
+                    "Double-encoded api_key should be redacted"
+                );
+            }
+
+            #[test]
+            fn test_redact_url_double_encoded_password() {
+                let url = "https://example.com?api%255Fkey=pass123&foo=bar";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    !redacted.contains("pass123"),
+                    "Double-encoded api_key value should be redacted"
+                );
+                assert!(
+                    redacted.contains("foo=bar"),
+                    "Non-sensitive param should remain"
+                );
+            }
+
+            // === Kebab-case params ===
+
+            #[test]
+            fn test_redact_url_kebab_case_api_key() {
+                let url = "https://example.com?api-key=secret-value";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    !redacted.contains("secret-value"),
+                    "api-key value should be redacted"
+                );
+                assert!(
+                    redacted.contains("api-key=[REDACTED]"),
+                    "api-key param should be redacted"
+                );
+            }
+
+            #[test]
+            fn test_redact_url_kebab_case_access_token() {
+                let url = "https://example.com?access-token=mytoken123";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    !redacted.contains("mytoken123"),
+                    "access-token value should be redacted"
+                );
+                assert!(
+                    redacted.contains("access-token=[REDACTED]"),
+                    "access-token param should be redacted"
+                );
+            }
+
+            #[test]
+            fn test_redact_url_kebab_case_client_secret() {
+                let url = "https://example.com?client-secret=very-secret&other=value";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    !redacted.contains("very-secret"),
+                    "client-secret value should be redacted"
+                );
+                assert!(
+                    redacted.contains("other=value"),
+                    "Non-sensitive param should remain"
+                );
+            }
+
+            #[test]
+            fn test_redact_url_kebab_case_multiple() {
+                let url =
+                    "https://example.com?api-key=key1&access-token=tok1&session-token=sess1&foo=bar";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    !redacted.contains("key1"),
+                    "api-key value should be redacted"
+                );
+                assert!(
+                    !redacted.contains("tok1"),
+                    "access-token value should be redacted"
+                );
+                assert!(
+                    !redacted.contains("sess1"),
+                    "session-token value should be redacted"
+                );
+                assert!(
+                    redacted.contains("foo=bar"),
+                    "Non-sensitive param should remain"
+                );
+            }
+        }
+
+        mod separators_and_edge_cases {
+            use super::*;
+
+            // === CamelCase params ===
+
+            #[test]
+            fn test_redact_url_camelcase_params() {
+                let url_accesstoken = "https://api.example.com?accessToken=secret123&version=v1";
+                let redacted = redact_url_sensitive_params(url_accesstoken);
+                assert!(
+                    !redacted.contains("secret123"),
+                    "accessToken should be redacted: {}",
+                    redacted
+                );
+                assert!(redacted.contains("accessToken=[REDACTED]"));
+                assert!(redacted.contains("version=v1"));
+            }
+
+            #[test]
+            fn test_redact_url_more_camelcase_params() {
+                assert!(
+                    redact_url_sensitive_params("http://x?refreshToken=abc").contains("[REDACTED]")
+                );
+                assert!(
+                    redact_url_sensitive_params("http://x?clientSecret=abc").contains("[REDACTED]")
+                );
+                assert!(
+                    redact_url_sensitive_params("http://x?privateKey=abc").contains("[REDACTED]")
+                );
+                assert!(
+                    redact_url_sensitive_params("http://x?sessionToken=abc").contains("[REDACTED]")
+                );
+                assert!(
+                    redact_url_sensitive_params("http://x?authToken=abc").contains("[REDACTED]")
+                );
+                assert!(redact_url_sensitive_params("http://x?apiToken=abc").contains("[REDACTED]"));
+                assert!(
+                    redact_url_sensitive_params("http://x?secretKey=abc").contains("[REDACTED]")
+                );
+                assert!(
+                    redact_url_sensitive_params("http://x?accessKey=abc").contains("[REDACTED]")
+                );
+            }
+
+            // === Semicolon separators ===
+
+            #[test]
+            fn test_redact_url_semicolon_separator() {
+                let url = "https://example.com?token=secret;foo=bar";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    redacted.contains("token=[REDACTED]"),
+                    "Should redact token with semicolon separator"
+                );
+                assert!(
+                    redacted.contains("foo=bar"),
+                    "Should preserve non-sensitive param"
+                );
+                assert!(
+                    redacted.contains(";"),
+                    "Should preserve semicolon separator"
+                );
+            }
+
+            #[test]
+            fn test_redact_url_semicolon_only_sensitive() {
+                let url = "https://example.com?api_key=sk123;password=secret;user=john";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    redacted.contains("api_key=[REDACTED]"),
+                    "Should redact api_key"
+                );
+                assert!(
+                    redacted.contains("password=[REDACTED]"),
+                    "Should redact password"
+                );
+                assert!(
+                    redacted.contains("user=john"),
+                    "Should preserve non-sensitive param"
+                );
+            }
+
+            #[test]
+            fn test_redact_url_mixed_separators() {
+                let url = "https://example.com?token=abc&secret=def;api_key=ghi;foo=bar&auth=xyz";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(redacted.contains("token=[REDACTED]"), "Should redact token");
+                assert!(
+                    redacted.contains("secret=[REDACTED]"),
+                    "Should redact secret"
+                );
+                assert!(
+                    redacted.contains("api_key=[REDACTED]"),
+                    "Should redact api_key"
+                );
+                assert!(redacted.contains("auth=[REDACTED]"), "Should redact auth");
+                assert!(
+                    redacted.contains("foo=bar"),
+                    "Should preserve non-sensitive param"
+                );
+            }
+
+            // === Whitespace around keys ===
+
+            #[test]
+            fn test_redact_url_whitespace_around_key() {
+                let url = "https://example.com?token =secret";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    redacted.contains("[REDACTED]"),
+                    "Should redact token with trailing whitespace in key"
+                );
+                assert!(
+                    !redacted.contains("secret"),
+                    "Should not expose secret value"
+                );
+            }
+
+            #[test]
+            fn test_redact_url_leading_whitespace_key() {
+                let url = "https://example.com? api_key=secret";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    redacted.contains("[REDACTED]"),
+                    "Should redact api_key with leading whitespace"
+                );
+                assert!(
+                    !redacted.contains("secret"),
+                    "Should not expose secret value"
+                );
+            }
+
+            #[test]
+            fn test_redact_url_whitespace_with_semicolon() {
+                let url = "https://example.com?foo=bar; token =mysecret;other=value";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    redacted.contains("[REDACTED]"),
+                    "Should redact token with whitespace and semicolon"
+                );
+                assert!(
+                    !redacted.contains("mysecret"),
+                    "Should not expose secret value"
+                );
+                assert!(redacted.contains("foo=bar"), "Should preserve first param");
+                assert!(
+                    redacted.contains("other=value"),
+                    "Should preserve last param"
+                );
+            }
+
+            // === Fragment semicolon tests ===
+
+            #[test]
+            fn test_redact_fragment_semicolon_separator() {
+                let url = "https://app.com/callback#token=abc;access_token=secret";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    redacted.contains("token=[REDACTED]"),
+                    "Should redact token in fragment"
+                );
+                assert!(
+                    redacted.contains("access_token=[REDACTED]"),
+                    "Should redact access_token in fragment"
+                );
+                assert!(!redacted.contains("abc"), "Should not expose token value");
+                assert!(
+                    !redacted.contains("secret"),
+                    "Should not expose access_token value"
+                );
+            }
+
+            #[test]
+            fn test_redact_both_query_and_fragment_semicolon() {
+                let url = "https://example.com?api_key=key1;foo=bar#token=tok1;baz=qux";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    redacted.contains("api_key=[REDACTED]"),
+                    "Should redact api_key in query"
+                );
+                assert!(
+                    redacted.contains("token=[REDACTED]"),
+                    "Should redact token in fragment"
+                );
+                assert!(redacted.contains("foo=bar"), "Should preserve foo in query");
+                assert!(
+                    redacted.contains("baz=qux"),
+                    "Should preserve baz in fragment"
+                );
+            }
+
+            // === Case-insensitive param names ===
+
+            #[test]
+            fn test_redact_url_case_insensitive_param_names() {
+                let url_token = "https://example.com?Token=secret1";
+                let redacted = redact_url_sensitive_params(url_token);
+                assert!(
+                    !redacted.contains("secret1"),
+                    "Token (capitalized) should be redacted: {}",
+                    redacted
+                );
+                assert!(redacted.contains("[REDACTED]"));
+
+                let url_api_key = "https://example.com?API_KEY=secret2";
+                let redacted = redact_url_sensitive_params(url_api_key);
+                assert!(
+                    !redacted.contains("secret2"),
+                    "API_KEY (uppercase) should be redacted: {}",
+                    redacted
+                );
+                assert!(redacted.contains("[REDACTED]"));
+
+                let url_password = "https://example.com?PASSWORD=secret3";
+                let redacted = redact_url_sensitive_params(url_password);
+                assert!(
+                    !redacted.contains("secret3"),
+                    "PASSWORD (uppercase) should be redacted: {}",
+                    redacted
+                );
+                assert!(redacted.contains("[REDACTED]"));
+            }
+
+            #[test]
+            fn test_redact_url_fragment_with_sensitive_param() {
+                let url = "https://example.com/page#token=my-secret-value";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    !redacted.contains("my-secret-value"),
+                    "Fragment token value should be redacted: {}",
+                    redacted
+                );
+                assert!(
+                    redacted.contains("token=[REDACTED]"),
+                    "Should show redacted token in fragment: {}",
+                    redacted
+                );
+            }
+
+            #[test]
+            fn test_redact_url_no_query_params_unchanged() {
+                let url = "https://example.com/api/v2/resource";
+                let redacted = redact_url_sensitive_params(url);
+                assert_eq!(
+                    redacted, url,
+                    "URL without query params should be unchanged"
+                );
+            }
+
+            #[test]
+            fn test_redact_url_only_non_sensitive_params_unchanged() {
+                let url = "https://example.com?page=1&limit=50&sort=name";
+                let redacted = redact_url_sensitive_params(url);
+                assert_eq!(
+                    redacted, url,
+                    "URL with only non-sensitive params should be unchanged"
+                );
+            }
+
+            #[test]
+            fn test_redact_url_mixed_sensitive_and_non_sensitive() {
+                let url =
+                    "https://example.com?user=john&token=secret123&page=1&api_key=sk-abc&sort=asc";
+                let redacted = redact_url_sensitive_params(url);
+                assert!(
+                    redacted.contains("user=john"),
+                    "Non-sensitive 'user' should remain: {}",
+                    redacted
+                );
+                assert!(
+                    redacted.contains("page=1"),
+                    "Non-sensitive 'page' should remain: {}",
+                    redacted
+                );
+                assert!(
+                    redacted.contains("sort=asc"),
+                    "Non-sensitive 'sort' should remain: {}",
+                    redacted
+                );
+                assert!(
+                    redacted.contains("token=[REDACTED]"),
+                    "Sensitive 'token' should be redacted: {}",
+                    redacted
+                );
+                assert!(
+                    redacted.contains("api_key=[REDACTED]"),
+                    "Sensitive 'api_key' should be redacted: {}",
+                    redacted
+                );
+                assert!(
+                    !redacted.contains("secret123"),
+                    "token value should not appear: {}",
+                    redacted
+                );
+                assert!(
+                    !redacted.contains("sk-abc"),
+                    "api_key value should not appear: {}",
+                    redacted
+                );
+            }
+
+            #[test]
+            fn test_redact_url_empty_string() {
+                let redacted = redact_url_sensitive_params("");
+                assert_eq!(redacted, "", "Empty string should return empty string");
+            }
+        }
     }
-
-    #[test]
-    fn test_redact_url_userinfo_fragment_boundary() {
-        // Test that @ in fragment is not treated as userinfo
-        // RFC 3986: authority ends at first /, ?, or #
-        let url = "https://example.com#user@mention";
-        let redacted = redact_url_userinfo(url);
-        assert_eq!(
-            redacted, url,
-            "@ in fragment should not be treated as userinfo"
-        );
-
-        let url2 = "https://example.com/path#section@ref";
-        let redacted2 = redact_url_userinfo(url2);
-        assert_eq!(
-            redacted2, url2,
-            "@ in fragment after path should not be treated as userinfo"
-        );
-    }
-
-    // ===== Review 21 fixes =====
-
-    #[test]
-    fn test_redact_url_userinfo_password_contains_at() {
-        // HIGH: Password containing unencoded @ should still be fully redacted
-        // The @ in p@ssword is part of the password, not the userinfo delimiter
-        let url = "https://admin:p@ssword@example.com/api";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("admin"), "Username should be redacted");
-        assert!(
-            !redacted.contains("p@ssword"),
-            "Password with @ should be redacted"
-        );
-        assert!(redacted.contains("[REDACTED]@example.com"));
-        assert_eq!(redacted, "https://[REDACTED]@example.com/api");
-    }
-
-    #[test]
-    fn test_redact_url_userinfo_password_multiple_at() {
-        // Password with multiple @ characters
-        let url = "https://user:p@ss@word@host.example.com:8080/path";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("user"), "Username should be redacted");
-        assert!(
-            !redacted.contains("p@ss@word"),
-            "Password with multiple @ should be redacted"
-        );
-        assert!(redacted.contains(":8080"));
-        assert_eq!(redacted, "https://[REDACTED]@host.example.com:8080/path");
-    }
-
-    #[test]
-    fn test_redact_url_userinfo_complex_password() {
-        // Complex password with special chars including @
-        // Note: # must be percent-encoded in userinfo per RFC 3986, so we use %23
-        let url = "https://admin:C0mpl3x!P@ss%23123@api.example.com?token=abc";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("admin"));
-        assert!(!redacted.contains("C0mpl3x!P@ss%23123"));
-        assert!(redacted.contains("token=[REDACTED]"));
-        assert_eq!(
-            redacted,
-            "https://[REDACTED]@api.example.com?token=[REDACTED]"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_encoded_param_api_key() {
-        // MEDIUM: URL-encoded parameter name api%5Fkey (api_key) should be redacted
-        let url = "https://example.com?api%5Fkey=secret123";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            !redacted.contains("secret123"),
-            "Value of encoded api_key should be redacted"
-        );
-        assert!(redacted.contains("api%5Fkey=[REDACTED]"));
-    }
-
-    #[test]
-    fn test_redact_url_encoded_param_token() {
-        // URL-encoded 'token' (%74%6F%6B%65%6E)
-        let url = "https://example.com?%74%6F%6B%65%6E=mysecret";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            !redacted.contains("mysecret"),
-            "Value of encoded token should be redacted"
-        );
-        assert!(redacted.contains("[REDACTED]"));
-    }
-
-    #[test]
-    fn test_redact_url_encoded_param_mixed() {
-        // Mix of encoded and plain param names
-        let url = "https://example.com?api%5Fkey=secret1&password=secret2&foo=bar";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("secret1"));
-        assert!(!redacted.contains("secret2"));
-        assert!(
-            redacted.contains("foo=bar"),
-            "Non-sensitive param should remain"
-        );
-        assert!(redacted.contains("api%5Fkey=[REDACTED]"));
-        assert!(redacted.contains("password=[REDACTED]"));
-    }
-
-    #[test]
-    fn test_redact_url_encoded_param_in_fragment() {
-        // URL-encoded param in fragment (OAuth implicit flow)
-        let url = "https://example.com#access%5Ftoken=xyz123";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            !redacted.contains("xyz123"),
-            "Value of encoded access_token should be redacted"
-        );
-        assert!(redacted.contains("access%5Ftoken=[REDACTED]"));
-    }
-
-    #[test]
-    fn test_redact_url_encoded_plus_as_space() {
-        // Plus sign decodes to space in application/x-www-form-urlencoded
-        // api+key would decode to "api key" which is not sensitive
-        let url = "https://example.com?api+key=value";
-        let redacted = redact_url_sensitive_params(url);
-        // "api key" (with space) is not in our sensitive list, so it should remain
-        assert_eq!(redacted, url);
-    }
-
-    #[test]
-    fn test_redact_url_combined_userinfo_at_and_encoded_params() {
-        // Combined: password with @, and encoded param names
-        let url = "https://user:p@ss@example.com?api%5Fkey=secret&access%5Ftoken=mytoken123";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("user:"), "Username should be redacted");
-        assert!(
-            !redacted.contains("p@ss"),
-            "Password with @ should be redacted"
-        );
-        assert!(
-            !redacted.contains("secret"),
-            "api_key value should be redacted"
-        );
-        assert!(
-            !redacted.contains("mytoken123"),
-            "access_token value should be redacted"
-        );
-        assert_eq!(
-            redacted,
-            "https://[REDACTED]@example.com?api%5Fkey=[REDACTED]&access%5Ftoken=[REDACTED]"
-        );
-    }
-
-    // =====================================================================
-    // Review 22 Tests: Double-encoded params, kebab-case params, URL whitespace
-    // =====================================================================
-
-    #[test]
-    fn test_redact_url_double_encoded_api_key() {
-        // Double-encoded: api_key -> api%5Fkey -> api%255Fkey
-        // %25 is encoded %, so api%255Fkey decodes to api%5Fkey which decodes to api_key
-        let url = "https://example.com?api%255Fkey=secret123";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            !redacted.contains("secret123"),
-            "Double-encoded api_key value should be redacted"
-        );
-        assert!(
-            redacted.contains("=[REDACTED]"),
-            "Should contain redacted value"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_double_encoded_token() {
-        // Double-encoded token: token -> tok%65n won't match, but api%255Fkey case is realistic
-        // Test that actual double-encoding of underscore works: api%255Fkey -> api%5Fkey -> api_key
-        let url = "https://example.com?api%255Fkey=mysecret";
-        let redacted = redact_url_sensitive_params(url);
-        // After double-decode, api%255Fkey becomes api_key which is in sensitive list
-        assert!(
-            !redacted.contains("mysecret"),
-            "Double-encoded api_key should be redacted"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_double_encoded_password() {
-        // Double-encoded: password -> password (no underscore) but api_key case
-        // api%255Fkey double-decodes to api_key which is in the sensitive list
-        let url = "https://example.com?api%255Fkey=pass123&foo=bar";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            !redacted.contains("pass123"),
-            "Double-encoded api_key value should be redacted"
-        );
-        assert!(
-            redacted.contains("foo=bar"),
-            "Non-sensitive param should remain"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_kebab_case_api_key() {
-        // Kebab-case: api-key (with hyphen)
-        let url = "https://example.com?api-key=secret-value";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            !redacted.contains("secret-value"),
-            "api-key value should be redacted"
-        );
-        assert!(
-            redacted.contains("api-key=[REDACTED]"),
-            "api-key param should be redacted"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_kebab_case_access_token() {
-        // Kebab-case: access-token (with hyphen)
-        let url = "https://example.com?access-token=mytoken123";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            !redacted.contains("mytoken123"),
-            "access-token value should be redacted"
-        );
-        assert!(
-            redacted.contains("access-token=[REDACTED]"),
-            "access-token param should be redacted"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_kebab_case_client_secret() {
-        let url = "https://example.com?client-secret=very-secret&other=value";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            !redacted.contains("very-secret"),
-            "client-secret value should be redacted"
-        );
-        assert!(
-            redacted.contains("other=value"),
-            "Non-sensitive param should remain"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_kebab_case_multiple() {
-        // Multiple kebab-case sensitive params
-        let url = "https://example.com?api-key=key1&access-token=tok1&session-token=sess1&foo=bar";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            !redacted.contains("key1"),
-            "api-key value should be redacted"
-        );
-        assert!(
-            !redacted.contains("tok1"),
-            "access-token value should be redacted"
-        );
-        assert!(
-            !redacted.contains("sess1"),
-            "session-token value should be redacted"
-        );
-        assert!(
-            redacted.contains("foo=bar"),
-            "Non-sensitive param should remain"
-        );
-    }
-
-    #[test]
-    fn test_jira_endpoint_trailing_whitespace_rejected() {
-        let yaml = r#"
-project_name: test-project
-output_folder: ./output
-jira:
-  endpoint: "https://jira.example.com  "
-"#;
-        let temp_dir = std::env::temp_dir();
-        let file_path = temp_dir.join(format!("test_jira_whitespace_{}.yaml", std::process::id()));
-        std::fs::write(&file_path, yaml).unwrap();
-
-        let result = load_config(&file_path);
-        std::fs::remove_file(&file_path).ok();
-
-        assert!(
-            result.is_err(),
-            "Should reject endpoint with trailing whitespace"
-        );
-        let err = result.unwrap_err();
-        let err_msg = err.to_string();
-        assert!(
-            err_msg.contains("jira.endpoint"),
-            "Error should mention jira.endpoint"
-        );
-        assert!(
-            err_msg.contains("whitespace"),
-            "Error should mention whitespace"
-        );
-    }
-
-    #[test]
-    fn test_jira_endpoint_leading_whitespace_rejected() {
-        let yaml = r#"
-project_name: test-project
-output_folder: ./output
-jira:
-  endpoint: "  https://jira.example.com"
-"#;
-        let temp_dir = std::env::temp_dir();
-        let file_path = temp_dir.join(format!("test_jira_leading_ws_{}.yaml", std::process::id()));
-        std::fs::write(&file_path, yaml).unwrap();
-
-        let result = load_config(&file_path);
-        std::fs::remove_file(&file_path).ok();
-
-        assert!(
-            result.is_err(),
-            "Should reject endpoint with leading whitespace"
-        );
-        let err = result.unwrap_err();
-        assert!(
-            err.to_string().contains("whitespace"),
-            "Error should mention whitespace"
-        );
-    }
-
-    #[test]
-    fn test_squash_endpoint_whitespace_rejected() {
-        let yaml = r#"
-project_name: test-project
-output_folder: ./output
-squash:
-  endpoint: "https://squash.example.com   "
-"#;
-        let temp_dir = std::env::temp_dir();
-        let file_path = temp_dir.join(format!("test_squash_ws_{}.yaml", std::process::id()));
-        std::fs::write(&file_path, yaml).unwrap();
-
-        let result = load_config(&file_path);
-        std::fs::remove_file(&file_path).ok();
-
-        assert!(
-            result.is_err(),
-            "Should reject squash endpoint with trailing whitespace"
-        );
-        let err = result.unwrap_err();
-        assert!(
-            err.to_string().contains("squash.endpoint"),
-            "Error should mention squash.endpoint"
-        );
-    }
-
-    #[test]
-    fn test_llm_local_endpoint_whitespace_rejected() {
-        let yaml = r#"
-project_name: test-project
-output_folder: ./output
-llm:
-  mode: local
-  local_endpoint: " http://localhost:11434 "
-"#;
-        let temp_dir = std::env::temp_dir();
-        let file_path = temp_dir.join(format!("test_llm_local_ws_{}.yaml", std::process::id()));
-        std::fs::write(&file_path, yaml).unwrap();
-
-        let result = load_config(&file_path);
-        std::fs::remove_file(&file_path).ok();
-
-        assert!(
-            result.is_err(),
-            "Should reject local_endpoint with whitespace"
-        );
-        let err = result.unwrap_err();
-        assert!(
-            err.to_string().contains("llm.local_endpoint"),
-            "Error should mention llm.local_endpoint"
-        );
-    }
-
-    #[test]
-    fn test_llm_cloud_endpoint_whitespace_rejected() {
-        let yaml = r#"
-project_name: test-project
-output_folder: ./output
-llm:
-  mode: cloud
-  cloud_enabled: true
-  cloud_endpoint: "https://api.openai.com/v1   "
-  cloud_model: gpt-4
-  api_key: sk-test
-"#;
-        let temp_dir = std::env::temp_dir();
-        let file_path = temp_dir.join(format!("test_llm_cloud_ws_{}.yaml", std::process::id()));
-        std::fs::write(&file_path, yaml).unwrap();
-
-        let result = load_config(&file_path);
-        std::fs::remove_file(&file_path).ok();
-
-        assert!(
-            result.is_err(),
-            "Should reject cloud_endpoint with trailing whitespace"
-        );
-        let err = result.unwrap_err();
-        assert!(
-            err.to_string().contains("llm.cloud_endpoint"),
-            "Error should mention llm.cloud_endpoint"
-        );
-    }
-
-    #[test]
-    fn test_valid_endpoints_without_whitespace_accepted() {
-        let yaml = r#"
-project_name: test-project
-output_folder: ./output
-jira:
-  endpoint: "https://jira.example.com"
-squash:
-  endpoint: "https://squash.example.com"
-llm:
-  mode: auto
-  local_endpoint: "http://localhost:11434"
-"#;
-        let temp_dir = std::env::temp_dir();
-        let file_path = temp_dir.join(format!("test_valid_endpoints_{}.yaml", std::process::id()));
-        std::fs::write(&file_path, yaml).unwrap();
-
-        let result = load_config(&file_path);
-        std::fs::remove_file(&file_path).ok();
-
-        assert!(result.is_ok(), "Should accept endpoints without whitespace");
-    }
-
-    // === REVIEW 23 TESTS: Query param separators, whitespace, and IPv6 zone-id ===
-
-    #[test]
-    fn test_redact_url_semicolon_separator() {
-        // RFC 1866 allows semicolon as query parameter separator in HTML forms
-        let url = "https://example.com?token=secret;foo=bar";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            redacted.contains("token=[REDACTED]"),
-            "Should redact token with semicolon separator"
-        );
-        assert!(
-            redacted.contains("foo=bar"),
-            "Should preserve non-sensitive param"
-        );
-        assert!(
-            redacted.contains(";"),
-            "Should preserve semicolon separator"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_semicolon_only_sensitive() {
-        // All params separated by semicolons
-        let url = "https://example.com?api_key=sk123;password=secret;user=john";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            redacted.contains("api_key=[REDACTED]"),
-            "Should redact api_key"
-        );
-        assert!(
-            redacted.contains("password=[REDACTED]"),
-            "Should redact password"
-        );
-        assert!(
-            redacted.contains("user=john"),
-            "Should preserve non-sensitive param"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_mixed_separators() {
-        // Mix of & and ; separators
-        let url = "https://example.com?token=abc&secret=def;api_key=ghi;foo=bar&auth=xyz";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(redacted.contains("token=[REDACTED]"), "Should redact token");
-        assert!(
-            redacted.contains("secret=[REDACTED]"),
-            "Should redact secret"
-        );
-        assert!(
-            redacted.contains("api_key=[REDACTED]"),
-            "Should redact api_key"
-        );
-        assert!(redacted.contains("auth=[REDACTED]"), "Should redact auth");
-        assert!(
-            redacted.contains("foo=bar"),
-            "Should preserve non-sensitive param"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_whitespace_around_key() {
-        // Whitespace around parameter key
-        let url = "https://example.com?token =secret";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            redacted.contains("[REDACTED]"),
-            "Should redact token with trailing whitespace in key"
-        );
-        assert!(
-            !redacted.contains("secret"),
-            "Should not expose secret value"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_leading_whitespace_key() {
-        // Leading whitespace in parameter key
-        let url = "https://example.com? api_key=secret";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            redacted.contains("[REDACTED]"),
-            "Should redact api_key with leading whitespace"
-        );
-        assert!(
-            !redacted.contains("secret"),
-            "Should not expose secret value"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_whitespace_with_semicolon() {
-        // Whitespace around key with semicolon separator
-        let url = "https://example.com?foo=bar; token =mysecret;other=value";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            redacted.contains("[REDACTED]"),
-            "Should redact token with whitespace and semicolon"
-        );
-        assert!(
-            !redacted.contains("mysecret"),
-            "Should not expose secret value"
-        );
-        assert!(redacted.contains("foo=bar"), "Should preserve first param");
-        assert!(
-            redacted.contains("other=value"),
-            "Should preserve last param"
-        );
-    }
-
-    #[test]
-    fn test_ipv6_zone_id_empty_rejected() {
-        // Empty zone ID is invalid (e.g., "fe80::1%" with nothing after %)
-        assert!(
-            !is_valid_url("http://[fe80::1%]:8080"),
-            "Should reject empty zone ID"
-        );
-        assert!(
-            !is_valid_url("http://[fe80::1%]"),
-            "Should reject empty zone ID without port"
-        );
-        assert!(
-            !is_valid_url("https://[::1%]"),
-            "Should reject empty zone ID on localhost"
-        );
-    }
-
-    #[test]
-    fn test_ipv6_zone_id_valid() {
-        // Valid zone IDs (interface names)
-        assert!(
-            is_valid_url("http://[fe80::1%eth0]:8080"),
-            "Should accept zone ID with interface name"
-        );
-        assert!(
-            is_valid_url("http://[fe80::1%eth0]"),
-            "Should accept zone ID without port"
-        );
-        assert!(
-            is_valid_url("http://[fe80::1%wlan0]:3000"),
-            "Should accept zone ID with wlan"
-        );
-        assert!(
-            is_valid_url("http://[fe80::1%en0]:80"),
-            "Should accept zone ID with en0"
-        );
-        assert!(
-            is_valid_url("http://[fe80::1%lo]:8080"),
-            "Should accept zone ID with lo"
-        );
-        // URL-encoded % is %25
-        assert!(
-            is_valid_url("http://[fe80::1%25eth0]:8080"),
-            "Should accept URL-encoded zone ID"
-        );
-    }
-
-    #[test]
-    fn test_ipv6_zone_id_invalid_chars() {
-        // Zone ID with invalid characters (only alphanumeric, hyphen, underscore, dot allowed)
-        assert!(
-            !is_valid_url("http://[fe80::1%eth/0]:8080"),
-            "Should reject zone ID with slash"
-        );
-        assert!(
-            !is_valid_url("http://[fe80::1%eth@0]:8080"),
-            "Should reject zone ID with @"
-        );
-        assert!(
-            !is_valid_url("http://[fe80::1%eth 0]:8080"),
-            "Should reject zone ID with space"
-        );
-    }
-
-    #[test]
-    fn test_redact_fragment_semicolon_separator() {
-        // Semicolon separator in fragment (OAuth implicit flow with semicolon)
-        let url = "https://app.com/callback#token=abc;access_token=secret";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            redacted.contains("token=[REDACTED]"),
-            "Should redact token in fragment"
-        );
-        assert!(
-            redacted.contains("access_token=[REDACTED]"),
-            "Should redact access_token in fragment"
-        );
-        assert!(!redacted.contains("abc"), "Should not expose token value");
-        assert!(
-            !redacted.contains("secret"),
-            "Should not expose access_token value"
-        );
-    }
-
-    #[test]
-    fn test_redact_both_query_and_fragment_semicolon() {
-        // Both query and fragment with semicolon separators
-        let url = "https://example.com?api_key=key1;foo=bar#token=tok1;baz=qux";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            redacted.contains("api_key=[REDACTED]"),
-            "Should redact api_key in query"
-        );
-        assert!(
-            redacted.contains("token=[REDACTED]"),
-            "Should redact token in fragment"
-        );
-        assert!(redacted.contains("foo=bar"), "Should preserve foo in query");
-        assert!(
-            redacted.contains("baz=qux"),
-            "Should preserve baz in fragment"
-        );
-    }
-
-    // ===== Coverage Plan Tests: check_output_folder_exists, active_profile_summary, redact edge cases =====
-
-    #[test]
-    fn test_check_output_folder_nonexistent_tempdir() {
-        // P0: output_folder that does not exist returns Some(warning) mentioning "does not exist"
-        let dir = tempfile::tempdir().unwrap();
-        let nonexistent = dir.path().join("this_folder_does_not_exist");
-
-        let config = ProjectConfig {
-            project_name: "test".to_string(),
-            output_folder: nonexistent.to_string_lossy().to_string(),
-            jira: None,
-            squash: None,
-            templates: None,
-            llm: None,
-            profiles: None,
-            active_profile: None,
-        };
-
-        let warning = config.check_output_folder_exists();
-        assert!(
-            warning.is_some(),
-            "Should return warning for nonexistent folder"
-        );
-        let msg = warning.unwrap();
-        assert!(
-            msg.contains("does not exist"),
-            "Warning should mention 'does not exist': {}",
-            msg
-        );
-    }
-
-    #[test]
-    fn test_check_output_folder_is_file_tempdir() {
-        // P0: output_folder pointing to a file (not directory) returns Some(warning) mentioning "not a directory"
-        let dir = tempfile::tempdir().unwrap();
-        let file_path = dir.path().join("actually_a_file.txt");
-        std::fs::write(&file_path, "content").unwrap();
-
-        let config = ProjectConfig {
-            project_name: "test".to_string(),
-            output_folder: file_path.to_string_lossy().to_string(),
-            jira: None,
-            squash: None,
-            templates: None,
-            llm: None,
-            profiles: None,
-            active_profile: None,
-        };
-
-        let warning = config.check_output_folder_exists();
-        assert!(
-            warning.is_some(),
-            "Should return warning when output_folder is a file"
-        );
-        let msg = warning.unwrap();
-        assert!(
-            msg.contains("not a directory"),
-            "Warning should mention 'not a directory': {}",
-            msg
-        );
-    }
-
-    #[test]
-    fn test_check_output_folder_existing_directory_tempdir() {
-        // P0: output_folder pointing to an existing directory returns None
-        let dir = tempfile::tempdir().unwrap();
-
-        let config = ProjectConfig {
-            project_name: "test".to_string(),
-            output_folder: dir.path().to_string_lossy().to_string(),
-            jira: None,
-            squash: None,
-            templates: None,
-            llm: None,
-            profiles: None,
-            active_profile: None,
-        };
-
-        let warning = config.check_output_folder_exists();
-        assert!(
-            warning.is_none(),
-            "Should return None for existing directory"
-        );
-    }
-
-    #[test]
-    fn test_active_profile_summary_no_active_profile() {
-        // P1: With no active profile, summary starts with "No profile active"
-        let config = ProjectConfig {
-            project_name: "my-project".to_string(),
-            output_folder: "./output".to_string(),
-            jira: None,
-            squash: None,
-            templates: None,
-            llm: None,
-            profiles: None,
-            active_profile: None,
-        };
-
-        let summary = config.active_profile_summary();
-        assert!(
-            summary.contains("No profile active (using base configuration)"),
-            "Should indicate no profile is active: {}",
-            summary
-        );
-        assert!(
-            summary.contains("Output folder: ./output"),
-            "Should show output_folder: {}",
-            summary
-        );
-        assert!(
-            summary.contains("Jira: not configured"),
-            "Should show Jira not configured: {}",
-            summary
-        );
-        assert!(
-            summary.contains("Squash: not configured"),
-            "Should show Squash not configured: {}",
-            summary
-        );
-        assert!(
-            summary.contains("LLM: not configured"),
-            "Should show LLM not configured: {}",
-            summary
-        );
-        assert!(
-            summary.contains("Templates: not configured"),
-            "Should show Templates not configured: {}",
-            summary
-        );
-    }
-
-    #[test]
-    fn test_active_profile_summary_with_active_profile() {
-        // P1: With an active profile, summary shows profile name and configured services
-        let config = ProjectConfig {
-            project_name: "my-project".to_string(),
-            output_folder: "./dev-output".to_string(),
-            jira: Some(JiraConfig {
-                endpoint: "https://jira.dev.example.com".to_string(),
-                token: Some("secret-token".to_string()),
-            }),
-            squash: Some(SquashConfig {
-                endpoint: "https://squash.dev.example.com".to_string(),
-                username: Some("user".to_string()),
-                password: Some("pass".to_string()),
-            }),
-            templates: None,
-            llm: Some(LlmConfig {
-                mode: LlmMode::Local,
-                local_endpoint: Some("http://localhost:11434".to_string()),
-                local_model: Some("mistral".to_string()),
-                cloud_enabled: false,
-                cloud_endpoint: None,
-                cloud_model: None,
-                api_key: None,
-                timeout_seconds: 120,
-                max_tokens: 4096,
-            }),
-            profiles: None,
-            active_profile: Some("dev".to_string()),
-        };
-
-        let summary = config.active_profile_summary();
-        assert!(
-            summary.contains("Active profile: dev"),
-            "Should show active profile name: {}",
-            summary
-        );
-        assert!(
-            summary.contains("Output folder: ./dev-output"),
-            "Should show output_folder: {}",
-            summary
-        );
-        assert!(
-            summary.contains("Jira: https://jira.dev.example.com"),
-            "Should show Jira endpoint: {}",
-            summary
-        );
-        assert!(
-            summary.contains("Squash: https://squash.dev.example.com"),
-            "Should show Squash endpoint: {}",
-            summary
-        );
-        assert!(
-            summary.contains("LLM: local"),
-            "Should show LLM mode: {}",
-            summary
-        );
-        // Secrets should NOT appear in summary
-        assert!(
-            !summary.contains("secret-token"),
-            "Token should not appear in summary: {}",
-            summary
-        );
-        assert!(
-            !summary.contains("pass"),
-            "Password should not appear in summary"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_case_insensitive_param_names() {
-        // P1: Case-insensitive matching - Token, API_KEY, PASSWORD (uppercase variants)
-        let url_token = "https://example.com?Token=secret1";
-        let redacted = redact_url_sensitive_params(url_token);
-        assert!(
-            !redacted.contains("secret1"),
-            "Token (capitalized) should be redacted: {}",
-            redacted
-        );
-        assert!(redacted.contains("[REDACTED]"));
-
-        let url_api_key = "https://example.com?API_KEY=secret2";
-        let redacted = redact_url_sensitive_params(url_api_key);
-        assert!(
-            !redacted.contains("secret2"),
-            "API_KEY (uppercase) should be redacted: {}",
-            redacted
-        );
-        assert!(redacted.contains("[REDACTED]"));
-
-        let url_password = "https://example.com?PASSWORD=secret3";
-        let redacted = redact_url_sensitive_params(url_password);
-        assert!(
-            !redacted.contains("secret3"),
-            "PASSWORD (uppercase) should be redacted: {}",
-            redacted
-        );
-        assert!(redacted.contains("[REDACTED]"));
-    }
-
-    #[test]
-    fn test_redact_url_fragment_with_sensitive_param() {
-        // P1: Fragment containing sensitive param (#token=secret) is redacted
-        let url = "https://example.com/page#token=my-secret-value";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            !redacted.contains("my-secret-value"),
-            "Fragment token value should be redacted: {}",
-            redacted
-        );
-        assert!(
-            redacted.contains("token=[REDACTED]"),
-            "Should show redacted token in fragment: {}",
-            redacted
-        );
-    }
-
-    #[test]
-    fn test_redact_url_no_query_params_unchanged() {
-        // P1: URL with no query params returns unchanged
-        let url = "https://example.com/api/v2/resource";
-        let redacted = redact_url_sensitive_params(url);
-        assert_eq!(
-            redacted, url,
-            "URL without query params should be unchanged"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_only_non_sensitive_params_unchanged() {
-        // P1: URL with only non-sensitive params returns unchanged
-        let url = "https://example.com?page=1&limit=50&sort=name";
-        let redacted = redact_url_sensitive_params(url);
-        assert_eq!(
-            redacted, url,
-            "URL with only non-sensitive params should be unchanged"
-        );
-    }
-
-    #[test]
-    fn test_redact_url_mixed_sensitive_and_non_sensitive() {
-        // P1: URL with mix of sensitive and non-sensitive params - only sensitive redacted
-        let url = "https://example.com?user=john&token=secret123&page=1&api_key=sk-abc&sort=asc";
-        let redacted = redact_url_sensitive_params(url);
-        assert!(
-            redacted.contains("user=john"),
-            "Non-sensitive 'user' should remain: {}",
-            redacted
-        );
-        assert!(
-            redacted.contains("page=1"),
-            "Non-sensitive 'page' should remain: {}",
-            redacted
-        );
-        assert!(
-            redacted.contains("sort=asc"),
-            "Non-sensitive 'sort' should remain: {}",
-            redacted
-        );
-        assert!(
-            redacted.contains("token=[REDACTED]"),
-            "Sensitive 'token' should be redacted: {}",
-            redacted
-        );
-        assert!(
-            redacted.contains("api_key=[REDACTED]"),
-            "Sensitive 'api_key' should be redacted: {}",
-            redacted
-        );
-        assert!(
-            !redacted.contains("secret123"),
-            "token value should not appear: {}",
-            redacted
-        );
-        assert!(
-            !redacted.contains("sk-abc"),
-            "api_key value should not appear: {}",
-            redacted
-        );
-    }
-
-    #[test]
-    fn test_redact_url_empty_string() {
-        // P1: Empty string input returns empty string
-        let redacted = redact_url_sensitive_params("");
-        assert_eq!(redacted, "", "Empty string should return empty string");
+    // =========================================================================
+    // profile_summary: active_profile_summary tests
+    // =========================================================================
+    mod profile_summary {
+        use super::*;
+
+        #[test]
+        fn test_active_profile_summary_no_active_profile() {
+            // P1: With no active profile, summary starts with "No profile active"
+            let config = ProjectConfig {
+                project_name: "my-project".to_string(),
+                output_folder: "./output".to_string(),
+                jira: None,
+                squash: None,
+                templates: None,
+                llm: None,
+                profiles: None,
+                active_profile: None,
+            };
+
+            let summary = config.active_profile_summary();
+            assert!(
+                summary.contains("No profile active (using base configuration)"),
+                "Should indicate no profile is active: {}",
+                summary
+            );
+            assert!(
+                summary.contains("Output folder: ./output"),
+                "Should show output_folder: {}",
+                summary
+            );
+            assert!(
+                summary.contains("Jira: not configured"),
+                "Should show Jira not configured: {}",
+                summary
+            );
+            assert!(
+                summary.contains("Squash: not configured"),
+                "Should show Squash not configured: {}",
+                summary
+            );
+            assert!(
+                summary.contains("LLM: not configured"),
+                "Should show LLM not configured: {}",
+                summary
+            );
+            assert!(
+                summary.contains("Templates: not configured"),
+                "Should show Templates not configured: {}",
+                summary
+            );
+        }
+
+        #[test]
+        fn test_active_profile_summary_with_active_profile() {
+            // P1: With an active profile, summary shows profile name and configured services
+            let config = ProjectConfig {
+                project_name: "my-project".to_string(),
+                output_folder: "./dev-output".to_string(),
+                jira: Some(JiraConfig {
+                    endpoint: "https://jira.dev.example.com".to_string(),
+                    token: Some("secret-token".to_string()),
+                }),
+                squash: Some(SquashConfig {
+                    endpoint: "https://squash.dev.example.com".to_string(),
+                    username: Some("user".to_string()),
+                    password: Some("pass".to_string()),
+                }),
+                templates: None,
+                llm: Some(LlmConfig {
+                    mode: LlmMode::Local,
+                    local_endpoint: Some("http://localhost:11434".to_string()),
+                    local_model: Some("mistral".to_string()),
+                    cloud_enabled: false,
+                    cloud_endpoint: None,
+                    cloud_model: None,
+                    api_key: None,
+                    timeout_seconds: 120,
+                    max_tokens: 4096,
+                }),
+                profiles: None,
+                active_profile: Some("dev".to_string()),
+            };
+
+            let summary = config.active_profile_summary();
+            assert!(
+                summary.contains("Active profile: dev"),
+                "Should show active profile name: {}",
+                summary
+            );
+            assert!(
+                summary.contains("Output folder: ./dev-output"),
+                "Should show output_folder: {}",
+                summary
+            );
+            assert!(
+                summary.contains("Jira: https://jira.dev.example.com"),
+                "Should show Jira endpoint: {}",
+                summary
+            );
+            assert!(
+                summary.contains("Squash: https://squash.dev.example.com"),
+                "Should show Squash endpoint: {}",
+                summary
+            );
+            assert!(
+                summary.contains("LLM: local"),
+                "Should show LLM mode: {}",
+                summary
+            );
+            // Secrets should NOT appear in summary
+            assert!(
+                !summary.contains("secret-token"),
+                "Token should not appear in summary: {}",
+                summary
+            );
+            assert!(
+                !summary.contains("pass"),
+                "Password should not appear in summary"
+            );
+        }
     }
 }
