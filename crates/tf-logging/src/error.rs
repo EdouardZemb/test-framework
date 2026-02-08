@@ -12,10 +12,7 @@ pub enum LoggingError {
     /// (e.g., global subscriber already set). Currently not returned by `init_logging()`
     /// which uses thread-local dispatch (`set_default`) that cannot fail.
     #[error("Failed to initialize logging: {cause}. {hint}")]
-    InitFailed {
-        cause: String,
-        hint: String,
-    },
+    InitFailed { cause: String, hint: String },
 
     /// Failed to create the log output directory.
     #[error("Failed to create log directory '{path}': {cause}. {hint}")]
@@ -27,10 +24,7 @@ pub enum LoggingError {
 
     /// An invalid log level string was provided.
     #[error("Invalid log level '{level}'. {hint}")]
-    InvalidLogLevel {
-        level: String,
-        hint: String,
-    },
+    InvalidLogLevel { level: String, hint: String },
 }
 
 #[cfg(test)]
@@ -43,13 +37,17 @@ mod tests {
     fn test_logging_error_init_failed_has_actionable_hint() {
         let error = LoggingError::InitFailed {
             cause: "tracing subscriber already set".to_string(),
-            hint: "Check that the log directory is writable and tracing is not already initialized".to_string(),
+            hint: "Check that the log directory is writable and tracing is not already initialized"
+                .to_string(),
         };
 
         let display = error.to_string();
 
         // Verify cause and hint appear in display
-        assert!(display.contains("tracing subscriber already set"), "Display missing cause");
+        assert!(
+            display.contains("tracing subscriber already set"),
+            "Display missing cause"
+        );
         assert!(
             display.contains("Check that the log directory is writable"),
             "Display missing actionable hint"
@@ -71,8 +69,14 @@ mod tests {
 
         let display = error.to_string();
 
-        assert!(display.contains("/invalid/path/logs"), "Display missing path");
-        assert!(display.contains("permission denied"), "Display missing cause");
+        assert!(
+            display.contains("/invalid/path/logs"),
+            "Display missing path"
+        );
+        assert!(
+            display.contains("permission denied"),
+            "Display missing cause"
+        );
         assert!(
             display.contains("Verify permissions on the parent directory"),
             "Display missing actionable hint"

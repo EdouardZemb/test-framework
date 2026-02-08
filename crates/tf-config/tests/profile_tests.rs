@@ -244,14 +244,19 @@ fn test_with_profile_rejects_path_traversal_in_output_folder() {
     // Applying the "evil" profile should fail because it sets output_folder to "../../../etc/passwd"
     let result = config.with_profile("evil");
 
-    assert!(result.is_err(), "with_profile should reject path traversal in output_folder");
+    assert!(
+        result.is_err(),
+        "with_profile should reject path traversal in output_folder"
+    );
 
     let err = result.unwrap_err();
     let err_msg = err.to_string();
 
     // Error should mention output_folder and path traversal
     assert!(
-        err_msg.contains("output_folder") || err_msg.contains("path traversal") || err_msg.contains(".."),
+        err_msg.contains("output_folder")
+            || err_msg.contains("path traversal")
+            || err_msg.contains(".."),
         "Error should mention output_folder or path traversal, got: {}",
         err_msg
     );
@@ -265,14 +270,19 @@ fn test_with_profile_rejects_empty_output_folder() {
     // Applying the "empty_path" profile should fail
     let result = config.with_profile("empty_path");
 
-    assert!(result.is_err(), "with_profile should reject empty output_folder");
+    assert!(
+        result.is_err(),
+        "with_profile should reject empty output_folder"
+    );
 
     let err = result.unwrap_err();
     let err_msg = err.to_string();
 
     // Error should mention output_folder
     assert!(
-        err_msg.contains("output_folder") || err_msg.contains("empty") || err_msg.contains("invalid"),
+        err_msg.contains("output_folder")
+            || err_msg.contains("empty")
+            || err_msg.contains("invalid"),
         "Error should mention output_folder issue, got: {}",
         err_msg
     );
@@ -292,20 +302,32 @@ fn test_with_profile_on_config_without_profiles_section() {
     let config = load_config(&fixture_path("minimal_config.yaml")).unwrap();
 
     // Verify the config has no profiles
-    assert!(config.profiles.is_none(), "minimal_config should have no profiles section");
+    assert!(
+        config.profiles.is_none(),
+        "minimal_config should have no profiles section"
+    );
 
     // Try to apply any profile
     let result = config.with_profile("dev");
 
     // Should return ProfileNotFound error
-    assert!(result.is_err(), "with_profile on config without profiles should fail");
+    assert!(
+        result.is_err(),
+        "with_profile on config without profiles should fail"
+    );
 
     let err = result.unwrap_err();
     match &err {
-        ConfigError::ProfileNotFound { requested, available } => {
+        ConfigError::ProfileNotFound {
+            requested,
+            available,
+        } => {
             assert_eq!(requested, "dev");
             // Available should be empty since no profiles defined
-            assert!(available.is_empty(), "Available profiles should be empty when no profiles section exists");
+            assert!(
+                available.is_empty(),
+                "Available profiles should be empty when no profiles section exists"
+            );
         }
         other => panic!("Expected ProfileNotFound, got: {:?}", other),
     }
@@ -334,14 +356,20 @@ fn test_with_profile_rejects_invalid_jira_url_after_merge() {
     // Applying the "invalid_jira_url" profile should fail validation
     let result = config.with_profile("invalid_jira_url");
 
-    assert!(result.is_err(), "with_profile should reject invalid Jira URL from profile");
+    assert!(
+        result.is_err(),
+        "with_profile should reject invalid Jira URL from profile"
+    );
 
     let err = result.unwrap_err();
     let err_msg = err.to_string();
 
     // Error should mention jira endpoint or URL validation failure
     assert!(
-        err_msg.contains("jira") || err_msg.contains("endpoint") || err_msg.contains("URL") || err_msg.contains("url"),
+        err_msg.contains("jira")
+            || err_msg.contains("endpoint")
+            || err_msg.contains("URL")
+            || err_msg.contains("url"),
         "Error should mention jira/endpoint/URL issue, got: {}",
         err_msg
     );
@@ -361,13 +389,19 @@ fn test_with_profile_rejects_invalid_llm_config_after_merge() {
 
     // Base config has a valid LLM config (mode: auto, cloud_enabled: false)
     let base_llm = config.llm.as_ref().expect("base config should have llm");
-    assert!(!base_llm.cloud_enabled, "base config should have cloud_enabled=false");
+    assert!(
+        !base_llm.cloud_enabled,
+        "base config should have cloud_enabled=false"
+    );
 
     // Applying the "invalid_llm" profile should fail validation
     // because it sets mode=cloud but cloud_enabled=false
     let result = config.with_profile("invalid_llm");
 
-    assert!(result.is_err(), "with_profile should reject invalid LLM config (mode=cloud, cloud_enabled=false)");
+    assert!(
+        result.is_err(),
+        "with_profile should reject invalid LLM config (mode=cloud, cloud_enabled=false)"
+    );
 
     let err = result.unwrap_err();
     let err_msg = err.to_string();
@@ -388,11 +422,18 @@ fn test_with_profile_accepts_valid_llm_config() {
     // Applying the "valid_llm" profile should succeed
     let result = config.with_profile("valid_llm");
 
-    assert!(result.is_ok(), "with_profile should accept valid LLM config: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "with_profile should accept valid LLM config: {:?}",
+        result
+    );
 
     let merged = result.unwrap();
     let llm = merged.llm.as_ref().expect("merged config should have llm");
-    assert_eq!(llm.local_endpoint.as_ref().unwrap(), "http://localhost:8080");
+    assert_eq!(
+        llm.local_endpoint.as_ref().unwrap(),
+        "http://localhost:8080"
+    );
 }
 
 // =============================================================================
@@ -412,7 +453,10 @@ fn test_profile_merge_overrides_templates() {
     let merged = config.with_profile("with_templates").unwrap();
 
     // Templates should be overridden by the profile
-    let templates = merged.templates.as_ref().expect("templates should be present after profile merge");
+    let templates = merged
+        .templates
+        .as_ref()
+        .expect("templates should be present after profile merge");
     assert_eq!(
         templates.cr.as_ref().unwrap(),
         "./templates/dev/cr.md",
@@ -449,8 +493,15 @@ fn test_profile_merge_overrides_llm_in_main_fixture() {
     let merged = config.with_profile("with_llm").unwrap();
 
     // LLM should be overridden by the profile
-    let llm = merged.llm.as_ref().expect("llm should be present after profile merge");
-    assert_eq!(format!("{}", llm.mode), "local", "llm.mode should be overridden by profile");
+    let llm = merged
+        .llm
+        .as_ref()
+        .expect("llm should be present after profile merge");
+    assert_eq!(
+        format!("{}", llm.mode),
+        "local",
+        "llm.mode should be overridden by profile"
+    );
     assert_eq!(
         llm.local_endpoint.as_ref().unwrap(),
         "http://localhost:8080",
@@ -476,20 +527,29 @@ fn test_with_profile_rejects_templates_path_traversal() {
     let config = load_config(&fixture_path("config_profile_invalid_templates.yaml")).unwrap();
 
     // Base config has valid templates
-    let base_templates = config.templates.as_ref().expect("base config should have templates");
+    let base_templates = config
+        .templates
+        .as_ref()
+        .expect("base config should have templates");
     assert_eq!(base_templates.cr.as_ref().unwrap(), "./templates/cr.md");
 
     // Applying the "evil_templates" profile should fail validation
     let result = config.with_profile("evil_templates");
 
-    assert!(result.is_err(), "with_profile should reject templates with path traversal");
+    assert!(
+        result.is_err(),
+        "with_profile should reject templates with path traversal"
+    );
 
     let err = result.unwrap_err();
     let err_msg = err.to_string();
 
     // Error should mention templates or path traversal
     assert!(
-        err_msg.contains("templates") || err_msg.contains("cr") || err_msg.contains("path traversal") || err_msg.contains(".."),
+        err_msg.contains("templates")
+            || err_msg.contains("cr")
+            || err_msg.contains("path traversal")
+            || err_msg.contains(".."),
         "Error should mention templates/path traversal issue, got: {}",
         err_msg
     );
@@ -503,10 +563,17 @@ fn test_with_profile_accepts_valid_templates() {
     // Applying the "valid_templates" profile should succeed
     let result = config.with_profile("valid_templates");
 
-    assert!(result.is_ok(), "with_profile should accept valid templates: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "with_profile should accept valid templates: {:?}",
+        result
+    );
 
     let merged = result.unwrap();
-    let templates = merged.templates.as_ref().expect("merged config should have templates");
+    let templates = merged
+        .templates
+        .as_ref()
+        .expect("merged config should have templates");
     assert_eq!(templates.cr.as_ref().unwrap(), "./templates/dev/cr.md");
 }
 
@@ -519,20 +586,29 @@ fn test_with_profile_rejects_invalid_squash_url_after_merge() {
     let config = load_config(&fixture_path("config_profile_invalid_squash.yaml")).unwrap();
 
     // Base config has a valid Squash URL
-    let base_squash = config.squash.as_ref().expect("base config should have squash");
+    let base_squash = config
+        .squash
+        .as_ref()
+        .expect("base config should have squash");
     assert_eq!(base_squash.endpoint, "https://squash.valid.example.com");
 
     // Applying the "invalid_squash_url" profile should fail validation
     let result = config.with_profile("invalid_squash_url");
 
-    assert!(result.is_err(), "with_profile should reject invalid Squash URL from profile");
+    assert!(
+        result.is_err(),
+        "with_profile should reject invalid Squash URL from profile"
+    );
 
     let err = result.unwrap_err();
     let err_msg = err.to_string();
 
     // Error should mention squash endpoint or URL validation failure
     assert!(
-        err_msg.contains("squash") || err_msg.contains("endpoint") || err_msg.contains("URL") || err_msg.contains("url"),
+        err_msg.contains("squash")
+            || err_msg.contains("endpoint")
+            || err_msg.contains("URL")
+            || err_msg.contains("url"),
         "Error should mention squash/endpoint/URL issue, got: {}",
         err_msg
     );
@@ -546,9 +622,16 @@ fn test_with_profile_accepts_valid_squash_url() {
     // Applying the "valid_squash" profile should succeed
     let result = config.with_profile("valid_squash");
 
-    assert!(result.is_ok(), "with_profile should accept valid Squash config: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "with_profile should accept valid Squash config: {:?}",
+        result
+    );
 
     let merged = result.unwrap();
-    let squash = merged.squash.as_ref().expect("merged config should have squash");
+    let squash = merged
+        .squash
+        .as_ref()
+        .expect("merged config should have squash");
     assert_eq!(squash.endpoint, "https://squash.staging.example.com");
 }

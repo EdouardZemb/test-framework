@@ -13,8 +13,8 @@
 //! - AC #1: Profile merge logic and summary display
 //! - AC #3: ProfileOverride redacts secrets in Debug output
 
-use tf_config::{JiraConfig, LlmConfig, LlmMode, ProjectConfig, SquashConfig, TemplatesConfig};
 use tf_config::ProfileOverride;
+use tf_config::{JiraConfig, LlmConfig, LlmMode, ProjectConfig, SquashConfig, TemplatesConfig};
 
 // =============================================================================
 // Test 1: ProfileOverride with jira override redacts token in Debug
@@ -265,9 +265,15 @@ fn test_empty_profile_preserves_base_config() {
 
     let llm = merged.llm.as_ref().expect("llm should be preserved");
     assert_eq!(llm.mode, LlmMode::Local);
-    assert_eq!(llm.local_endpoint.as_ref().unwrap(), "http://localhost:11434");
+    assert_eq!(
+        llm.local_endpoint.as_ref().unwrap(),
+        "http://localhost:11434"
+    );
 
-    let templates = merged.templates.as_ref().expect("templates should be preserved");
+    let templates = merged
+        .templates
+        .as_ref()
+        .expect("templates should be preserved");
     assert_eq!(templates.cr.as_ref().unwrap(), "./templates/cr.md");
 }
 
@@ -349,7 +355,10 @@ fn test_partial_override_only_changes_specified_fields() {
     assert_eq!(llm.api_key.as_ref().unwrap(), "sk-prod-key");
 
     // templates should be unchanged
-    let templates = merged.templates.as_ref().expect("templates should be preserved");
+    let templates = merged
+        .templates
+        .as_ref()
+        .expect("templates should be preserved");
     assert_eq!(templates.cr.as_ref().unwrap(), "./templates/cr.md");
 }
 
@@ -587,7 +596,10 @@ fn test_active_profile_summary_no_profile() {
 
     // Summary should indicate no profile is active
     assert!(
-        summary.contains("none") || summary.contains("None") || summary.contains("No profile") || summary.contains("default"),
+        summary.contains("none")
+            || summary.contains("None")
+            || summary.contains("No profile")
+            || summary.contains("default"),
         "Summary should indicate no active profile, got: {}",
         summary
     );
@@ -679,7 +691,10 @@ fn test_profile_override_partial_eq() {
         templates: None,
         output_folder: Some("./different-output".to_string()),
     };
-    assert_ne!(profile1, profile3, "Different output_folder should not be equal");
+    assert_ne!(
+        profile1, profile3,
+        "Different output_folder should not be equal"
+    );
 
     // Default profiles should be equal
     let default1 = ProfileOverride::default();
