@@ -431,7 +431,10 @@ mod tests {
 
         // Then: returns Ok(false), not an error
         assert!(result.is_ok(), "try_has_secret should return Ok, not Err");
-        assert!(!result.unwrap(), "try_has_secret should return Ok(false) for missing key");
+        assert!(
+            !result.unwrap(),
+            "try_has_secret should return Ok(false) for missing key"
+        );
     }
 
     /// Test: try_has_secret returns Ok(true) for existing secret
@@ -453,7 +456,10 @@ mod tests {
 
         // Then: returns Ok(true)
         assert!(result.is_ok(), "try_has_secret should return Ok");
-        assert!(result.unwrap(), "try_has_secret should return Ok(true) for existing key");
+        assert!(
+            result.unwrap(),
+            "try_has_secret should return Ok(true) for existing key"
+        );
 
         // Cleanup
         let _ = store.delete_secret(&key);
@@ -604,11 +610,18 @@ mod tests {
         let store = SecretStore::new("");
 
         // Should create successfully
-        assert_eq!(store.service_name(), "", "Empty service name should be preserved");
+        assert_eq!(
+            store.service_name(),
+            "",
+            "Empty service name should be preserved"
+        );
 
         // Debug output should still work
         let debug_str = format!("{:?}", store);
-        assert!(debug_str.contains("SecretStore"), "Debug should contain struct name");
+        assert!(
+            debug_str.contains("SecretStore"),
+            "Debug should contain struct name"
+        );
     }
 
     /// Test: Empty key handling
@@ -858,7 +871,10 @@ mod tests {
         // This is a compile-time type check: try_has_secret returns Result<bool, SecretError>
         let result: Result<bool, SecretError> = store.try_has_secret(&key);
         // With keyring available, non-existent key returns Ok(false)
-        assert!(result.is_ok(), "try_has_secret should return Ok for non-existent key");
+        assert!(
+            result.is_ok(),
+            "try_has_secret should return Ok for non-existent key"
+        );
         assert!(!result.unwrap(), "Non-existent key should return Ok(false)");
     }
 

@@ -5,8 +5,8 @@
 
 use serde_json::Value;
 use tracing::{Event, Subscriber};
-use tracing_subscriber::fmt::FormattedFields;
 use tracing_subscriber::fmt::format::Writer;
+use tracing_subscriber::fmt::FormattedFields;
 use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields};
 use tracing_subscriber::registry::LookupSpan;
 
@@ -30,18 +30,30 @@ pub(crate) const SENSITIVE_FIELDS: &[&str] = &[
 /// Pre-computed suffixes for compound field detection (e.g., `_token`, `-key`).
 /// Avoids per-call `format!` allocations in `is_sensitive()`.
 const SENSITIVE_SUFFIXES: &[&str] = &[
-    "_token", "-token",
-    "_api_key", "-api_key",
-    "_apikey", "-apikey",
-    "_key", "-key",
-    "_secret", "-secret",
-    "_password", "-password",
-    "_passwd", "-passwd",
-    "_pwd", "-pwd",
-    "_auth", "-auth",
-    "_authorization", "-authorization",
-    "_credential", "-credential",
-    "_credentials", "-credentials",
+    "_token",
+    "-token",
+    "_api_key",
+    "-api_key",
+    "_apikey",
+    "-apikey",
+    "_key",
+    "-key",
+    "_secret",
+    "-secret",
+    "_password",
+    "-password",
+    "_passwd",
+    "-passwd",
+    "_pwd",
+    "-pwd",
+    "_auth",
+    "-auth",
+    "_authorization",
+    "-authorization",
+    "_credential",
+    "-credential",
+    "_credentials",
+    "-credentials",
 ];
 
 /// A custom JSON event formatter that redacts sensitive fields.
@@ -86,7 +98,9 @@ impl RedactingVisitor {
         // Suffix match for compound field names like access_token,
         // auth_token, session_key, api_secret, etc.
         // Uses pre-computed SENSITIVE_SUFFIXES to avoid per-call allocations.
-        SENSITIVE_SUFFIXES.iter().any(|suffix| lower.ends_with(suffix))
+        SENSITIVE_SUFFIXES
+            .iter()
+            .any(|suffix| lower.ends_with(suffix))
     }
 
     fn looks_like_url(value: &str) -> bool {
@@ -172,12 +186,10 @@ impl tracing::field::Visit for RedactingVisitor {
             self.fields
                 .insert(name.to_string(), Value::String("[REDACTED]".to_string()));
         } else if let Some(n) = serde_json::Number::from_f64(value) {
-            self.fields
-                .insert(name.to_string(), Value::Number(n));
+            self.fields.insert(name.to_string(), Value::Number(n));
         } else {
             // NaN/Infinity cannot be represented as JSON numbers
-            self.fields
-                .insert(name.to_string(), Value::Null);
+            self.fields.insert(name.to_string(), Value::Null);
         }
     }
 
@@ -187,8 +199,7 @@ impl tracing::field::Visit for RedactingVisitor {
             self.fields
                 .insert(name.to_string(), Value::String("[REDACTED]".to_string()));
         } else {
-            self.fields
-                .insert(name.to_string(), Value::Bool(value));
+            self.fields.insert(name.to_string(), Value::Bool(value));
         }
     }
 }
@@ -237,10 +248,7 @@ where
 
         // Message
         if !visitor.message.is_empty() {
-            obj.insert(
-                "message".to_string(),
-                Value::String(visitor.message),
-            );
+            obj.insert("message".to_string(), Value::String(visitor.message));
         }
 
         // Fields
@@ -267,10 +275,7 @@ where
                     if !rendered.is_empty() {
                         let span_fields = parse_and_redact_span_fields(rendered);
                         if !span_fields.is_empty() {
-                            span_obj.insert(
-                                "fields".to_string(),
-                                Value::Object(span_fields),
-                            );
+                            span_obj.insert("fields".to_string(), Value::Object(span_fields));
                         }
                     }
                 }
@@ -466,10 +471,16 @@ mod tests {
                 tracing::info!($field = "secret_value_123", "test");
                 drop(guard);
                 let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-                assert!(!content.contains("secret_value_123"),
-                        "Field '{}' was not redacted", stringify!($field));
-                assert!(content.contains("[REDACTED]"),
-                        "'{}' should show [REDACTED]", stringify!($field));
+                assert!(
+                    !content.contains("secret_value_123"),
+                    "Field '{}' was not redacted",
+                    stringify!($field)
+                );
+                assert!(
+                    content.contains("[REDACTED]"),
+                    "'{}' should show [REDACTED]",
+                    stringify!($field)
+                );
             }
         };
     }
@@ -506,9 +517,18 @@ mod tests {
         );
         drop(guard);
         let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-        assert!(content.contains("triage"), "command field was incorrectly redacted");
-        assert!(content.contains("success"), "status field was incorrectly redacted");
-        assert!(content.contains("lot-42"), "scope field was incorrectly redacted");
+        assert!(
+            content.contains("triage"),
+            "command field was incorrectly redacted"
+        );
+        assert!(
+            content.contains("success"),
+            "status field was incorrectly redacted"
+        );
+        assert!(
+            content.contains("lot-42"),
+            "scope field was incorrectly redacted"
+        );
     }
 
     // Test 0.5-UNIT-004: URLs with sensitive params are redacted
@@ -528,12 +548,18 @@ mod tests {
         );
         drop(guard);
         let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-        assert!(!content.contains("abc123"),
-                "URL token parameter value should be redacted");
-        assert!(content.contains("[REDACTED]"),
-                "Redacted URL should contain [REDACTED]");
-        assert!(content.contains("user"),
-                "Non-sensitive URL parameter name should be preserved");
+        assert!(
+            !content.contains("abc123"),
+            "URL token parameter value should be redacted"
+        );
+        assert!(
+            content.contains("[REDACTED]"),
+            "Redacted URL should contain [REDACTED]"
+        );
+        assert!(
+            content.contains("user"),
+            "Non-sensitive URL parameter name should be preserved"
+        );
     }
 
     // Test 0.5-UNIT-009: Debug impl of LogGuard does not leak sensitive data
@@ -550,14 +576,22 @@ mod tests {
         let debug_output = format!("{:?}", guard);
 
         // Debug output must not contain sensitive patterns
-        assert!(!debug_output.to_lowercase().contains("secret"),
-                "Debug output should not contain 'secret'");
-        assert!(!debug_output.to_lowercase().contains("password"),
-                "Debug output should not contain 'password'");
-        assert!(!debug_output.to_lowercase().contains("token"),
-                "Debug output should not contain 'token'");
-        assert!(!debug_output.to_lowercase().contains("key"),
-                "Debug output should not contain 'key'");
+        assert!(
+            !debug_output.to_lowercase().contains("secret"),
+            "Debug output should not contain 'secret'"
+        );
+        assert!(
+            !debug_output.to_lowercase().contains("password"),
+            "Debug output should not contain 'password'"
+        );
+        assert!(
+            !debug_output.to_lowercase().contains("token"),
+            "Debug output should not contain 'token'"
+        );
+        assert!(
+            !debug_output.to_lowercase().contains("key"),
+            "Debug output should not contain 'key'"
+        );
     }
 
     #[test]
@@ -616,8 +650,10 @@ mod tests {
         tracing::info!(access_token = "my_secret_tok_123", "compound field test");
         drop(guard);
         let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-        assert!(!content.contains("my_secret_tok_123"),
-                "Compound field 'access_token' value should be redacted");
+        assert!(
+            !content.contains("my_secret_tok_123"),
+            "Compound field 'access_token' value should be redacted"
+        );
         assert!(content.contains("[REDACTED]"));
     }
 
@@ -656,7 +692,10 @@ mod tests {
         let json: serde_json::Value = serde_json::from_str(line).unwrap();
         let fields = json.get("fields").expect("Missing fields");
         let duration = fields.get("duration").expect("Missing duration field");
-        assert!(duration.is_number(), "Float should be stored as JSON number, got: {duration}");
+        assert!(
+            duration.is_number(),
+            "Float should be stored as JSON number, got: {duration}"
+        );
     }
 
     // Test [AI-Review-R4 M2]: numeric and bool sensitive fields are redacted
@@ -670,22 +709,38 @@ mod tests {
             log_to_stdout: false,
         };
         let guard = init_logging(&config).unwrap();
-        tracing::info!(token = 42_i64, api_key = 99_u64, secret = true, "numeric sensitive test");
+        tracing::info!(
+            token = 42_i64,
+            api_key = 99_u64,
+            secret = true,
+            "numeric sensitive test"
+        );
         drop(guard);
         let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
         let line = content.lines().last().unwrap();
         let json: serde_json::Value = serde_json::from_str(line).unwrap();
         let fields = json.get("fields").expect("Missing fields");
         // All three sensitive fields should be "[REDACTED]", not their numeric/bool values
-        assert_eq!(fields.get("token").unwrap(), "[REDACTED]",
-            "i64 sensitive field 'token' should be redacted");
-        assert_eq!(fields.get("api_key").unwrap(), "[REDACTED]",
-            "u64 sensitive field 'api_key' should be redacted");
-        assert_eq!(fields.get("secret").unwrap(), "[REDACTED]",
-            "bool sensitive field 'secret' should be redacted");
+        assert_eq!(
+            fields.get("token").unwrap(),
+            "[REDACTED]",
+            "i64 sensitive field 'token' should be redacted"
+        );
+        assert_eq!(
+            fields.get("api_key").unwrap(),
+            "[REDACTED]",
+            "u64 sensitive field 'api_key' should be redacted"
+        );
+        assert_eq!(
+            fields.get("secret").unwrap(),
+            "[REDACTED]",
+            "bool sensitive field 'secret' should be redacted"
+        );
         // Ensure the raw numeric values don't appear
-        assert!(!content.contains("\"42\"") && !content.contains(":42,") && !content.contains(":42}"),
-            "Numeric value 42 should not appear in output");
+        assert!(
+            !content.contains("\"42\"") && !content.contains(":42,") && !content.contains(":42}"),
+            "Numeric value 42 should not appear in output"
+        );
     }
 
     // --- P0: format_rfc3339() tests ---
@@ -795,16 +850,24 @@ mod tests {
     fn test_parse_and_redact_span_fields_preserves_types() {
         let rendered = "count=42 enabled=true ratio=3.14 name=\"alice\"";
         let result = parse_and_redact_span_fields(rendered);
-        assert!(result.get("count").unwrap().is_number(),
-            "Integer span field should be parsed as JSON number");
+        assert!(
+            result.get("count").unwrap().is_number(),
+            "Integer span field should be parsed as JSON number"
+        );
         assert_eq!(result.get("count").unwrap(), 42);
-        assert!(result.get("enabled").unwrap().is_boolean(),
-            "Boolean span field should be parsed as JSON boolean");
+        assert!(
+            result.get("enabled").unwrap().is_boolean(),
+            "Boolean span field should be parsed as JSON boolean"
+        );
         assert_eq!(result.get("enabled").unwrap(), true);
-        assert!(result.get("ratio").unwrap().is_number(),
-            "Float span field should be parsed as JSON number");
-        assert!(result.get("name").unwrap().is_string(),
-            "Quoted span field should remain a JSON string");
+        assert!(
+            result.get("ratio").unwrap().is_number(),
+            "Float span field should be parsed as JSON number"
+        );
+        assert!(
+            result.get("name").unwrap().is_string(),
+            "Quoted span field should remain a JSON string"
+        );
         assert_eq!(result.get("name").unwrap(), "alice");
     }
 
@@ -827,15 +890,23 @@ mod tests {
         let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
         let line = content.lines().last().unwrap();
         let json: serde_json::Value = serde_json::from_str(line).unwrap();
-        let spans = json.get("spans").and_then(|v| v.as_array())
+        let spans = json
+            .get("spans")
+            .and_then(|v| v.as_array())
             .expect("Expected 'spans' array");
         let span_obj = &spans[0];
         let fields = span_obj.get("fields").expect("Expected 'fields' in span");
         let count = fields.get("count").expect("Missing count field");
         let active = fields.get("active").expect("Missing active field");
-        assert!(count.is_number(), "count should be a JSON number, got: {count}");
+        assert!(
+            count.is_number(),
+            "count should be a JSON number, got: {count}"
+        );
         assert_eq!(count, 42);
-        assert!(active.is_boolean(), "active should be a JSON boolean, got: {active}");
+        assert!(
+            active.is_boolean(),
+            "active should be a JSON boolean, got: {active}"
+        );
         assert_eq!(active, true);
     }
 
@@ -856,10 +927,14 @@ mod tests {
         drop(_entered);
         drop(guard);
         let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
-        assert!(!content.contains("super_secret_value"),
-                "Span sensitive field 'token' value should be redacted in log output");
-        assert!(content.contains("[REDACTED]"),
-                "Span field should show [REDACTED]");
+        assert!(
+            !content.contains("super_secret_value"),
+            "Span sensitive field 'token' value should be redacted in log output"
+        );
+        assert!(
+            content.contains("[REDACTED]"),
+            "Span field should show [REDACTED]"
+        );
     }
 
     // Test [AI-Review-R7 M2]: free-text message is NOT scanned for secrets
@@ -884,12 +959,16 @@ mod tests {
         drop(guard);
         let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
         // Named field IS redacted (correct behavior)
-        assert!(!content.contains("secret_in_field_xyz"),
-                "Named field secret should be redacted");
+        assert!(
+            !content.contains("secret_in_field_xyz"),
+            "Named field secret should be redacted"
+        );
         // Free-text message is NOT scanned (known limitation, documented)
-        assert!(content.contains("secret_in_message_abc"),
-                "Free-text message is NOT scanned — this is a documented limitation. \
-                 Callers must use named fields for sensitive data.");
+        assert!(
+            content.contains("secret_in_message_abc"),
+            "Free-text message is NOT scanned — this is a documented limitation. \
+                 Callers must use named fields for sensitive data."
+        );
     }
 
     // Test [AI-Review-R6 L3]: span fields rendered as structured JSON, not opaque string
@@ -911,13 +990,17 @@ mod tests {
         let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
         let line = content.lines().last().unwrap();
         let json: serde_json::Value = serde_json::from_str(line).unwrap();
-        let spans = json.get("spans").and_then(|v| v.as_array())
+        let spans = json
+            .get("spans")
+            .and_then(|v| v.as_array())
             .expect("Expected 'spans' array");
         let span_obj = &spans[0];
         let fields = span_obj.get("fields").expect("Expected 'fields' in span");
         // Fields should be a JSON object, not a string
-        assert!(fields.is_object(),
-            "Span fields should be a JSON object, got: {fields}");
+        assert!(
+            fields.is_object(),
+            "Span fields should be a JSON object, got: {fields}"
+        );
         let fields_map = fields.as_object().unwrap();
         assert_eq!(fields_map.get("command").unwrap(), "triage");
         assert_eq!(fields_map.get("scope").unwrap(), "lot-42");

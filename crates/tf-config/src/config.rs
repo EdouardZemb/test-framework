@@ -216,18 +216,45 @@ pub fn redact_url_sensitive_params(url: &str) -> String {
     // Includes both snake_case and camelCase variants
     const SENSITIVE_PARAMS: &[&str] = &[
         // Common names
-        "token", "api_key", "apikey", "key", "secret",
-        "password", "passwd", "pwd", "auth", "authorization",
+        "token",
+        "api_key",
+        "apikey",
+        "key",
+        "secret",
+        "password",
+        "passwd",
+        "pwd",
+        "auth",
+        "authorization",
         // snake_case variants
-        "access_token", "refresh_token", "bearer", "credentials",
-        "client_secret", "private_key", "session_token", "auth_token",
+        "access_token",
+        "refresh_token",
+        "bearer",
+        "credentials",
+        "client_secret",
+        "private_key",
+        "session_token",
+        "auth_token",
         // camelCase variants
-        "accesstoken", "refreshtoken", "clientsecret", "privatekey",
-        "sessiontoken", "authtoken", "apitoken", "secretkey",
-        "accesskey", "secretaccesskey",
+        "accesstoken",
+        "refreshtoken",
+        "clientsecret",
+        "privatekey",
+        "sessiontoken",
+        "authtoken",
+        "apitoken",
+        "secretkey",
+        "accesskey",
+        "secretaccesskey",
         // kebab-case variants (with hyphens)
-        "api-key", "access-token", "refresh-token", "client-secret",
-        "private-key", "session-token", "auth-token", "secret-key",
+        "api-key",
+        "access-token",
+        "refresh-token",
+        "client-secret",
+        "private-key",
+        "session-token",
+        "auth-token",
+        "secret-key",
         "access-key",
     ];
 
@@ -411,8 +438,19 @@ pub fn redact_url_sensitive_params(url: &str) -> String {
 fn redact_url_path_secrets(path: &str) -> String {
     // Sensitive path segment indicators - the segment AFTER these will be redacted
     const SENSITIVE_PATH_SEGMENTS: &[&str] = &[
-        "token", "tokens", "api_key", "apikey", "key", "keys", "secret", "secrets",
-        "password", "auth", "credential", "credentials", "access_token",
+        "token",
+        "tokens",
+        "api_key",
+        "apikey",
+        "key",
+        "keys",
+        "secret",
+        "secrets",
+        "password",
+        "auth",
+        "credential",
+        "credentials",
+        "access_token",
     ];
 
     let segments: Vec<&str> = path.split('/').collect();
@@ -514,7 +552,8 @@ impl Redact for SquashConfig {
     fn redacted(&self) -> String {
         format!(
             "SquashConfig {{ endpoint: {:?}, username: {:?}, password: [REDACTED] }}",
-            redact_url_sensitive_params(&self.endpoint), self.username
+            redact_url_sensitive_params(&self.endpoint),
+            self.username
         )
     }
 }
@@ -534,9 +573,14 @@ impl Redact for LlmConfig {
             "LlmConfig {{ mode: {:?}, local_endpoint: {:?}, local_model: {:?}, \
              cloud_enabled: {}, cloud_endpoint: {:?}, cloud_model: {:?}, \
              api_key: [REDACTED], timeout_seconds: {}, max_tokens: {} }}",
-            self.mode, redacted_local_endpoint, self.local_model,
-            self.cloud_enabled, redacted_cloud_endpoint, self.cloud_model,
-            self.timeout_seconds, self.max_tokens
+            self.mode,
+            redacted_local_endpoint,
+            self.local_model,
+            self.cloud_enabled,
+            redacted_cloud_endpoint,
+            self.cloud_model,
+            self.timeout_seconds,
+            self.max_tokens
         )
     }
 }
@@ -748,7 +792,12 @@ impl ProjectConfig {
 
         format!(
             "{}\nOutput folder: {}\n{}\n{}\n{}\n{}",
-            profile_status, self.output_folder, jira_status, squash_status, llm_status, templates_status
+            profile_status,
+            self.output_folder,
+            jira_status,
+            squash_status,
+            llm_status,
+            templates_status
         )
     }
 }
@@ -843,19 +892,25 @@ pub fn load_config(path: &Path) -> Result<ProjectConfig, ConfigError> {
                     SerdeErrorKind::MissingField { field, hint } => {
                         ConfigError::missing_field(field, hint)
                     }
-                    SerdeErrorKind::InvalidEnumValue { field, reason, hint } => {
-                        ConfigError::invalid_value(field, reason, hint)
-                    }
-                    SerdeErrorKind::InvalidEnumValueDynamic { field, reason, hint } => {
-                        ConfigError::invalid_value(field, reason, hint)
-                    }
-                    SerdeErrorKind::UnknownField { field, location, hint } => {
-                        ConfigError::invalid_value(
-                            format!("{}.{}", location, field),
-                            "is not a recognized configuration field",
-                            hint,
-                        )
-                    }
+                    SerdeErrorKind::InvalidEnumValue {
+                        field,
+                        reason,
+                        hint,
+                    } => ConfigError::invalid_value(field, reason, hint),
+                    SerdeErrorKind::InvalidEnumValueDynamic {
+                        field,
+                        reason,
+                        hint,
+                    } => ConfigError::invalid_value(field, reason, hint),
+                    SerdeErrorKind::UnknownField {
+                        field,
+                        location,
+                        hint,
+                    } => ConfigError::invalid_value(
+                        format!("{}.{}", location, field),
+                        "is not a recognized configuration field",
+                        hint,
+                    ),
                 });
             }
             return Err(ConfigError::ParseError(e));
@@ -871,13 +926,28 @@ pub fn load_config(path: &Path) -> Result<ProjectConfig, ConfigError> {
 /// Result of parsing a serde error for user-friendly transformation
 enum SerdeErrorKind {
     /// Missing required field
-    MissingField { field: &'static str, hint: &'static str },
+    MissingField {
+        field: &'static str,
+        hint: &'static str,
+    },
     /// Invalid enum variant (static field name)
-    InvalidEnumValue { field: &'static str, reason: &'static str, hint: &'static str },
+    InvalidEnumValue {
+        field: &'static str,
+        reason: &'static str,
+        hint: &'static str,
+    },
     /// Invalid enum variant (dynamic field name extracted from error message)
-    InvalidEnumValueDynamic { field: String, reason: &'static str, hint: &'static str },
+    InvalidEnumValueDynamic {
+        field: String,
+        reason: &'static str,
+        hint: &'static str,
+    },
     /// Unknown field (when deny_unknown_fields is active)
-    UnknownField { field: String, location: &'static str, hint: &'static str },
+    UnknownField {
+        field: String,
+        location: &'static str,
+        hint: &'static str,
+    },
 }
 
 /// Extract field path from serde_yaml error message patterns.
@@ -898,7 +968,10 @@ fn extract_field_from_error(err_msg: &str) -> Option<String> {
             if let Some(end) = rest.find([':', ' ', '\n']) {
                 let field_path = &rest[..end];
                 // Validate it looks like a field path (only alphanumeric, dots, underscores)
-                if field_path.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '_') {
+                if field_path
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '.' || c == '_')
+                {
                     return Some(field_path.to_string());
                 }
             }
@@ -950,7 +1023,10 @@ fn extract_location_from_error(err_msg: &str) -> String {
         let location_end = after_line.len().min(30);
         let location = after_line[..location_end].trim();
         if location.chars().any(|c| c.is_ascii_digit()) {
-            return format!(" (at {})", location.trim_end_matches(|c: char| !c.is_ascii_digit()));
+            return format!(
+                " (at {})",
+                location.trim_end_matches(|c: char| !c.is_ascii_digit())
+            );
         }
     }
     String::new()
@@ -1014,7 +1090,9 @@ fn parse_serde_error(err_msg: &str) -> Option<SerdeErrorKind> {
 
     // Handle invalid enum variant errors for LlmMode
     // serde_yaml format: "unknown variant `invalid`, expected one of `auto`, `local`, `cloud`"
-    if err_msg.contains("unknown variant") && (err_msg.contains("auto") || err_msg.contains("local") || err_msg.contains("cloud")) {
+    if err_msg.contains("unknown variant")
+        && (err_msg.contains("auto") || err_msg.contains("local") || err_msg.contains("cloud"))
+    {
         return Some(SerdeErrorKind::InvalidEnumValue {
             field: "llm.mode",
             reason: "is not a valid mode",
@@ -1058,7 +1136,9 @@ fn parse_serde_error(err_msg: &str) -> Option<SerdeErrorKind> {
         // serde_yaml format: "invalid type: integer `123`, expected struct TemplatesConfig"
         // or: "invalid type: string \"yes\", expected struct LlmConfig"
 
-        if err_msg.contains("TemplatesConfig") || (err_msg.contains("templates") && err_msg.contains("expected struct")) {
+        if err_msg.contains("TemplatesConfig")
+            || (err_msg.contains("templates") && err_msg.contains("expected struct"))
+        {
             return Some(SerdeErrorKind::InvalidEnumValue {
                 field: "templates",
                 reason: "has invalid type (expected a section with fields, not a scalar value)",
@@ -1066,7 +1146,9 @@ fn parse_serde_error(err_msg: &str) -> Option<SerdeErrorKind> {
             });
         }
 
-        if err_msg.contains("LlmConfig") || (err_msg.contains("llm") && err_msg.contains("expected struct")) {
+        if err_msg.contains("LlmConfig")
+            || (err_msg.contains("llm") && err_msg.contains("expected struct"))
+        {
             return Some(SerdeErrorKind::InvalidEnumValue {
                 field: "llm",
                 reason: "has invalid type (expected a section with fields, not a scalar value)",
@@ -1074,7 +1156,9 @@ fn parse_serde_error(err_msg: &str) -> Option<SerdeErrorKind> {
             });
         }
 
-        if err_msg.contains("JiraConfig") || (err_msg.contains("jira") && err_msg.contains("expected struct")) {
+        if err_msg.contains("JiraConfig")
+            || (err_msg.contains("jira") && err_msg.contains("expected struct"))
+        {
             return Some(SerdeErrorKind::InvalidEnumValue {
                 field: "jira",
                 reason: "has invalid type (expected a section with fields, not a scalar value)",
@@ -1082,7 +1166,9 @@ fn parse_serde_error(err_msg: &str) -> Option<SerdeErrorKind> {
             });
         }
 
-        if err_msg.contains("SquashConfig") || (err_msg.contains("squash") && err_msg.contains("expected struct")) {
+        if err_msg.contains("SquashConfig")
+            || (err_msg.contains("squash") && err_msg.contains("expected struct"))
+        {
             return Some(SerdeErrorKind::InvalidEnumValue {
                 field: "squash",
                 reason: "has invalid type (expected a section with fields, not a scalar value)",
@@ -1093,14 +1179,19 @@ fn parse_serde_error(err_msg: &str) -> Option<SerdeErrorKind> {
         // Handle scalar field type errors within LlmConfig
         // serde_yaml format: "invalid type: string \"abc\", expected u32"
         // These occur for timeout_seconds, max_tokens fields
-        if err_msg.contains("expected u32") || err_msg.contains("expected u64") || err_msg.contains("expected i32") || err_msg.contains("expected i64") {
+        if err_msg.contains("expected u32")
+            || err_msg.contains("expected u64")
+            || err_msg.contains("expected i32")
+            || err_msg.contains("expected i64")
+        {
             // Check if this is within llm section by looking for llm-specific field names
             if err_msg.contains("timeout") || err_msg.contains("max_token") {
                 if err_msg.contains("timeout") {
                     return Some(SerdeErrorKind::InvalidEnumValue {
                         field: "llm.timeout_seconds",
                         reason: "has invalid type (expected an integer)",
-                        hint: "a positive integer for timeout in seconds (e.g., timeout_seconds: 120)",
+                        hint:
+                            "a positive integer for timeout in seconds (e.g., timeout_seconds: 120)",
                     });
                 }
                 if err_msg.contains("max_token") {
@@ -1124,7 +1215,8 @@ fn parse_serde_error(err_msg: &str) -> Option<SerdeErrorKind> {
             return Some(SerdeErrorKind::InvalidEnumValueDynamic {
                 field: format!("integer field{}", location_hint),
                 reason: "has invalid type (expected an integer)",
-                hint: "a valid positive integer - check timeout_seconds, max_tokens, or port numbers",
+                hint:
+                    "a valid positive integer - check timeout_seconds, max_tokens, or port numbers",
             });
         }
 
@@ -1151,7 +1243,10 @@ fn parse_serde_error(err_msg: &str) -> Option<SerdeErrorKind> {
 
         // Handle string type errors with field extraction
         // serde_yaml may include field path in various formats
-        if err_msg.contains("expected a string") && !err_msg.contains("project_name") && !err_msg.contains("output_folder") {
+        if err_msg.contains("expected a string")
+            && !err_msg.contains("project_name")
+            && !err_msg.contains("output_folder")
+        {
             // Try to extract field name from serde_yaml error message patterns:
             // Pattern 1: "jira.token: invalid type" (field path prefix)
             // Pattern 2: "at line X, column Y, while parsing jira.token" (path in context)
@@ -1166,7 +1261,11 @@ fn parse_serde_error(err_msg: &str) -> Option<SerdeErrorKind> {
 
             // Check for known nested string fields by context
             if err_msg.contains("token") {
-                let section = if err_msg.to_lowercase().contains("jira") { "jira" } else { "configuration" };
+                let section = if err_msg.to_lowercase().contains("jira") {
+                    "jira"
+                } else {
+                    "configuration"
+                };
                 return Some(SerdeErrorKind::InvalidEnumValueDynamic {
                     field: format!("{}.token", section),
                     reason: "has invalid type (expected a string)",
@@ -1311,14 +1410,19 @@ fn detect_section_from_expected_fields(err_msg: &str) -> &'static str {
 
         // Check for jira-specific fields (endpoint, token)
         // Jira has only endpoint and token, so if we see both, it's jira
-        if expected_section.contains("`endpoint`") && expected_section.contains("`token`")
-           && !expected_section.contains("`username`") && !expected_section.contains("`mode`") {
+        if expected_section.contains("`endpoint`")
+            && expected_section.contains("`token`")
+            && !expected_section.contains("`username`")
+            && !expected_section.contains("`mode`")
+        {
             return "jira";
         }
 
         // Check for squash-specific fields (endpoint, username, password)
-        if expected_section.contains("`endpoint`") && expected_section.contains("`username`")
-           && expected_section.contains("`password`") {
+        if expected_section.contains("`endpoint`")
+            && expected_section.contains("`username`")
+            && expected_section.contains("`password`")
+        {
             return "squash";
         }
 
@@ -1328,13 +1432,17 @@ fn detect_section_from_expected_fields(err_msg: &str) -> &'static str {
         }
 
         // Check for templates-specific fields (cr, ppt, anomaly)
-        if expected_section.contains("`cr`") && expected_section.contains("`ppt`")
-           && expected_section.contains("`anomaly`") {
+        if expected_section.contains("`cr`")
+            && expected_section.contains("`ppt`")
+            && expected_section.contains("`anomaly`")
+        {
             return "templates";
         }
 
         // Check for root-level fields (project_name, output_folder, jira, squash, etc.)
-        if expected_section.contains("`project_name`") && expected_section.contains("`output_folder`") {
+        if expected_section.contains("`project_name`")
+            && expected_section.contains("`output_folder`")
+        {
             return "root";
         }
     }
@@ -1387,14 +1495,13 @@ fn is_valid_url(url: &str) -> bool {
     // Extract host and port (before path, query, or fragment)
     // URL format: host[:port][/path][?query][#fragment]
     // We need to handle URLs without path like "https://host?query" or "https://host#frag"
-    let host_port_end = trimmed
-        .find('/')
-        .unwrap_or_else(|| {
-            // No path - check for query or fragment
-            trimmed.find('?')
-                .or_else(|| trimmed.find('#'))
-                .unwrap_or(trimmed.len())
-        });
+    let host_port_end = trimmed.find('/').unwrap_or_else(|| {
+        // No path - check for query or fragment
+        trimmed
+            .find('?')
+            .or_else(|| trimmed.find('#'))
+            .unwrap_or(trimmed.len())
+    });
     let host_port = &trimmed[..host_port_end];
 
     // Handle IPv6 addresses: [::1] or [::1]:8080
@@ -1424,7 +1531,10 @@ fn is_valid_url(url: &str) -> bool {
                 }
                 // Zone ID should contain only alphanumeric characters and common interface name chars
                 // Allow: alphanumeric, hyphen, underscore, dot (common in interface names like eth0, wlan-0, etc.)
-                if !zone.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.') {
+                if !zone
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+                {
                     return false;
                 }
             }
@@ -1569,7 +1679,9 @@ fn is_valid_url(url: &str) -> bool {
 
     // Check if this looks like an IPv4 address (all labels are purely numeric)
     // If so, validate each octet is in range 0-255
-    let all_numeric = labels.iter().all(|label| label.chars().all(|c| c.is_ascii_digit()));
+    let all_numeric = labels
+        .iter()
+        .all(|label| label.chars().all(|c| c.is_ascii_digit()));
     if all_numeric && labels.len() == 4 {
         // This is an IPv4 address - validate each octet
         for label in &labels {
@@ -2142,7 +2254,8 @@ jira:
         // Truly invalid YAML should result in a parsing error
         assert!(
             err_msg.to_lowercase().contains("parse") || err_msg.contains("expected"),
-            "Expected parse error, got: {}", err_msg
+            "Expected parse error, got: {}",
+            err_msg
         );
     }
 
@@ -2642,7 +2755,10 @@ templates:
         use crate::template::TemplateKind;
         assert!(has_valid_template_extension("file.md", TemplateKind::Cr));
         assert!(has_valid_template_extension("file.MD", TemplateKind::Cr));
-        assert!(has_valid_template_extension("path/to/file.pptx", TemplateKind::Ppt));
+        assert!(has_valid_template_extension(
+            "path/to/file.pptx",
+            TemplateKind::Ppt
+        ));
         assert!(!has_valid_template_extension("file.txt", TemplateKind::Cr));
         assert!(!has_valid_template_extension("file.ppt", TemplateKind::Ppt));
     }
@@ -2764,10 +2880,16 @@ llm:
 
         let llm = config.llm.unwrap();
         assert_eq!(llm.mode, LlmMode::Cloud);
-        assert_eq!(llm.local_endpoint.as_deref(), Some("http://localhost:11434"));
+        assert_eq!(
+            llm.local_endpoint.as_deref(),
+            Some("http://localhost:11434")
+        );
         assert_eq!(llm.local_model.as_deref(), Some("mistral:7b-instruct"));
         assert!(llm.cloud_enabled);
-        assert_eq!(llm.cloud_endpoint.as_deref(), Some("https://api.openai.com/v1"));
+        assert_eq!(
+            llm.cloud_endpoint.as_deref(),
+            Some("https://api.openai.com/v1")
+        );
         assert_eq!(llm.cloud_model.as_deref(), Some("gpt-4o-mini"));
         assert_eq!(llm.api_key.as_deref(), Some("sk-secret-key"));
         assert_eq!(llm.timeout_seconds, 60);
@@ -3065,7 +3187,8 @@ typo_field: "value"
         // Should mention valid fields or indicate it's not recognized
         assert!(
             err_msg.contains("not a recognized") || err_msg.contains("unknown"),
-            "Error should indicate field is unknown: {}", err_msg
+            "Error should indicate field is unknown: {}",
+            err_msg
         );
     }
 
@@ -3130,7 +3253,10 @@ llm:
         let config = result.unwrap();
         let llm = config.llm.unwrap();
         assert_eq!(llm.mode, LlmMode::Cloud);
-        assert_eq!(llm.cloud_endpoint.as_deref(), Some("https://api.openai.com/v1"));
+        assert_eq!(
+            llm.cloud_endpoint.as_deref(),
+            Some("https://api.openai.com/v1")
+        );
         assert_eq!(llm.cloud_model.as_deref(), Some("gpt-4o-mini"));
     }
 
@@ -3186,7 +3312,7 @@ squash:
         assert!(!is_valid_url(&format!("http://{}", long_host)));
 
         // Invalid characters in hostname
-        assert!(!is_valid_url("http://jira_server"));  // underscore not allowed
+        assert!(!is_valid_url("http://jira_server")); // underscore not allowed
 
         // Note: "http://jira.server" IS valid - it's a dotted hostname
         // and goes through the standard dot validation path
@@ -3258,7 +3384,11 @@ squash:
         // Should fail either at parse or validation
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("squash") || err_msg.contains("invalid type") || err_msg.contains("expected"));
+        assert!(
+            err_msg.contains("squash")
+                || err_msg.contains("invalid type")
+                || err_msg.contains("expected")
+        );
     }
 
     // === REVIEW 10 TESTS: Scalar field type errors ===
@@ -3279,8 +3409,11 @@ llm:
         let err_msg = result.unwrap_err().to_string();
         // Should provide field-specific hint
         assert!(
-            err_msg.contains("timeout") || err_msg.contains("invalid type") || err_msg.contains("integer"),
-            "Expected timeout-related error, got: {}", err_msg
+            err_msg.contains("timeout")
+                || err_msg.contains("invalid type")
+                || err_msg.contains("integer"),
+            "Expected timeout-related error, got: {}",
+            err_msg
         );
     }
 
@@ -3300,8 +3433,11 @@ llm:
         let err_msg = result.unwrap_err().to_string();
         // Should provide field-specific hint
         assert!(
-            err_msg.contains("max_token") || err_msg.contains("invalid type") || err_msg.contains("integer"),
-            "Expected max_tokens-related error, got: {}", err_msg
+            err_msg.contains("max_token")
+                || err_msg.contains("invalid type")
+                || err_msg.contains("integer"),
+            "Expected max_tokens-related error, got: {}",
+            err_msg
         );
     }
 
@@ -3329,8 +3465,11 @@ llm:
                 // If it failed, should have a meaningful error
                 let err_msg = e.to_string();
                 assert!(
-                    err_msg.contains("timeout") || err_msg.contains("invalid") || err_msg.contains("type"),
-                    "Expected timeout-related error, got: {}", err_msg
+                    err_msg.contains("timeout")
+                        || err_msg.contains("invalid")
+                        || err_msg.contains("type"),
+                    "Expected timeout-related error, got: {}",
+                    err_msg
                 );
             }
         }
@@ -3353,8 +3492,11 @@ llm:
         let err_msg = result.unwrap_err().to_string();
         // Should mention llm fields in the hint
         assert!(
-            err_msg.contains("llm") || err_msg.contains("mode") || err_msg.contains("local_endpoint"),
-            "Expected llm section hint, got: {}", err_msg
+            err_msg.contains("llm")
+                || err_msg.contains("mode")
+                || err_msg.contains("local_endpoint"),
+            "Expected llm section hint, got: {}",
+            err_msg
         );
     }
 
@@ -3375,7 +3517,8 @@ jira:
         // Should provide jira-specific hint
         assert!(
             err_msg.contains("jira") || err_msg.contains("endpoint") || err_msg.contains("token"),
-            "Expected jira section hint, got: {}", err_msg
+            "Expected jira section hint, got: {}",
+            err_msg
         );
     }
 
@@ -3628,8 +3771,12 @@ llm:
         let err_msg = result.unwrap_err().to_string();
         // Should provide a helpful message about boolean type
         assert!(
-            err_msg.contains("boolean") || err_msg.contains("true") || err_msg.contains("false") || err_msg.contains("cloud_enabled"),
-            "Expected boolean-related error, got: {}", err_msg
+            err_msg.contains("boolean")
+                || err_msg.contains("true")
+                || err_msg.contains("false")
+                || err_msg.contains("cloud_enabled"),
+            "Expected boolean-related error, got: {}",
+            err_msg
         );
     }
 
@@ -3649,7 +3796,8 @@ llm:
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("boolean") || err_msg.contains("true") || err_msg.contains("false"),
-            "Expected boolean-related error, got: {}", err_msg
+            "Expected boolean-related error, got: {}",
+            err_msg
         );
     }
 
@@ -3815,7 +3963,10 @@ llm:
         // OAuth implicit flow puts tokens in fragments - must be redacted (AC #3)
         let url = "https://example.com/callback#access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9";
         let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"), "Fragment token should be redacted");
+        assert!(
+            !redacted.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"),
+            "Fragment token should be redacted"
+        );
         assert!(redacted.contains("access_token=[REDACTED]"));
     }
 
@@ -3824,7 +3975,10 @@ llm:
         // API key in fragment should be redacted
         let url = "https://example.com#api_key=sk-secret123";
         let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("sk-secret123"), "Fragment api_key should be redacted");
+        assert!(
+            !redacted.contains("sk-secret123"),
+            "Fragment api_key should be redacted"
+        );
         assert!(redacted.contains("api_key=[REDACTED]"));
     }
 
@@ -3833,10 +3987,19 @@ llm:
         // Multiple params in fragment - redact only sensitive ones
         let url = "https://example.com#state=abc&token=secret&redirect=/home";
         let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("secret"), "Fragment token should be redacted");
-        assert!(redacted.contains("state=abc"), "Non-sensitive param should remain");
+        assert!(
+            !redacted.contains("secret"),
+            "Fragment token should be redacted"
+        );
+        assert!(
+            redacted.contains("state=abc"),
+            "Non-sensitive param should remain"
+        );
         assert!(redacted.contains("token=[REDACTED]"));
-        assert!(redacted.contains("redirect=/home"), "Non-sensitive param should remain");
+        assert!(
+            redacted.contains("redirect=/home"),
+            "Non-sensitive param should remain"
+        );
     }
 
     #[test]
@@ -3844,8 +4007,14 @@ llm:
         // Both query and fragment params should be redacted
         let url = "https://example.com?api_key=query_secret#token=frag_secret";
         let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("query_secret"), "Query api_key should be redacted");
-        assert!(!redacted.contains("frag_secret"), "Fragment token should be redacted");
+        assert!(
+            !redacted.contains("query_secret"),
+            "Query api_key should be redacted"
+        );
+        assert!(
+            !redacted.contains("frag_secret"),
+            "Fragment token should be redacted"
+        );
         assert!(redacted.contains("api_key=[REDACTED]"));
         assert!(redacted.contains("token=[REDACTED]"));
     }
@@ -3855,7 +4024,10 @@ llm:
         // Fragment without sensitive params should remain unchanged
         let url = "https://example.com#section=intro&page=2";
         let redacted = redact_url_sensitive_params(url);
-        assert_eq!(redacted, url, "Non-sensitive fragment should remain unchanged");
+        assert_eq!(
+            redacted, url,
+            "Non-sensitive fragment should remain unchanged"
+        );
     }
 
     #[test]
@@ -3863,7 +4035,10 @@ llm:
         // Simple fragment identifier (no key=value) should remain unchanged
         let url = "https://example.com/docs#introduction";
         let redacted = redact_url_sensitive_params(url);
-        assert_eq!(redacted, url, "Simple fragment identifier should remain unchanged");
+        assert_eq!(
+            redacted, url,
+            "Simple fragment identifier should remain unchanged"
+        );
     }
 
     #[test]
@@ -3874,7 +4049,11 @@ llm:
         };
 
         let debug_output = format!("{:?}", jira);
-        assert!(!debug_output.contains("secret"), "Endpoint token should be redacted: {}", debug_output);
+        assert!(
+            !debug_output.contains("secret"),
+            "Endpoint token should be redacted: {}",
+            debug_output
+        );
         assert!(debug_output.contains("[REDACTED]"));
     }
 
@@ -3887,7 +4066,11 @@ llm:
         };
 
         let debug_output = format!("{:?}", squash);
-        assert!(!debug_output.contains("secret123"), "Endpoint password should be redacted: {}", debug_output);
+        assert!(
+            !debug_output.contains("secret123"),
+            "Endpoint password should be redacted: {}",
+            debug_output
+        );
         assert!(debug_output.contains("[REDACTED]"));
     }
 
@@ -3899,7 +4082,11 @@ llm:
         };
 
         let redacted = jira.redacted();
-        assert!(!redacted.contains("sk-12345"), "Endpoint api_key should be redacted: {}", redacted);
+        assert!(
+            !redacted.contains("sk-12345"),
+            "Endpoint api_key should be redacted: {}",
+            redacted
+        );
         assert!(redacted.contains("[REDACTED]"));
     }
 
@@ -3973,30 +4160,54 @@ jira:
     fn test_ipv6_invalid_forms_rejected() {
         // Invalid IPv6 with too many consecutive colons (::::)
         assert!(!is_valid_url("http://[::::]"), ":::: should be rejected");
-        assert!(!is_valid_url("http://[::::]:8080"), ":::: with port should be rejected");
-        assert!(!is_valid_url("http://[1:::2]"), "::: (triple colon) should be rejected");
-        assert!(!is_valid_url("http://[:::1]"), "::: at start should be rejected");
-        assert!(!is_valid_url("http://[1:::]"), "::: at end should be rejected");
+        assert!(
+            !is_valid_url("http://[::::]:8080"),
+            ":::: with port should be rejected"
+        );
+        assert!(
+            !is_valid_url("http://[1:::2]"),
+            "::: (triple colon) should be rejected"
+        );
+        assert!(
+            !is_valid_url("http://[:::1]"),
+            "::: at start should be rejected"
+        );
+        assert!(
+            !is_valid_url("http://[1:::]"),
+            "::: at end should be rejected"
+        );
     }
 
     #[test]
     fn test_ipv6_multiple_double_colon_rejected() {
         // Multiple :: groups are not allowed
-        assert!(!is_valid_url("http://[::1::2]"), "Multiple :: should be rejected");
-        assert!(!is_valid_url("http://[1::2::3]"), "Multiple :: should be rejected");
+        assert!(
+            !is_valid_url("http://[::1::2]"),
+            "Multiple :: should be rejected"
+        );
+        assert!(
+            !is_valid_url("http://[1::2::3]"),
+            "Multiple :: should be rejected"
+        );
     }
 
     #[test]
     fn test_ipv6_too_many_colons_rejected() {
         // More than 7 colons (8 groups) is invalid
-        assert!(!is_valid_url("http://[1:2:3:4:5:6:7:8:9]"), "More than 8 groups should be rejected");
+        assert!(
+            !is_valid_url("http://[1:2:3:4:5:6:7:8:9]"),
+            "More than 8 groups should be rejected"
+        );
     }
 
     #[test]
     fn test_ipv6_double_colon_alone_valid() {
         // :: alone is valid (represents all zeros - 0:0:0:0:0:0:0:0)
         assert!(is_valid_url("http://[::]"), ":: alone should be valid");
-        assert!(is_valid_url("http://[::]:8080"), ":: with port should be valid");
+        assert!(
+            is_valid_url("http://[::]:8080"),
+            ":: with port should be valid"
+        );
     }
 
     #[test]
@@ -4014,7 +4225,11 @@ jira:
         };
 
         let debug_output = format!("{:?}", llm);
-        assert!(!debug_output.contains("secret123"), "cloud_endpoint api_key should be redacted in Debug: {}", debug_output);
+        assert!(
+            !debug_output.contains("secret123"),
+            "cloud_endpoint api_key should be redacted in Debug: {}",
+            debug_output
+        );
         assert!(debug_output.contains("[REDACTED]"));
         assert!(debug_output.contains("foo=bar")); // Non-sensitive params should remain
     }
@@ -4034,7 +4249,11 @@ jira:
         };
 
         let redacted = llm.redacted();
-        assert!(!redacted.contains("mysecret"), "cloud_endpoint token should be redacted in Redact: {}", redacted);
+        assert!(
+            !redacted.contains("mysecret"),
+            "cloud_endpoint token should be redacted in Redact: {}",
+            redacted
+        );
         assert!(redacted.contains("[REDACTED]"));
         assert!(redacted.contains("version=v1")); // Non-sensitive params should remain
     }
@@ -4052,7 +4271,11 @@ output_folder: 123
         let result = load_config(file.path());
 
         // Should succeed - numeric folder names are legitimate
-        assert!(result.is_ok(), "Numeric folder names should be accepted: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Numeric folder names should be accepted: {:?}",
+            result.err()
+        );
         let config = result.unwrap();
         assert_eq!(config.output_folder, "123");
     }
@@ -4067,7 +4290,11 @@ output_folder: "2026"
         let file = create_temp_config(yaml);
         let result = load_config(file.path());
 
-        assert!(result.is_ok(), "Year folder names should be accepted: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Year folder names should be accepted: {:?}",
+            result.err()
+        );
         let config = result.unwrap();
         assert_eq!(config.output_folder, "2026");
     }
@@ -4084,9 +4311,16 @@ output_folder: true
         let result = load_config(file.path());
 
         // Should fail - boolean scalars are rejected even after YAML coercion
-        assert!(result.is_err(), "Boolean scalars should be rejected for output_folder");
+        assert!(
+            result.is_err(),
+            "Boolean scalars should be rejected for output_folder"
+        );
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("output_folder"), "Error should mention field name: {}", err_msg);
+        assert!(
+            err_msg.contains("output_folder"),
+            "Error should mention field name: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -4101,7 +4335,10 @@ output_folder: null
 
         // Should fail - null scalar is rejected
         // Note: serde_yaml may fail at parsing level for required field, or our validation catches it
-        assert!(result.is_err(), "Null scalars should be rejected for output_folder");
+        assert!(
+            result.is_err(),
+            "Null scalars should be rejected for output_folder"
+        );
     }
 
     #[test]
@@ -4179,11 +4416,19 @@ jira:
         let err_msg = result.unwrap_err().to_string();
         // The error should NOT mention output_folder
         // It should either mention "token", "jira.token", "configuration field", or be a ParseError
-        assert!(!err_msg.contains("output_folder"),
-            "Error for jira.token should not be attributed to output_folder: {}", err_msg);
+        assert!(
+            !err_msg.contains("output_folder"),
+            "Error for jira.token should not be attributed to output_folder: {}",
+            err_msg
+        );
         // Verify it identifies the correct field or provides actionable guidance
-        assert!(err_msg.contains("token") || err_msg.contains("configuration field") || err_msg.contains("Parse"),
-            "Error should mention token field or provide guidance: {}", err_msg);
+        assert!(
+            err_msg.contains("token")
+                || err_msg.contains("configuration field")
+                || err_msg.contains("Parse"),
+            "Error should mention token field or provide guidance: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -4203,8 +4448,11 @@ llm:
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("llm.cloud_endpoint") && err_msg.contains("missing"),
-            "Should require cloud_endpoint in auto mode with cloud_enabled: {}", err_msg);
+        assert!(
+            err_msg.contains("llm.cloud_endpoint") && err_msg.contains("missing"),
+            "Should require cloud_endpoint in auto mode with cloud_enabled: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -4224,8 +4472,11 @@ llm:
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("llm.cloud_model") && err_msg.contains("missing"),
-            "Should require cloud_model in auto mode with cloud_enabled: {}", err_msg);
+        assert!(
+            err_msg.contains("llm.cloud_model") && err_msg.contains("missing"),
+            "Should require cloud_model in auto mode with cloud_enabled: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -4245,8 +4496,11 @@ llm:
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("llm.api_key") && err_msg.contains("missing"),
-            "Should require api_key in auto mode with cloud_enabled: {}", err_msg);
+        assert!(
+            err_msg.contains("llm.api_key") && err_msg.contains("missing"),
+            "Should require api_key in auto mode with cloud_enabled: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -4267,8 +4521,11 @@ llm:
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("llm.api_key") && err_msg.contains("empty"),
-            "Should reject empty api_key in auto mode with cloud_enabled: {}", err_msg);
+        assert!(
+            err_msg.contains("llm.api_key") && err_msg.contains("empty"),
+            "Should reject empty api_key in auto mode with cloud_enabled: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -4289,8 +4546,11 @@ llm:
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("llm.cloud_model") && err_msg.contains("empty"),
-            "Should reject empty cloud_model in auto mode with cloud_enabled: {}", err_msg);
+        assert!(
+            err_msg.contains("llm.cloud_model") && err_msg.contains("empty"),
+            "Should reject empty cloud_model in auto mode with cloud_enabled: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -4309,7 +4569,11 @@ llm:
         let file = create_temp_config(yaml);
         let result = load_config(file.path());
 
-        assert!(result.is_ok(), "Valid auto+cloud_enabled config should work: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Valid auto+cloud_enabled config should work: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -4325,7 +4589,11 @@ llm:
         let file = create_temp_config(yaml);
         let result = load_config(file.path());
 
-        assert!(result.is_ok(), "auto mode with cloud_enabled=false should not require cloud fields: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "auto mode with cloud_enabled=false should not require cloud fields: {:?}",
+            result
+        );
     }
 
     // ==================== Review 14 Tests ====================
@@ -4333,30 +4601,66 @@ llm:
     #[test]
     fn test_ipv4_invalid_octet_rejected() {
         // IPv4 addresses with octets > 255 should be rejected
-        assert!(!is_valid_url("http://999.999.999.999"), "999.999.999.999 should be invalid");
-        assert!(!is_valid_url("http://256.1.1.1"), "256 octet should be invalid");
-        assert!(!is_valid_url("http://1.256.1.1"), "256 octet should be invalid");
-        assert!(!is_valid_url("http://1.1.256.1"), "256 octet should be invalid");
-        assert!(!is_valid_url("http://1.1.1.256"), "256 octet should be invalid");
-        assert!(!is_valid_url("http://300.200.100.50"), "300 octet should be invalid");
+        assert!(
+            !is_valid_url("http://999.999.999.999"),
+            "999.999.999.999 should be invalid"
+        );
+        assert!(
+            !is_valid_url("http://256.1.1.1"),
+            "256 octet should be invalid"
+        );
+        assert!(
+            !is_valid_url("http://1.256.1.1"),
+            "256 octet should be invalid"
+        );
+        assert!(
+            !is_valid_url("http://1.1.256.1"),
+            "256 octet should be invalid"
+        );
+        assert!(
+            !is_valid_url("http://1.1.1.256"),
+            "256 octet should be invalid"
+        );
+        assert!(
+            !is_valid_url("http://300.200.100.50"),
+            "300 octet should be invalid"
+        );
     }
 
     #[test]
     fn test_ipv4_valid_addresses() {
         // Valid IPv4 addresses should be accepted
-        assert!(is_valid_url("http://192.168.1.1"), "192.168.1.1 should be valid");
+        assert!(
+            is_valid_url("http://192.168.1.1"),
+            "192.168.1.1 should be valid"
+        );
         assert!(is_valid_url("http://10.0.0.1"), "10.0.0.1 should be valid");
-        assert!(is_valid_url("http://255.255.255.255"), "255.255.255.255 should be valid");
+        assert!(
+            is_valid_url("http://255.255.255.255"),
+            "255.255.255.255 should be valid"
+        );
         assert!(is_valid_url("http://0.0.0.0"), "0.0.0.0 should be valid");
-        assert!(is_valid_url("http://127.0.0.1:8080"), "127.0.0.1 with port should be valid");
+        assert!(
+            is_valid_url("http://127.0.0.1:8080"),
+            "127.0.0.1 with port should be valid"
+        );
     }
 
     #[test]
     fn test_ipv4_leading_zeros_rejected() {
         // Leading zeros in IPv4 octets should be rejected (strict validation)
-        assert!(!is_valid_url("http://01.1.1.1"), "Leading zero should be invalid");
-        assert!(!is_valid_url("http://1.01.1.1"), "Leading zero should be invalid");
-        assert!(!is_valid_url("http://192.168.001.001"), "Leading zeros should be invalid");
+        assert!(
+            !is_valid_url("http://01.1.1.1"),
+            "Leading zero should be invalid"
+        );
+        assert!(
+            !is_valid_url("http://1.01.1.1"),
+            "Leading zero should be invalid"
+        );
+        assert!(
+            !is_valid_url("http://192.168.001.001"),
+            "Leading zeros should be invalid"
+        );
     }
 
     #[test]
@@ -4371,7 +4675,11 @@ llm:
         // camelCase sensitive params should be redacted
         let url_accesstoken = "https://api.example.com?accessToken=secret123&version=v1";
         let redacted = redact_url_sensitive_params(url_accesstoken);
-        assert!(!redacted.contains("secret123"), "accessToken should be redacted: {}", redacted);
+        assert!(
+            !redacted.contains("secret123"),
+            "accessToken should be redacted: {}",
+            redacted
+        );
         assert!(redacted.contains("accessToken=[REDACTED]"));
         assert!(redacted.contains("version=v1"));
     }
@@ -4396,7 +4704,11 @@ llm:
         assert!(err.is_some(), "YAML syntax errors should be handled");
         let err = err.unwrap();
         match err {
-            SerdeErrorKind::InvalidEnumValue { field, reason, hint } => {
+            SerdeErrorKind::InvalidEnumValue {
+                field,
+                reason,
+                hint,
+            } => {
                 assert!(field.contains("YAML"));
                 assert!(reason.contains("invalid"));
                 assert!(hint.contains("indentation") || hint.contains("format"));
@@ -4431,8 +4743,14 @@ llm:
     fn test_ipv4_not_four_octets_treated_as_hostname() {
         // IPv4-like strings with wrong number of octets are treated as hostnames
         // These should be valid hostnames (if they pass label validation)
-        assert!(is_valid_url("http://192.168.1"), "3-octet should be valid hostname");
-        assert!(is_valid_url("http://192.168.1.1.1"), "5-octet should be valid hostname");
+        assert!(
+            is_valid_url("http://192.168.1"),
+            "3-octet should be valid hostname"
+        );
+        assert!(
+            is_valid_url("http://192.168.1.1.1"),
+            "5-octet should be valid hostname"
+        );
     }
 
     // ==================== Review 18 Tests ====================
@@ -4442,7 +4760,9 @@ llm:
         // Test that local_endpoint with sensitive query params is redacted in Debug output
         let llm = LlmConfig {
             mode: LlmMode::Local,
-            local_endpoint: Some("http://localhost:11434?api_key=secret-local-key&model=llama".to_string()),
+            local_endpoint: Some(
+                "http://localhost:11434?api_key=secret-local-key&model=llama".to_string(),
+            ),
             local_model: Some("llama2".to_string()),
             cloud_enabled: false,
             cloud_endpoint: None,
@@ -4453,12 +4773,21 @@ llm:
         };
 
         let debug_output = format!("{:?}", llm);
-        assert!(!debug_output.contains("secret-local-key"),
-            "local_endpoint api_key should be redacted in Debug: {}", debug_output);
-        assert!(debug_output.contains("[REDACTED]"),
-            "Debug output should contain [REDACTED]: {}", debug_output);
-        assert!(debug_output.contains("model=llama"),
-            "Non-sensitive params should remain: {}", debug_output);
+        assert!(
+            !debug_output.contains("secret-local-key"),
+            "local_endpoint api_key should be redacted in Debug: {}",
+            debug_output
+        );
+        assert!(
+            debug_output.contains("[REDACTED]"),
+            "Debug output should contain [REDACTED]: {}",
+            debug_output
+        );
+        assert!(
+            debug_output.contains("model=llama"),
+            "Non-sensitive params should remain: {}",
+            debug_output
+        );
     }
 
     #[test]
@@ -4477,12 +4806,21 @@ llm:
         };
 
         let redacted = llm.redacted();
-        assert!(!redacted.contains("mysecret"),
-            "local_endpoint token should be redacted in Redact: {}", redacted);
-        assert!(redacted.contains("[REDACTED]"),
-            "Redacted output should contain [REDACTED]: {}", redacted);
-        assert!(redacted.contains("format=json"),
-            "Non-sensitive params should remain: {}", redacted);
+        assert!(
+            !redacted.contains("mysecret"),
+            "local_endpoint token should be redacted in Redact: {}",
+            redacted
+        );
+        assert!(
+            redacted.contains("[REDACTED]"),
+            "Redacted output should contain [REDACTED]: {}",
+            redacted
+        );
+        assert!(
+            redacted.contains("format=json"),
+            "Non-sensitive params should remain: {}",
+            redacted
+        );
     }
 
     #[test]
@@ -4501,53 +4839,81 @@ llm:
         };
 
         let debug_output = format!("{:?}", llm);
-        assert!(!debug_output.contains("secret"),
-            "local_endpoint userinfo password should be redacted: {}", debug_output);
-        assert!(!debug_output.contains("admin:"),
-            "local_endpoint userinfo should be fully redacted: {}", debug_output);
-        assert!(debug_output.contains("[REDACTED]@"),
-            "Redacted userinfo should be visible: {}", debug_output);
+        assert!(
+            !debug_output.contains("secret"),
+            "local_endpoint userinfo password should be redacted: {}",
+            debug_output
+        );
+        assert!(
+            !debug_output.contains("admin:"),
+            "local_endpoint userinfo should be fully redacted: {}",
+            debug_output
+        );
+        assert!(
+            debug_output.contains("[REDACTED]@"),
+            "Redacted userinfo should be visible: {}",
+            debug_output
+        );
 
         let redacted = llm.redacted();
-        assert!(!redacted.contains("secret"),
-            "Redact trait should also redact userinfo: {}", redacted);
+        assert!(
+            !redacted.contains("secret"),
+            "Redact trait should also redact userinfo: {}",
+            redacted
+        );
     }
 
     #[test]
     fn test_url_with_query_no_path_valid() {
         // URLs with query string but no path should be valid
         // Review 18 fix: is_valid_url should accept these
-        assert!(is_valid_url("https://example.com?foo=bar"),
-            "URL with query but no path should be valid");
-        assert!(is_valid_url("http://localhost?param=value"),
-            "localhost with query but no path should be valid");
-        assert!(is_valid_url("https://api.example.com?key=value&other=123"),
-            "URL with multiple query params but no path should be valid");
+        assert!(
+            is_valid_url("https://example.com?foo=bar"),
+            "URL with query but no path should be valid"
+        );
+        assert!(
+            is_valid_url("http://localhost?param=value"),
+            "localhost with query but no path should be valid"
+        );
+        assert!(
+            is_valid_url("https://api.example.com?key=value&other=123"),
+            "URL with multiple query params but no path should be valid"
+        );
     }
 
     #[test]
     fn test_url_with_fragment_no_path_valid() {
         // URLs with fragment but no path should be valid
-        assert!(is_valid_url("https://example.com#section"),
-            "URL with fragment but no path should be valid");
-        assert!(is_valid_url("http://localhost#anchor"),
-            "localhost with fragment but no path should be valid");
+        assert!(
+            is_valid_url("https://example.com#section"),
+            "URL with fragment but no path should be valid"
+        );
+        assert!(
+            is_valid_url("http://localhost#anchor"),
+            "localhost with fragment but no path should be valid"
+        );
     }
 
     #[test]
     fn test_url_with_query_and_fragment_no_path_valid() {
         // URLs with both query and fragment but no path should be valid
-        assert!(is_valid_url("https://example.com?foo=bar#section"),
-            "URL with query and fragment but no path should be valid");
+        assert!(
+            is_valid_url("https://example.com?foo=bar#section"),
+            "URL with query and fragment but no path should be valid"
+        );
     }
 
     #[test]
     fn test_url_with_path_query_fragment_still_valid() {
         // Existing URLs with path, query, and fragment should still work
-        assert!(is_valid_url("https://example.com/path?foo=bar#section"),
-            "Full URL with path, query, and fragment should be valid");
-        assert!(is_valid_url("http://localhost:8080/api/v1?key=value"),
-            "localhost with path and query should be valid");
+        assert!(
+            is_valid_url("https://example.com/path?foo=bar#section"),
+            "Full URL with path, query, and fragment should be valid"
+        );
+        assert!(
+            is_valid_url("http://localhost:8080/api/v1?key=value"),
+            "localhost with path and query should be valid"
+        );
     }
 
     #[test]
@@ -4556,7 +4922,8 @@ llm:
         use std::io::Write;
 
         // Create a unique temporary file using thread ID and timestamp to avoid collisions
-        let unique_id = format!("tf_config_test_{:?}_{}",
+        let unique_id = format!(
+            "tf_config_test_{:?}_{}",
             std::thread::current().id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -4573,20 +4940,29 @@ llm:
         }
 
         // Create config pointing to the file (not a directory)
-        let yaml = format!(r#"
+        let yaml = format!(
+            r#"
 project_name: "test"
 output_folder: "{}"
-"#, test_file.to_string_lossy().replace('\\', "/"));
+"#,
+            test_file.to_string_lossy().replace('\\', "/")
+        );
 
         let file = create_temp_config(&yaml);
         let config = load_config(file.path()).unwrap();
 
         // check_output_folder_exists should return warning about not being a directory
         let warning = config.check_output_folder_exists();
-        assert!(warning.is_some(), "Should warn when output_folder is a file, not directory");
+        assert!(
+            warning.is_some(),
+            "Should warn when output_folder is a file, not directory"
+        );
         let warning_msg = warning.unwrap();
-        assert!(warning_msg.contains("not a directory"),
-            "Warning should mention 'not a directory': {}", warning_msg);
+        assert!(
+            warning_msg.contains("not a directory"),
+            "Warning should mention 'not a directory': {}",
+            warning_msg
+        );
 
         // Cleanup
         let _ = std::fs::remove_file(&test_file);
@@ -4598,11 +4974,17 @@ output_folder: "{}"
         // RFC 3986: authority ends at first /, ?, or #
         let url = "https://example.com#user@mention";
         let redacted = redact_url_userinfo(url);
-        assert_eq!(redacted, url, "@ in fragment should not be treated as userinfo");
+        assert_eq!(
+            redacted, url,
+            "@ in fragment should not be treated as userinfo"
+        );
 
         let url2 = "https://example.com/path#section@ref";
         let redacted2 = redact_url_userinfo(url2);
-        assert_eq!(redacted2, url2, "@ in fragment after path should not be treated as userinfo");
+        assert_eq!(
+            redacted2, url2,
+            "@ in fragment after path should not be treated as userinfo"
+        );
     }
 
     // ===== Review 21 fixes =====
@@ -4614,7 +4996,10 @@ output_folder: "{}"
         let url = "https://admin:p@ssword@example.com/api";
         let redacted = redact_url_sensitive_params(url);
         assert!(!redacted.contains("admin"), "Username should be redacted");
-        assert!(!redacted.contains("p@ssword"), "Password with @ should be redacted");
+        assert!(
+            !redacted.contains("p@ssword"),
+            "Password with @ should be redacted"
+        );
         assert!(redacted.contains("[REDACTED]@example.com"));
         assert_eq!(redacted, "https://[REDACTED]@example.com/api");
     }
@@ -4625,7 +5010,10 @@ output_folder: "{}"
         let url = "https://user:p@ss@word@host.example.com:8080/path";
         let redacted = redact_url_sensitive_params(url);
         assert!(!redacted.contains("user"), "Username should be redacted");
-        assert!(!redacted.contains("p@ss@word"), "Password with multiple @ should be redacted");
+        assert!(
+            !redacted.contains("p@ss@word"),
+            "Password with multiple @ should be redacted"
+        );
         assert!(redacted.contains(":8080"));
         assert_eq!(redacted, "https://[REDACTED]@host.example.com:8080/path");
     }
@@ -4639,7 +5027,10 @@ output_folder: "{}"
         assert!(!redacted.contains("admin"));
         assert!(!redacted.contains("C0mpl3x!P@ss%23123"));
         assert!(redacted.contains("token=[REDACTED]"));
-        assert_eq!(redacted, "https://[REDACTED]@api.example.com?token=[REDACTED]");
+        assert_eq!(
+            redacted,
+            "https://[REDACTED]@api.example.com?token=[REDACTED]"
+        );
     }
 
     #[test]
@@ -4647,7 +5038,10 @@ output_folder: "{}"
         // MEDIUM: URL-encoded parameter name api%5Fkey (api_key) should be redacted
         let url = "https://example.com?api%5Fkey=secret123";
         let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("secret123"), "Value of encoded api_key should be redacted");
+        assert!(
+            !redacted.contains("secret123"),
+            "Value of encoded api_key should be redacted"
+        );
         assert!(redacted.contains("api%5Fkey=[REDACTED]"));
     }
 
@@ -4656,7 +5050,10 @@ output_folder: "{}"
         // URL-encoded 'token' (%74%6F%6B%65%6E)
         let url = "https://example.com?%74%6F%6B%65%6E=mysecret";
         let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("mysecret"), "Value of encoded token should be redacted");
+        assert!(
+            !redacted.contains("mysecret"),
+            "Value of encoded token should be redacted"
+        );
         assert!(redacted.contains("[REDACTED]"));
     }
 
@@ -4667,7 +5064,10 @@ output_folder: "{}"
         let redacted = redact_url_sensitive_params(url);
         assert!(!redacted.contains("secret1"));
         assert!(!redacted.contains("secret2"));
-        assert!(redacted.contains("foo=bar"), "Non-sensitive param should remain");
+        assert!(
+            redacted.contains("foo=bar"),
+            "Non-sensitive param should remain"
+        );
         assert!(redacted.contains("api%5Fkey=[REDACTED]"));
         assert!(redacted.contains("password=[REDACTED]"));
     }
@@ -4677,7 +5077,10 @@ output_folder: "{}"
         // URL-encoded param in fragment (OAuth implicit flow)
         let url = "https://example.com#access%5Ftoken=xyz123";
         let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("xyz123"), "Value of encoded access_token should be redacted");
+        assert!(
+            !redacted.contains("xyz123"),
+            "Value of encoded access_token should be redacted"
+        );
         assert!(redacted.contains("access%5Ftoken=[REDACTED]"));
     }
 
@@ -4697,10 +5100,22 @@ output_folder: "{}"
         let url = "https://user:p@ss@example.com?api%5Fkey=secret&access%5Ftoken=mytoken123";
         let redacted = redact_url_sensitive_params(url);
         assert!(!redacted.contains("user:"), "Username should be redacted");
-        assert!(!redacted.contains("p@ss"), "Password with @ should be redacted");
-        assert!(!redacted.contains("secret"), "api_key value should be redacted");
-        assert!(!redacted.contains("mytoken123"), "access_token value should be redacted");
-        assert_eq!(redacted, "https://[REDACTED]@example.com?api%5Fkey=[REDACTED]&access%5Ftoken=[REDACTED]");
+        assert!(
+            !redacted.contains("p@ss"),
+            "Password with @ should be redacted"
+        );
+        assert!(
+            !redacted.contains("secret"),
+            "api_key value should be redacted"
+        );
+        assert!(
+            !redacted.contains("mytoken123"),
+            "access_token value should be redacted"
+        );
+        assert_eq!(
+            redacted,
+            "https://[REDACTED]@example.com?api%5Fkey=[REDACTED]&access%5Ftoken=[REDACTED]"
+        );
     }
 
     // =====================================================================
@@ -4713,8 +5128,14 @@ output_folder: "{}"
         // %25 is encoded %, so api%255Fkey decodes to api%5Fkey which decodes to api_key
         let url = "https://example.com?api%255Fkey=secret123";
         let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("secret123"), "Double-encoded api_key value should be redacted");
-        assert!(redacted.contains("=[REDACTED]"), "Should contain redacted value");
+        assert!(
+            !redacted.contains("secret123"),
+            "Double-encoded api_key value should be redacted"
+        );
+        assert!(
+            redacted.contains("=[REDACTED]"),
+            "Should contain redacted value"
+        );
     }
 
     #[test]
@@ -4724,7 +5145,10 @@ output_folder: "{}"
         let url = "https://example.com?api%255Fkey=mysecret";
         let redacted = redact_url_sensitive_params(url);
         // After double-decode, api%255Fkey becomes api_key which is in sensitive list
-        assert!(!redacted.contains("mysecret"), "Double-encoded api_key should be redacted");
+        assert!(
+            !redacted.contains("mysecret"),
+            "Double-encoded api_key should be redacted"
+        );
     }
 
     #[test]
@@ -4733,8 +5157,14 @@ output_folder: "{}"
         // api%255Fkey double-decodes to api_key which is in the sensitive list
         let url = "https://example.com?api%255Fkey=pass123&foo=bar";
         let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("pass123"), "Double-encoded api_key value should be redacted");
-        assert!(redacted.contains("foo=bar"), "Non-sensitive param should remain");
+        assert!(
+            !redacted.contains("pass123"),
+            "Double-encoded api_key value should be redacted"
+        );
+        assert!(
+            redacted.contains("foo=bar"),
+            "Non-sensitive param should remain"
+        );
     }
 
     #[test]
@@ -4742,8 +5172,14 @@ output_folder: "{}"
         // Kebab-case: api-key (with hyphen)
         let url = "https://example.com?api-key=secret-value";
         let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("secret-value"), "api-key value should be redacted");
-        assert!(redacted.contains("api-key=[REDACTED]"), "api-key param should be redacted");
+        assert!(
+            !redacted.contains("secret-value"),
+            "api-key value should be redacted"
+        );
+        assert!(
+            redacted.contains("api-key=[REDACTED]"),
+            "api-key param should be redacted"
+        );
     }
 
     #[test]
@@ -4751,16 +5187,28 @@ output_folder: "{}"
         // Kebab-case: access-token (with hyphen)
         let url = "https://example.com?access-token=mytoken123";
         let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("mytoken123"), "access-token value should be redacted");
-        assert!(redacted.contains("access-token=[REDACTED]"), "access-token param should be redacted");
+        assert!(
+            !redacted.contains("mytoken123"),
+            "access-token value should be redacted"
+        );
+        assert!(
+            redacted.contains("access-token=[REDACTED]"),
+            "access-token param should be redacted"
+        );
     }
 
     #[test]
     fn test_redact_url_kebab_case_client_secret() {
         let url = "https://example.com?client-secret=very-secret&other=value";
         let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("very-secret"), "client-secret value should be redacted");
-        assert!(redacted.contains("other=value"), "Non-sensitive param should remain");
+        assert!(
+            !redacted.contains("very-secret"),
+            "client-secret value should be redacted"
+        );
+        assert!(
+            redacted.contains("other=value"),
+            "Non-sensitive param should remain"
+        );
     }
 
     #[test]
@@ -4768,10 +5216,22 @@ output_folder: "{}"
         // Multiple kebab-case sensitive params
         let url = "https://example.com?api-key=key1&access-token=tok1&session-token=sess1&foo=bar";
         let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("key1"), "api-key value should be redacted");
-        assert!(!redacted.contains("tok1"), "access-token value should be redacted");
-        assert!(!redacted.contains("sess1"), "session-token value should be redacted");
-        assert!(redacted.contains("foo=bar"), "Non-sensitive param should remain");
+        assert!(
+            !redacted.contains("key1"),
+            "api-key value should be redacted"
+        );
+        assert!(
+            !redacted.contains("tok1"),
+            "access-token value should be redacted"
+        );
+        assert!(
+            !redacted.contains("sess1"),
+            "session-token value should be redacted"
+        );
+        assert!(
+            redacted.contains("foo=bar"),
+            "Non-sensitive param should remain"
+        );
     }
 
     #[test]
@@ -4789,11 +5249,20 @@ jira:
         let result = load_config(&file_path);
         std::fs::remove_file(&file_path).ok();
 
-        assert!(result.is_err(), "Should reject endpoint with trailing whitespace");
+        assert!(
+            result.is_err(),
+            "Should reject endpoint with trailing whitespace"
+        );
         let err = result.unwrap_err();
         let err_msg = err.to_string();
-        assert!(err_msg.contains("jira.endpoint"), "Error should mention jira.endpoint");
-        assert!(err_msg.contains("whitespace"), "Error should mention whitespace");
+        assert!(
+            err_msg.contains("jira.endpoint"),
+            "Error should mention jira.endpoint"
+        );
+        assert!(
+            err_msg.contains("whitespace"),
+            "Error should mention whitespace"
+        );
     }
 
     #[test]
@@ -4811,9 +5280,15 @@ jira:
         let result = load_config(&file_path);
         std::fs::remove_file(&file_path).ok();
 
-        assert!(result.is_err(), "Should reject endpoint with leading whitespace");
+        assert!(
+            result.is_err(),
+            "Should reject endpoint with leading whitespace"
+        );
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("whitespace"), "Error should mention whitespace");
+        assert!(
+            err.to_string().contains("whitespace"),
+            "Error should mention whitespace"
+        );
     }
 
     #[test]
@@ -4831,9 +5306,15 @@ squash:
         let result = load_config(&file_path);
         std::fs::remove_file(&file_path).ok();
 
-        assert!(result.is_err(), "Should reject squash endpoint with trailing whitespace");
+        assert!(
+            result.is_err(),
+            "Should reject squash endpoint with trailing whitespace"
+        );
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("squash.endpoint"), "Error should mention squash.endpoint");
+        assert!(
+            err.to_string().contains("squash.endpoint"),
+            "Error should mention squash.endpoint"
+        );
     }
 
     #[test]
@@ -4852,9 +5333,15 @@ llm:
         let result = load_config(&file_path);
         std::fs::remove_file(&file_path).ok();
 
-        assert!(result.is_err(), "Should reject local_endpoint with whitespace");
+        assert!(
+            result.is_err(),
+            "Should reject local_endpoint with whitespace"
+        );
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("llm.local_endpoint"), "Error should mention llm.local_endpoint");
+        assert!(
+            err.to_string().contains("llm.local_endpoint"),
+            "Error should mention llm.local_endpoint"
+        );
     }
 
     #[test]
@@ -4876,9 +5363,15 @@ llm:
         let result = load_config(&file_path);
         std::fs::remove_file(&file_path).ok();
 
-        assert!(result.is_err(), "Should reject cloud_endpoint with trailing whitespace");
+        assert!(
+            result.is_err(),
+            "Should reject cloud_endpoint with trailing whitespace"
+        );
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("llm.cloud_endpoint"), "Error should mention llm.cloud_endpoint");
+        assert!(
+            err.to_string().contains("llm.cloud_endpoint"),
+            "Error should mention llm.cloud_endpoint"
+        );
     }
 
     #[test]
@@ -4911,9 +5404,18 @@ llm:
         // RFC 1866 allows semicolon as query parameter separator in HTML forms
         let url = "https://example.com?token=secret;foo=bar";
         let redacted = redact_url_sensitive_params(url);
-        assert!(redacted.contains("token=[REDACTED]"), "Should redact token with semicolon separator");
-        assert!(redacted.contains("foo=bar"), "Should preserve non-sensitive param");
-        assert!(redacted.contains(";"), "Should preserve semicolon separator");
+        assert!(
+            redacted.contains("token=[REDACTED]"),
+            "Should redact token with semicolon separator"
+        );
+        assert!(
+            redacted.contains("foo=bar"),
+            "Should preserve non-sensitive param"
+        );
+        assert!(
+            redacted.contains(";"),
+            "Should preserve semicolon separator"
+        );
     }
 
     #[test]
@@ -4921,9 +5423,18 @@ llm:
         // All params separated by semicolons
         let url = "https://example.com?api_key=sk123;password=secret;user=john";
         let redacted = redact_url_sensitive_params(url);
-        assert!(redacted.contains("api_key=[REDACTED]"), "Should redact api_key");
-        assert!(redacted.contains("password=[REDACTED]"), "Should redact password");
-        assert!(redacted.contains("user=john"), "Should preserve non-sensitive param");
+        assert!(
+            redacted.contains("api_key=[REDACTED]"),
+            "Should redact api_key"
+        );
+        assert!(
+            redacted.contains("password=[REDACTED]"),
+            "Should redact password"
+        );
+        assert!(
+            redacted.contains("user=john"),
+            "Should preserve non-sensitive param"
+        );
     }
 
     #[test]
@@ -4932,10 +5443,19 @@ llm:
         let url = "https://example.com?token=abc&secret=def;api_key=ghi;foo=bar&auth=xyz";
         let redacted = redact_url_sensitive_params(url);
         assert!(redacted.contains("token=[REDACTED]"), "Should redact token");
-        assert!(redacted.contains("secret=[REDACTED]"), "Should redact secret");
-        assert!(redacted.contains("api_key=[REDACTED]"), "Should redact api_key");
+        assert!(
+            redacted.contains("secret=[REDACTED]"),
+            "Should redact secret"
+        );
+        assert!(
+            redacted.contains("api_key=[REDACTED]"),
+            "Should redact api_key"
+        );
         assert!(redacted.contains("auth=[REDACTED]"), "Should redact auth");
-        assert!(redacted.contains("foo=bar"), "Should preserve non-sensitive param");
+        assert!(
+            redacted.contains("foo=bar"),
+            "Should preserve non-sensitive param"
+        );
     }
 
     #[test]
@@ -4943,8 +5463,14 @@ llm:
         // Whitespace around parameter key
         let url = "https://example.com?token =secret";
         let redacted = redact_url_sensitive_params(url);
-        assert!(redacted.contains("[REDACTED]"), "Should redact token with trailing whitespace in key");
-        assert!(!redacted.contains("secret"), "Should not expose secret value");
+        assert!(
+            redacted.contains("[REDACTED]"),
+            "Should redact token with trailing whitespace in key"
+        );
+        assert!(
+            !redacted.contains("secret"),
+            "Should not expose secret value"
+        );
     }
 
     #[test]
@@ -4952,8 +5478,14 @@ llm:
         // Leading whitespace in parameter key
         let url = "https://example.com? api_key=secret";
         let redacted = redact_url_sensitive_params(url);
-        assert!(redacted.contains("[REDACTED]"), "Should redact api_key with leading whitespace");
-        assert!(!redacted.contains("secret"), "Should not expose secret value");
+        assert!(
+            redacted.contains("[REDACTED]"),
+            "Should redact api_key with leading whitespace"
+        );
+        assert!(
+            !redacted.contains("secret"),
+            "Should not expose secret value"
+        );
     }
 
     #[test]
@@ -4961,38 +5493,83 @@ llm:
         // Whitespace around key with semicolon separator
         let url = "https://example.com?foo=bar; token =mysecret;other=value";
         let redacted = redact_url_sensitive_params(url);
-        assert!(redacted.contains("[REDACTED]"), "Should redact token with whitespace and semicolon");
-        assert!(!redacted.contains("mysecret"), "Should not expose secret value");
+        assert!(
+            redacted.contains("[REDACTED]"),
+            "Should redact token with whitespace and semicolon"
+        );
+        assert!(
+            !redacted.contains("mysecret"),
+            "Should not expose secret value"
+        );
         assert!(redacted.contains("foo=bar"), "Should preserve first param");
-        assert!(redacted.contains("other=value"), "Should preserve last param");
+        assert!(
+            redacted.contains("other=value"),
+            "Should preserve last param"
+        );
     }
 
     #[test]
     fn test_ipv6_zone_id_empty_rejected() {
         // Empty zone ID is invalid (e.g., "fe80::1%" with nothing after %)
-        assert!(!is_valid_url("http://[fe80::1%]:8080"), "Should reject empty zone ID");
-        assert!(!is_valid_url("http://[fe80::1%]"), "Should reject empty zone ID without port");
-        assert!(!is_valid_url("https://[::1%]"), "Should reject empty zone ID on localhost");
+        assert!(
+            !is_valid_url("http://[fe80::1%]:8080"),
+            "Should reject empty zone ID"
+        );
+        assert!(
+            !is_valid_url("http://[fe80::1%]"),
+            "Should reject empty zone ID without port"
+        );
+        assert!(
+            !is_valid_url("https://[::1%]"),
+            "Should reject empty zone ID on localhost"
+        );
     }
 
     #[test]
     fn test_ipv6_zone_id_valid() {
         // Valid zone IDs (interface names)
-        assert!(is_valid_url("http://[fe80::1%eth0]:8080"), "Should accept zone ID with interface name");
-        assert!(is_valid_url("http://[fe80::1%eth0]"), "Should accept zone ID without port");
-        assert!(is_valid_url("http://[fe80::1%wlan0]:3000"), "Should accept zone ID with wlan");
-        assert!(is_valid_url("http://[fe80::1%en0]:80"), "Should accept zone ID with en0");
-        assert!(is_valid_url("http://[fe80::1%lo]:8080"), "Should accept zone ID with lo");
+        assert!(
+            is_valid_url("http://[fe80::1%eth0]:8080"),
+            "Should accept zone ID with interface name"
+        );
+        assert!(
+            is_valid_url("http://[fe80::1%eth0]"),
+            "Should accept zone ID without port"
+        );
+        assert!(
+            is_valid_url("http://[fe80::1%wlan0]:3000"),
+            "Should accept zone ID with wlan"
+        );
+        assert!(
+            is_valid_url("http://[fe80::1%en0]:80"),
+            "Should accept zone ID with en0"
+        );
+        assert!(
+            is_valid_url("http://[fe80::1%lo]:8080"),
+            "Should accept zone ID with lo"
+        );
         // URL-encoded % is %25
-        assert!(is_valid_url("http://[fe80::1%25eth0]:8080"), "Should accept URL-encoded zone ID");
+        assert!(
+            is_valid_url("http://[fe80::1%25eth0]:8080"),
+            "Should accept URL-encoded zone ID"
+        );
     }
 
     #[test]
     fn test_ipv6_zone_id_invalid_chars() {
         // Zone ID with invalid characters (only alphanumeric, hyphen, underscore, dot allowed)
-        assert!(!is_valid_url("http://[fe80::1%eth/0]:8080"), "Should reject zone ID with slash");
-        assert!(!is_valid_url("http://[fe80::1%eth@0]:8080"), "Should reject zone ID with @");
-        assert!(!is_valid_url("http://[fe80::1%eth 0]:8080"), "Should reject zone ID with space");
+        assert!(
+            !is_valid_url("http://[fe80::1%eth/0]:8080"),
+            "Should reject zone ID with slash"
+        );
+        assert!(
+            !is_valid_url("http://[fe80::1%eth@0]:8080"),
+            "Should reject zone ID with @"
+        );
+        assert!(
+            !is_valid_url("http://[fe80::1%eth 0]:8080"),
+            "Should reject zone ID with space"
+        );
     }
 
     #[test]
@@ -5000,10 +5577,19 @@ llm:
         // Semicolon separator in fragment (OAuth implicit flow with semicolon)
         let url = "https://app.com/callback#token=abc;access_token=secret";
         let redacted = redact_url_sensitive_params(url);
-        assert!(redacted.contains("token=[REDACTED]"), "Should redact token in fragment");
-        assert!(redacted.contains("access_token=[REDACTED]"), "Should redact access_token in fragment");
+        assert!(
+            redacted.contains("token=[REDACTED]"),
+            "Should redact token in fragment"
+        );
+        assert!(
+            redacted.contains("access_token=[REDACTED]"),
+            "Should redact access_token in fragment"
+        );
         assert!(!redacted.contains("abc"), "Should not expose token value");
-        assert!(!redacted.contains("secret"), "Should not expose access_token value");
+        assert!(
+            !redacted.contains("secret"),
+            "Should not expose access_token value"
+        );
     }
 
     #[test]
@@ -5011,10 +5597,19 @@ llm:
         // Both query and fragment with semicolon separators
         let url = "https://example.com?api_key=key1;foo=bar#token=tok1;baz=qux";
         let redacted = redact_url_sensitive_params(url);
-        assert!(redacted.contains("api_key=[REDACTED]"), "Should redact api_key in query");
-        assert!(redacted.contains("token=[REDACTED]"), "Should redact token in fragment");
+        assert!(
+            redacted.contains("api_key=[REDACTED]"),
+            "Should redact api_key in query"
+        );
+        assert!(
+            redacted.contains("token=[REDACTED]"),
+            "Should redact token in fragment"
+        );
         assert!(redacted.contains("foo=bar"), "Should preserve foo in query");
-        assert!(redacted.contains("baz=qux"), "Should preserve baz in fragment");
+        assert!(
+            redacted.contains("baz=qux"),
+            "Should preserve baz in fragment"
+        );
     }
 
     // ===== Coverage Plan Tests: check_output_folder_exists, active_profile_summary, redact edge cases =====
@@ -5037,9 +5632,16 @@ llm:
         };
 
         let warning = config.check_output_folder_exists();
-        assert!(warning.is_some(), "Should return warning for nonexistent folder");
+        assert!(
+            warning.is_some(),
+            "Should return warning for nonexistent folder"
+        );
         let msg = warning.unwrap();
-        assert!(msg.contains("does not exist"), "Warning should mention 'does not exist': {}", msg);
+        assert!(
+            msg.contains("does not exist"),
+            "Warning should mention 'does not exist': {}",
+            msg
+        );
     }
 
     #[test]
@@ -5061,9 +5663,16 @@ llm:
         };
 
         let warning = config.check_output_folder_exists();
-        assert!(warning.is_some(), "Should return warning when output_folder is a file");
+        assert!(
+            warning.is_some(),
+            "Should return warning when output_folder is a file"
+        );
         let msg = warning.unwrap();
-        assert!(msg.contains("not a directory"), "Warning should mention 'not a directory': {}", msg);
+        assert!(
+            msg.contains("not a directory"),
+            "Warning should mention 'not a directory': {}",
+            msg
+        );
     }
 
     #[test]
@@ -5083,7 +5692,10 @@ llm:
         };
 
         let warning = config.check_output_folder_exists();
-        assert!(warning.is_none(), "Should return None for existing directory");
+        assert!(
+            warning.is_none(),
+            "Should return None for existing directory"
+        );
     }
 
     #[test]
@@ -5101,18 +5713,36 @@ llm:
         };
 
         let summary = config.active_profile_summary();
-        assert!(summary.contains("No profile active (using base configuration)"),
-            "Should indicate no profile is active: {}", summary);
-        assert!(summary.contains("Output folder: ./output"),
-            "Should show output_folder: {}", summary);
-        assert!(summary.contains("Jira: not configured"),
-            "Should show Jira not configured: {}", summary);
-        assert!(summary.contains("Squash: not configured"),
-            "Should show Squash not configured: {}", summary);
-        assert!(summary.contains("LLM: not configured"),
-            "Should show LLM not configured: {}", summary);
-        assert!(summary.contains("Templates: not configured"),
-            "Should show Templates not configured: {}", summary);
+        assert!(
+            summary.contains("No profile active (using base configuration)"),
+            "Should indicate no profile is active: {}",
+            summary
+        );
+        assert!(
+            summary.contains("Output folder: ./output"),
+            "Should show output_folder: {}",
+            summary
+        );
+        assert!(
+            summary.contains("Jira: not configured"),
+            "Should show Jira not configured: {}",
+            summary
+        );
+        assert!(
+            summary.contains("Squash: not configured"),
+            "Should show Squash not configured: {}",
+            summary
+        );
+        assert!(
+            summary.contains("LLM: not configured"),
+            "Should show LLM not configured: {}",
+            summary
+        );
+        assert!(
+            summary.contains("Templates: not configured"),
+            "Should show Templates not configured: {}",
+            summary
+        );
     }
 
     #[test]
@@ -5147,21 +5777,41 @@ llm:
         };
 
         let summary = config.active_profile_summary();
-        assert!(summary.contains("Active profile: dev"),
-            "Should show active profile name: {}", summary);
-        assert!(summary.contains("Output folder: ./dev-output"),
-            "Should show output_folder: {}", summary);
-        assert!(summary.contains("Jira: https://jira.dev.example.com"),
-            "Should show Jira endpoint: {}", summary);
-        assert!(summary.contains("Squash: https://squash.dev.example.com"),
-            "Should show Squash endpoint: {}", summary);
-        assert!(summary.contains("LLM: local"),
-            "Should show LLM mode: {}", summary);
+        assert!(
+            summary.contains("Active profile: dev"),
+            "Should show active profile name: {}",
+            summary
+        );
+        assert!(
+            summary.contains("Output folder: ./dev-output"),
+            "Should show output_folder: {}",
+            summary
+        );
+        assert!(
+            summary.contains("Jira: https://jira.dev.example.com"),
+            "Should show Jira endpoint: {}",
+            summary
+        );
+        assert!(
+            summary.contains("Squash: https://squash.dev.example.com"),
+            "Should show Squash endpoint: {}",
+            summary
+        );
+        assert!(
+            summary.contains("LLM: local"),
+            "Should show LLM mode: {}",
+            summary
+        );
         // Secrets should NOT appear in summary
-        assert!(!summary.contains("secret-token"),
-            "Token should not appear in summary: {}", summary);
-        assert!(!summary.contains("pass"),
-            "Password should not appear in summary");
+        assert!(
+            !summary.contains("secret-token"),
+            "Token should not appear in summary: {}",
+            summary
+        );
+        assert!(
+            !summary.contains("pass"),
+            "Password should not appear in summary"
+        );
     }
 
     #[test]
@@ -5169,17 +5819,29 @@ llm:
         // P1: Case-insensitive matching - Token, API_KEY, PASSWORD (uppercase variants)
         let url_token = "https://example.com?Token=secret1";
         let redacted = redact_url_sensitive_params(url_token);
-        assert!(!redacted.contains("secret1"), "Token (capitalized) should be redacted: {}", redacted);
+        assert!(
+            !redacted.contains("secret1"),
+            "Token (capitalized) should be redacted: {}",
+            redacted
+        );
         assert!(redacted.contains("[REDACTED]"));
 
         let url_api_key = "https://example.com?API_KEY=secret2";
         let redacted = redact_url_sensitive_params(url_api_key);
-        assert!(!redacted.contains("secret2"), "API_KEY (uppercase) should be redacted: {}", redacted);
+        assert!(
+            !redacted.contains("secret2"),
+            "API_KEY (uppercase) should be redacted: {}",
+            redacted
+        );
         assert!(redacted.contains("[REDACTED]"));
 
         let url_password = "https://example.com?PASSWORD=secret3";
         let redacted = redact_url_sensitive_params(url_password);
-        assert!(!redacted.contains("secret3"), "PASSWORD (uppercase) should be redacted: {}", redacted);
+        assert!(
+            !redacted.contains("secret3"),
+            "PASSWORD (uppercase) should be redacted: {}",
+            redacted
+        );
         assert!(redacted.contains("[REDACTED]"));
     }
 
@@ -5188,10 +5850,16 @@ llm:
         // P1: Fragment containing sensitive param (#token=secret) is redacted
         let url = "https://example.com/page#token=my-secret-value";
         let redacted = redact_url_sensitive_params(url);
-        assert!(!redacted.contains("my-secret-value"),
-            "Fragment token value should be redacted: {}", redacted);
-        assert!(redacted.contains("token=[REDACTED]"),
-            "Should show redacted token in fragment: {}", redacted);
+        assert!(
+            !redacted.contains("my-secret-value"),
+            "Fragment token value should be redacted: {}",
+            redacted
+        );
+        assert!(
+            redacted.contains("token=[REDACTED]"),
+            "Should show redacted token in fragment: {}",
+            redacted
+        );
     }
 
     #[test]
@@ -5199,7 +5867,10 @@ llm:
         // P1: URL with no query params returns unchanged
         let url = "https://example.com/api/v2/resource";
         let redacted = redact_url_sensitive_params(url);
-        assert_eq!(redacted, url, "URL without query params should be unchanged");
+        assert_eq!(
+            redacted, url,
+            "URL without query params should be unchanged"
+        );
     }
 
     #[test]
@@ -5207,7 +5878,10 @@ llm:
         // P1: URL with only non-sensitive params returns unchanged
         let url = "https://example.com?page=1&limit=50&sort=name";
         let redacted = redact_url_sensitive_params(url);
-        assert_eq!(redacted, url, "URL with only non-sensitive params should be unchanged");
+        assert_eq!(
+            redacted, url,
+            "URL with only non-sensitive params should be unchanged"
+        );
     }
 
     #[test]
@@ -5215,13 +5889,41 @@ llm:
         // P1: URL with mix of sensitive and non-sensitive params - only sensitive redacted
         let url = "https://example.com?user=john&token=secret123&page=1&api_key=sk-abc&sort=asc";
         let redacted = redact_url_sensitive_params(url);
-        assert!(redacted.contains("user=john"), "Non-sensitive 'user' should remain: {}", redacted);
-        assert!(redacted.contains("page=1"), "Non-sensitive 'page' should remain: {}", redacted);
-        assert!(redacted.contains("sort=asc"), "Non-sensitive 'sort' should remain: {}", redacted);
-        assert!(redacted.contains("token=[REDACTED]"), "Sensitive 'token' should be redacted: {}", redacted);
-        assert!(redacted.contains("api_key=[REDACTED]"), "Sensitive 'api_key' should be redacted: {}", redacted);
-        assert!(!redacted.contains("secret123"), "token value should not appear: {}", redacted);
-        assert!(!redacted.contains("sk-abc"), "api_key value should not appear: {}", redacted);
+        assert!(
+            redacted.contains("user=john"),
+            "Non-sensitive 'user' should remain: {}",
+            redacted
+        );
+        assert!(
+            redacted.contains("page=1"),
+            "Non-sensitive 'page' should remain: {}",
+            redacted
+        );
+        assert!(
+            redacted.contains("sort=asc"),
+            "Non-sensitive 'sort' should remain: {}",
+            redacted
+        );
+        assert!(
+            redacted.contains("token=[REDACTED]"),
+            "Sensitive 'token' should be redacted: {}",
+            redacted
+        );
+        assert!(
+            redacted.contains("api_key=[REDACTED]"),
+            "Sensitive 'api_key' should be redacted: {}",
+            redacted
+        );
+        assert!(
+            !redacted.contains("secret123"),
+            "token value should not appear: {}",
+            redacted
+        );
+        assert!(
+            !redacted.contains("sk-abc"),
+            "api_key value should not appear: {}",
+            redacted
+        );
     }
 
     #[test]

@@ -8,9 +8,9 @@
 
 mod common;
 
+use common::find_log_file;
 use std::fs;
 use std::process::Command;
-use common::find_log_file;
 use tf_logging::{init_logging, LoggingConfig, LoggingError};
 
 // Test 0.5-INT-001: Full logging lifecycle
@@ -52,10 +52,13 @@ fn test_full_logging_lifecycle() {
 
     // Parse as JSON
     let lines: Vec<&str> = content.lines().collect();
-    assert!(!lines.is_empty(), "Log file should contain at least one line");
+    assert!(
+        !lines.is_empty(),
+        "Log file should contain at least one line"
+    );
 
-    let json: serde_json::Value = serde_json::from_str(lines[0])
-        .expect("First log line should be valid JSON");
+    let json: serde_json::Value =
+        serde_json::from_str(lines[0]).expect("First log line should be valid JSON");
 
     // Verify required JSON fields
     assert!(json.get("timestamp").is_some(), "Missing 'timestamp'");
@@ -73,8 +76,14 @@ fn test_full_logging_lifecycle() {
     );
 
     // Verify normal fields are preserved
-    assert!(content.contains("triage"), "Normal field 'command=triage' should be preserved");
-    assert!(content.contains("Pipeline complete"), "Log message should be preserved");
+    assert!(
+        content.contains("triage"),
+        "Normal field 'command=triage' should be preserved"
+    );
+    assert!(
+        content.contains("Pipeline complete"),
+        "Log message should be preserved"
+    );
 }
 
 // Test 0.5-INT-002: Workspace integration
@@ -131,12 +140,24 @@ fn test_multiple_sensitive_fields_redacted_in_single_event() {
     let content = fs::read_to_string(find_log_file(&log_dir)).unwrap();
 
     // All sensitive values must be redacted
-    assert!(!content.contains("key_abc"), "api_key value should be redacted");
-    assert!(!content.contains("pass_def"), "password value should be redacted");
-    assert!(!content.contains("secret_ghi"), "secret value should be redacted");
+    assert!(
+        !content.contains("key_abc"),
+        "api_key value should be redacted"
+    );
+    assert!(
+        !content.contains("pass_def"),
+        "password value should be redacted"
+    );
+    assert!(
+        !content.contains("secret_ghi"),
+        "secret value should be redacted"
+    );
 
     // Normal field must be preserved
-    assert!(content.contains("visible_value"), "Normal field should be visible");
+    assert!(
+        content.contains("visible_value"),
+        "Normal field should be visible"
+    );
 }
 
 #[test]
@@ -180,8 +201,10 @@ fn test_log_output_includes_parent_spans() {
     // Verify span fields are structured JSON objects (not opaque strings)
     let cli_span = spans.iter().find(|s| s["name"] == "cli_command").unwrap();
     let fields = cli_span.get("fields").expect("Expected 'fields' in span");
-    assert!(fields.is_object(),
-        "Span fields should be a JSON object, got: {fields}");
+    assert!(
+        fields.is_object(),
+        "Span fields should be a JSON object, got: {fields}"
+    );
     let fields_map = fields.as_object().unwrap();
     assert_eq!(fields_map.get("command").unwrap(), "triage");
     assert_eq!(fields_map.get("scope").unwrap(), "lot-42");
@@ -208,7 +231,10 @@ fn test_cli_command_simulation_via_subprocess() {
         .env("TF_LOGGING_RUN_CLI_SUBPROCESS", "1")
         .env("TF_LOGGING_CLI_COMMAND", "triage")
         .env("TF_LOGGING_CLI_SCOPE", "lot-42")
-        .env("TF_LOGGING_CLI_LOG_DIR", log_dir.to_string_lossy().to_string())
+        .env(
+            "TF_LOGGING_CLI_LOG_DIR",
+            log_dir.to_string_lossy().to_string(),
+        )
         .output()
         .expect("Failed to execute subprocess test entrypoint");
 
@@ -243,12 +269,11 @@ fn cli_subprocess_entrypoint() {
         return;
     }
 
-    let log_dir = std::env::var("TF_LOGGING_CLI_LOG_DIR")
-        .expect("TF_LOGGING_CLI_LOG_DIR must be set");
-    let command = std::env::var("TF_LOGGING_CLI_COMMAND")
-        .expect("TF_LOGGING_CLI_COMMAND must be set");
-    let scope = std::env::var("TF_LOGGING_CLI_SCOPE")
-        .expect("TF_LOGGING_CLI_SCOPE must be set");
+    let log_dir =
+        std::env::var("TF_LOGGING_CLI_LOG_DIR").expect("TF_LOGGING_CLI_LOG_DIR must be set");
+    let command =
+        std::env::var("TF_LOGGING_CLI_COMMAND").expect("TF_LOGGING_CLI_COMMAND must be set");
+    let scope = std::env::var("TF_LOGGING_CLI_SCOPE").expect("TF_LOGGING_CLI_SCOPE must be set");
 
     let config = LoggingConfig {
         log_level: "info".to_string(),

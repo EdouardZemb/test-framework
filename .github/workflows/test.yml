@@ -28,15 +28,21 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
       - name: Run clippy
         run: cargo clippy --workspace -- -D warnings
 
-      - name: Run tests (unit tests only)
+      - name: Audit dependencies
+        run: cargo install cargo-audit --locked && cargo audit
+
+      - name: Run tests
         run: cargo test --workspace
 
   # Rust tests requiring OS keyring (Linux with gnome-keyring)
